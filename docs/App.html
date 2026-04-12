@@ -178,7 +178,8 @@
                         (create)
                     </pre>
                     <p class="doc">
-                        <p>creates an empty App with no routes.</p>
+                        <p>creates an empty App with no routes and a default error handler
+that returns plain text responses.</p>
 
                     </p>
                 </div>
@@ -199,6 +200,26 @@
                     </span>
                     <p class="doc">
                         <p>deletes a <code>App</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#error-handler">
+                        <h3 id="error-handler">
+                            error-handler
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] (Ref (Fn [(Ref Request b), Int, String] Response) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>error-handler</code> property of a <code>App</code>.</p>
 
                     </p>
                 </div>
@@ -231,7 +252,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Array Route)] App)
+                        (Fn [(Array Route), (Fn [(Ref Request a), Int, String] Response)] App)
                     </p>
                     <span>
                         
@@ -349,10 +370,10 @@
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref App a), (Ref String b), Int] ())
+                        (Fn [(Ref App a), (Ref (Array (Fn [(Ref Request b), (Ref (Map String String) c)] (Maybe Response) d)) a), (Ref (Array (Fn [(Ref Request e), (Ref (Map String String) f), Response] Response g)) a), (Ref String h), Int] ())
                     </p>
                     <pre class="args">
-                        (serve app host port)
+                        (serve app before-hooks after-hooks host port)
                     </pre>
                     <p class="doc">
                         <p>starts the web server on <code>host</code>:<code>port</code>.</p>
@@ -362,6 +383,74 @@ and writes drain a per-connection buffer across writable events. A large
 response on one connection does not stall the event loop for others.</p>
 <p>The loop is single-threaded, so peak throughput is bounded by one core.
 For multi-core scaling, run several copies behind a TCP load balancer.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-error">
+                        <h3 id="set-error">
+                            set-error
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Fn [(Ref Request a), Int, String] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (set-error app handler)
+                    </pre>
+                    <p class="doc">
+                        <p>sets a custom error handler. The handler receives the
+request, the status code, and the reason phrase, and returns a response.</p>
+<pre><code>(defn my-errors [req code msg]
+  (Response.html (fmt &quot;&lt;h1&gt;%d %s&lt;/h1&gt;&quot; code &amp;msg)))
+
+(defserver &quot;0.0.0.0&quot; 3000
+  (errors my-errors)
+  (GET &quot;/&quot; hello))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-error-handler">
+                        <h3 id="set-error-handler">
+                            set-error-handler
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Fn [(Ref Request a), Int, String] Response)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>error-handler</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-error-handler!">
+                        <h3 id="set-error-handler!">
+                            set-error-handler!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Fn [(Ref Request b), Int, String] Response)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>error-handler</code> property of a <code>App</code> in place.</p>
 
                     </p>
                 </div>
@@ -447,6 +536,26 @@ your API routes so it acts as a fallback.</p>
                     </span>
                     <p class="doc">
                         <p>converts a <code>App</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-error-handler">
+                        <h3 id="update-error-handler">
+                            update-error-handler
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Ref (Fn [(Fn [(Ref Request a), Int, String] Response)] (Fn [(Ref Request a), Int, String] Response) b) c)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>error-handler</code> property of a <code>App</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

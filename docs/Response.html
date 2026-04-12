@@ -552,6 +552,32 @@ it will return a <code>(Success Response)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-cookie">
+                        <h3 id="set-cookie">
+                            set-cookie
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Response, Cookie] Response)
+                    </p>
+                    <pre class="args">
+                        (set-cookie resp cookie)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a <code>Set-Cookie</code> header to the response. The <code>cookie</code>
+argument is a <code>Cookie</code> value from the <code>http</code> library.</p>
+<pre><code>(Response.set-cookie resp
+  (Cookie.init @&quot;session&quot; @&quot;abc&quot; @&quot;/&quot;
+    (Maybe.Nothing) (Maybe.Nothing) true true (SameSite.Lax)))
+</code></pre>
+<p>For simple name/value cookies, use <a href="#set-simple-cookie"><code>set-simple-cookie</code></a>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-cookies">
                         <h3 id="set-cookies">
                             set-cookies
@@ -668,6 +694,27 @@ it will return a <code>(Success Response)</code>.</p>
                     </span>
                     <p class="doc">
                         <p>sets the <code>message</code> property of a <code>Response</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-simple-cookie">
+                        <h3 id="set-simple-cookie">
+                            set-simple-cookie
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Response, String, String] Response)
+                    </p>
+                    <pre class="args">
+                        (set-simple-cookie resp name value)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a <code>Set-Cookie</code> header with a name and value.
+Uses <code>Path=/</code>, <code>HttpOnly</code>, and <code>SameSite=Lax</code> as defaults.</p>
 
                     </p>
                 </div>

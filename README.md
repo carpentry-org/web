@@ -1,21 +1,20 @@
 # web
 
-A web framework for Carp with routing, JSON integration, and concurrent
-connection handling via kqueue/epoll.
+A web framework for Carp with routing, middleware, JSON integration, and
+concurrent connection handling via kqueue/epoll.
 
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.1.0")
+(load "git@github.com:carpentry-org/web@0.2.0")
 ```
 
 ## Usage
 
-Define handler functions and register them with `defserver`, which expands
-into a `main` that builds an `App` and starts serving:
+Define handler functions and register them with `defserver`:
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.1.0")
+(load "git@github.com:carpentry-org/web@0.2.0")
 
 (defn hello [req params]
   (Response.text @"Hello, world!"))
@@ -29,34 +28,83 @@ into a `main` that builds an `App` and starts serving:
   (GET "/hello/:name"  greet))
 ```
 
-If you would rather build the app yourself, the underlying `App.create`,
-`App.GET`, and `App.serve` functions are public:
-
-```clojure
-(defn main []
-  (let [app (-> (App.create)
-                (App.GET @"/" hello)
-                (App.GET @"/hello/:name" greet))]
-    (App.serve &app "0.0.0.0" 8080)))
-```
-
 ### Handlers
 
-A handler is a function `(Fn [&Request &(Map String String)] Response)`. It
-receives a reference to the parsed HTTP request and a map of path parameters
-captured by `:name` segments in the route pattern.
+A handler is `(Fn [&Request &(Map String String)] Response)`. It receives
+the parsed HTTP request and a map of path parameters captured by `:name`
+segments in the route pattern. Middleware before-hooks can add entries to
+this map for downstream use.
 
 ### Routing
 
-Routes are matched in registration order. Pattern segments starting with `:`
-are wildcards that capture the corresponding path segment:
+Routes are matched in registration order. Pattern segments starting with
+`:` capture the corresponding path segment. A `*` as the last segment
+captures the rest of the path:
 
 ```clojure
-(App.GET app @"/users/:id" get-user)
-(App.POST app @"/users/:uid/posts" create-post)
+(GET "/users/:id"     get-user)
+(GET "/api/*"         api-catch-all)  ; params has "*" = "the/rest"
+(GET "/users/:id/*"   user-sub)       ; both :id and * captured
 ```
 
-Unmatched requests receive a `404 Not Found` response.
+Unmatched requests go through the error handler.
+
+### Middleware
+
+Before-hooks run before route dispatch, after-hooks run after. Both
+receive the params map, so hooks can annotate it for downstream use.
+
+```clojure
+(defn require-auth [req params]
+  (if (has-token req)
+    (Maybe.Nothing)                        ; continue
+    (Maybe.Just (Response.text @"denied")))) ; short-circuit
+
+(defn add-header [req params resp]
+  (Response.with-header resp @"X-Server" @"carp"))
+
+(defserver "0.0.0.0" 3000
+  (before require-auth)
+  (after add-header)
+  (GET "/" hello))
+```
+
+### CORS
+
+```clojure
+(defserver "0.0.0.0" 3000
+  (CORS.configure @"http://localhost:5173")
+  (before CORS.before-hook)
+  (after CORS.after-hook)
+  (GET "/api/data" handler))
+```
+
+### Cookies
+
+```clojure
+(defn login [req params]
+  (-> (Response.text @"logged in")
+      (Response.set-simple-cookie @"session" @"abc123")))
+```
+
+`set-simple-cookie` uses `Path=/`, `HttpOnly`, `SameSite=Lax`. For full
+control, use `Response.set-cookie` with a `Cookie` value from the `http`
+library.
+
+### Request logging
+
+```clojure
+(load "git@github.com:carpentry-org/simplelog@<version>")
+
+(defserver "0.0.0.0" 3000
+  (SimpleLog.install Log.INFO)
+  (before log-before)
+  (after log-after)
+  (GET "/" hello))
+```
+
+Prints `GET /path 200 3ms` for each request. Works with any `log` backend
+(simplelog, filelog, or your own).
 
 ### Response helpers
 
@@ -64,6 +112,7 @@ Unmatched requests receive a `404 Not Found` response.
 (Response.text @"plain text")
 (Response.html @"<h1>hi</h1>")
 (Response.json &json-value)
+(Response.file "path/to/file.pdf")
 (Response.not-found)
 (Response.bad-request)
 (Response.redirect @"/other")
@@ -71,21 +120,7 @@ Unmatched requests receive a `404 Not Found` response.
 (Response.with-status resp 201 @"Created")
 ```
 
-### JSON integration
-
-The framework includes the [json](https://github.com/carpentry-org/json)
-library. Use `Response.json` to send JSON responses:
-
-```clojure
-(defn api-handler [req params]
-  (let [j (JSON.obj [(JSON.entry @"ok" (JSON.Bool true))])]
-    (Response.json &j)))
-```
-
 ### Static files
-
-Serve a directory of files with `App.static-dir` or the `(static dir)`
-form inside `defserver`:
 
 ```clojure
 (defserver "0.0.0.0" 3000
@@ -93,24 +128,27 @@ form inside `defserver`:
   (static "public"))
 ```
 
-This registers a wildcard GET route as a fallback. Requests for `/` serve
-`public/index.html`. Paths containing `..` segments return 404.
+Serves `public/index.html` at `/`. Paths with `..` return 404. Content
+types are inferred from file extensions.
 
-You can also serve individual files with `Response.file`:
+### Custom error pages
 
 ```clojure
-(defn download [req params]
-  (Response.file "data/report.pdf"))
+(defn my-errors [req code msg]
+  (Response.html (fmt "<h1>%d %s</h1>" code &msg)))
+
+(defserver "0.0.0.0" 3000
+  (errors my-errors)
+  (GET "/" hello))
 ```
 
-Content types are inferred from file extensions via `Response.content-type-for`.
+The error handler receives the request, status code, and reason phrase.
 
 ### Concurrent connections
 
-The server uses kqueue (macOS) or epoll (Linux) to handle multiple connections
-concurrently in a single-threaded, non-blocking event loop. HTTP keep-alive is
-supported. Large responses are drained across multiple writable events, so they
-do not stall other connections.
+The server uses kqueue (macOS) or epoll (Linux) in a single-threaded,
+non-blocking event loop. HTTP keep-alive is supported. Large responses
+drain across multiple writable events without stalling other connections.
 
 ## Testing
 

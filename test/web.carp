@@ -142,9 +142,69 @@
     (web-safe-path? "foo/../etc/passwd")
     "safe-path? rejects ..")
 
+  ; -- before-hook short-circuit --
+  (assert-true test
+    (let [params (the (Map String String) {})]
+      (Maybe.just?
+        &(web-run-before
+            &[(fn [req p] (Maybe.Just (Response.text @"blocked")))]
+            &(Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            &params)))
+    "before-hook can short-circuit")
+
+  ; -- before-hook annotates params --
+  (assert-true test
+    (let-do [params (the (Map String String) {})
+             req (Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (ignore (web-run-before
+        &[(fn [r p] (do (Map.put! p &@"_tagged" &@"yes") (Maybe.Nothing)))]
+        &req &params))
+      (Map.contains? &params "_tagged"))
+    "before-hook can annotate params")
+
+  ; -- after-hook modifies response --
+  (assert-equal test
+    201
+    (let-do [params (the (Map String String) {})
+             req (Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+             resp (web-run-after
+                    &[(fn [r p resp] (Response.with-status resp 201 @"Created"))]
+                    &req &params (Response.text @"ok"))]
+      @(Response.code &resp))
+    "after-hook can modify status code")
+
   ; ---------------------------------------------------------------------------
   ; App construction tests
   ; ---------------------------------------------------------------------------
+
+  ; -- prefix glob route --
+  (assert-true test
+    (Maybe.just? &(match-route "/api/*" "/api/foo/bar"))
+    "prefix glob matches multi-segment tail")
+
+  (assert-equal test
+    "foo/bar"
+    &(Map.get &(match (match-route "/api/*" "/api/foo/bar")
+                 (Maybe.Just m) m
+                 (Maybe.Nothing) {})
+              "*")
+    "prefix glob captures tail as *")
+
+  (assert-true test
+    (Maybe.nothing? &(match-route "/api/*" "/other/foo"))
+    "prefix glob rejects non-matching prefix")
+
+  (assert-true test
+    (Maybe.just? &(match-route "/users/:id/*" "/users/42/posts"))
+    "prefix glob with named captures matches")
+
+  (assert-equal test
+    "42"
+    &(Map.get &(match (match-route "/users/:id/*" "/users/42/posts/1")
+                 (Maybe.Just m) m
+                 (Maybe.Nothing) {})
+              "id")
+    "prefix glob preserves named captures")
 
   (assert-equal test
     3

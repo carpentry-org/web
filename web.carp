@@ -3,13 +3,13 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.1.0\")
+(load \"git@github.com:carpentry-org/web@0.2.0\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.1.0\")
+(load \"git@github.com:carpentry-org/web@0.2.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -31,6 +31,7 @@
 (load "git@github.com:carpentry-org/socket@0.1.2")
 (load "git@github.com:carpentry-org/json@0.2.1")
 (load "git@github.com:carpentry-org/file@0.1.2")
+(load "git@github.com:carpentry-org/log@0.1.1")
 
 ; ---------------------------------------------------------------------------
 ; Map extensions: mutable value access for event loops
@@ -164,20 +165,30 @@ route pattern. It returns a `Response`.")
 
 (doc match-route "matches a route `pattern` against a request `path`.
 
-Pattern segments starting with `:` are named captures. The literal pattern
-`*` matches any path, returning an empty parameter map. Returns
-`(Maybe (Map String String))` containing the captured parameters, or
-`Nothing` if the path does not match.")
+Pattern segments starting with `:` are named captures. A `*` as the last
+segment matches the rest of the path and captures it as the `*` parameter.
+The bare pattern `*` matches any path. Returns `(Maybe (Map String String))`
+containing the captured parameters, or `Nothing` if the path does not match.
+
+Examples: `/api/*` matches `/api/foo/bar` with `* = foo/bar`.
+`/users/:id/*` matches `/users/42/posts/1` with `id = 42`, `* = posts/1`.")
 (defn match-route [pattern path]
   (if (= pattern "*")
     (Maybe.Just (the (Map String String) {}))
     (let [pat-parts &(String.split-by pattern &[\/])
-          path-parts &(String.split-by path &[\/])]
-      (if (/= (Array.length pat-parts) (Array.length path-parts))
+          path-parts &(String.split-by path &[\/])
+          n-pat (Array.length pat-parts)
+          n-path (Array.length path-parts)
+          has-glob (and (> n-pat 0)
+                        (= (Array.unsafe-nth pat-parts (- n-pat 1)) "*"))]
+      (if (if has-glob
+            (< n-path (- n-pat 1))
+            (/= n-pat n-path))
         (Maybe.Nothing)
         (let-do [params (the (Map String String) {})
-                 matched true]
-          (for [i 0 (Array.length pat-parts)]
+                 matched true
+                 fixed-segs (if has-glob (- n-pat 1) n-pat)]
+          (for [i 0 fixed-segs]
             (let [pp (Array.unsafe-nth pat-parts i)
                   rp (Array.unsafe-nth path-parts i)]
               (if (and (> (String.length pp) 0)
@@ -186,6 +197,15 @@ Pattern segments starting with `:` are named captures. The literal pattern
                   (Map.put! &params &k rp))
                 (when (/= pp rp)
                   (do (set! matched false) (break))))))
+          ; Capture the glob tail if present
+          (when (and matched has-glob)
+            (let-do [tail @""]
+              (for [j fixed-segs n-path]
+                (do
+                  (when (> j fixed-segs)
+                    (set! tail (String.append &tail "/")))
+                  (set! tail (String.append &tail (Array.unsafe-nth path-parts j)))))
+              (Map.put! &params &@"*" &tail)))
           (if matched
             (Maybe.Just params)
             (Maybe.Nothing)))))))
@@ -194,7 +214,8 @@ Pattern segments starting with `:` are named captures. The literal pattern
 ; App type (defined early so helpers can reference App.routes)
 ; ---------------------------------------------------------------------------
 
-(deftype App [routes (Array Route)])
+(deftype App [routes (Array Route)
+              error-handler (Fn [&Request Int String] Response)])
 
 ; ---------------------------------------------------------------------------
 ; Internal helpers (top-level for reuse across serve modes)
@@ -277,10 +298,27 @@ Pattern segments starting with `:` are named captures. The literal pattern
             (Maybe.Nothing) ()))))
     result))
 
+; Run before-hooks. Each hook can annotate `params` via Map.put! and
+; optionally short-circuit by returning (Maybe.Just response).
+(defn web-run-before [hooks req params]
+  (let-do [result (the (Maybe Response) (Maybe.Nothing))]
+    (for [i 0 (Array.length hooks)]
+      (match (~(Array.unsafe-nth hooks i) req params)
+        (Maybe.Just resp) (do (set! result (Maybe.Just resp)) (break))
+        (Maybe.Nothing) ()))
+    result))
+
+; Run after-hooks, folding the response through each one.
+(defn web-run-after [hooks req params resp]
+  (let-do [r resp]
+    (for [i 0 (Array.length hooks)]
+      (set! r (~(Array.unsafe-nth hooks i) req params r)))
+    r))
+
 ; Build the response for a complete request stored in `buf`. Returns
 ; `(Pair (Array Byte) Bool)` where the array is the wire-encoded response
 ; (ready to send) and the bool is whether to keep the connection alive.
-(defn web-build-response [routes buf]
+(defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)]
     (match (Request.parse raw)
       (Result.Error _)
@@ -288,15 +326,23 @@ Pattern segments starting with `:` are named captures. The literal pattern
           (Pair.init (String.to-bytes &s) false))
       (Result.Success req)
         (let [ka (web-keep-alive? &req)
-              resp (match (web-find-handler routes &req)
-                     (Maybe.Just p)
-                       (let [idx @(Pair.a &p)
-                             params (Pair.b &p)
-                             r (Array.unsafe-nth routes idx)]
-                         (~(Route.handler r) &req params))
+              ; Build params: start with route captures, then let before-hooks annotate
+              route-match (web-find-handler (App.routes app) &req)
+              handler-idx (match-ref &route-match
+                            (Maybe.Just p) @(Pair.a p)
+                            (Maybe.Nothing) -1)
+              params (match route-match
+                       (Maybe.Just p) @(Pair.b &p)
+                       (Maybe.Nothing) (the (Map String String) {}))
+              resp (match (web-run-before before-hooks &req &params)
+                     (Maybe.Just early) early
                      (Maybe.Nothing)
-                       (Response.not-found))
-              s (Response.str &(web-finalize-response resp ka))]
+                       (if (< handler-idx 0)
+                         (~(App.error-handler app) &req 404 @"Not Found")
+                         (let [r (Array.unsafe-nth (App.routes app) handler-idx)]
+                           (~(Route.handler r) &req &params))))
+              final (web-run-after after-hooks &req &params resp)
+              s (Response.str &(web-finalize-response final ka))]
           (Pair.init (String.to-bytes &s) ka)))))
 
 ; ---------------------------------------------------------------------------
@@ -304,9 +350,24 @@ Pattern segments starting with `:` are named captures. The literal pattern
 ; ---------------------------------------------------------------------------
 
 (defmodule App
-  (doc create "creates an empty App with no routes.")
+  (doc create "creates an empty App with no routes and a default error handler
+that returns plain text responses.")
   (defn create []
-    (init []))
+    (init [] (fn [req code msg] (Response.with-status (Response.text @&msg) code msg))))
+
+  (doc set-error "sets a custom error handler. The handler receives the
+request, the status code, and the reason phrase, and returns a response.
+
+```
+(defn my-errors [req code msg]
+  (Response.html (fmt \"<h1>%d %s</h1>\" code &msg)))
+
+(defserver \"0.0.0.0\" 3000
+  (errors my-errors)
+  (GET \"/\" hello))
+```")
+  (defn set-error [app handler]
+    (set-error-handler app handler))
 
   (doc route "adds a route to the app.")
   (defn route [app method pattern handler]
@@ -341,21 +402,38 @@ your API routes so it acts as a fallback.")
             (Response.not-found)
             (Response.file &(String.append &(String.append &dir "/") &rel)))))))
 
+
   (hidden static-form?)
   (defndynamic static-form? [f]
     (and (list? f) (= 'static (car f))))
+
+  (hidden before-form?)
+  (defndynamic before-form? [f]
+    (and (list? f) (= 'before (car f))))
+
+  (hidden after-form?)
+  (defndynamic after-form? [f]
+    (and (list? f) (= 'after (car f))))
+
+  (hidden errors-form?)
+  (defndynamic errors-form? [f]
+    (and (list? f) (= 'errors (car f))))
 
   (hidden route-form?)
   (defndynamic route-form? [f]
     (and (list? f)
          (or (= 'GET (car f)) (= 'POST (car f)) (= 'PUT (car f))
              (= 'DELETE (car f)) (= 'PATCH (car f))
-             (= 'static (car f)))))
+             (= 'static (car f)) (= 'before (car f)) (= 'after (car f))
+             (= 'errors (car f)))))
 
   (hidden route-call)
   (defndynamic route-call [r]
-    (if (App.static-form? r)
-      (list 'App.static-dir (list 'copy (cadr r)))
+    (cond
+      (App.static-form? r)  (list 'App.static-dir (list 'copy (cadr r)))
+      (App.before-form? r)  (list 'App.use-before (cadr r))
+      (App.after-form? r)   (list 'App.use-after (cadr r))
+      (App.errors-form? r)  (list 'App.set-error (cadr r))
       (list (Symbol.prefix 'App (car r))
             (list 'copy (cadr r))
             (caddr r))))
@@ -373,7 +451,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
   (def idle-timeout 60)
   (def running true)
 
-  (defn serve [app host port]
+  (defn serve [app before-hooks after-hooks host port]
     (match (TcpListener.bind host port)
       (Result.Error e)
         (IO.errorln &(fmt "Failed to bind: %s" &e))
@@ -490,7 +568,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                                     (when ready
                                       ; Build response (this allocates the write buf)
                                       (let [pair (Map.value-ref! &read-bufs &fd
-                                                   &(fn [buf] (web-build-response (routes app) buf))
+                                                   &(fn [buf] (web-build-response app before-hooks after-hooks buf))
                                                    (Pair.init [] false))
                                             wbuf @(Pair.a &pair)
                                             ka @(Pair.b &pair)]
@@ -557,6 +635,96 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
 )
 
 ; ---------------------------------------------------------------------------
+; Built-in middleware: CORS
+; ---------------------------------------------------------------------------
+
+(defmodule CORS
+  (def origin @"*")
+  (def methods @"GET, POST, PUT, DELETE, PATCH, OPTIONS")
+  (def headers @"Content-Type, Authorization")
+  (def max-age @"86400")
+
+  (doc configure "sets the allowed origin for CORS. Call before the server
+starts. The default is `*` (all origins).")
+  (defn configure [allowed-origin]
+    (set! origin allowed-origin))
+
+  (doc before-hook "handles CORS preflight `OPTIONS` requests. Returns a
+`204 No Content` with the appropriate `Access-Control-*` headers. For
+non-OPTIONS requests, continues to the handler.")
+  (defn before-hook [req params]
+    (if (= (Request.verb req) "OPTIONS")
+      ; Allow-Origin is added by after-hook; only set the other CORS headers here
+      (Maybe.Just (-> (Response.text @"")
+                      (Response.with-status 204 @"No Content")
+                      (Response.with-header @"Access-Control-Allow-Methods" @&methods)
+                      (Response.with-header @"Access-Control-Allow-Headers" @&headers)
+                      (Response.with-header @"Access-Control-Max-Age" @&max-age)))
+      (Maybe.Nothing)))
+
+  (doc after-hook "adds `Access-Control-Allow-Origin` to every response.")
+  (defn after-hook [req params resp]
+    (Response.with-header resp @"Access-Control-Allow-Origin" @&origin))
+)
+
+; ---------------------------------------------------------------------------
+; Cookie response helper
+; ---------------------------------------------------------------------------
+
+(defmodule Response
+  (doc set-cookie "adds a `Set-Cookie` header to the response. The `cookie`
+argument is a `Cookie` value from the `http` library.
+
+```
+(Response.set-cookie resp
+  (Cookie.init @\"session\" @\"abc\" @\"/\"
+    (Maybe.Nothing) (Maybe.Nothing) true true (SameSite.Lax)))
+```
+
+For simple name/value cookies, use [`set-simple-cookie`](#set-simple-cookie).")
+  (defn set-cookie [resp cookie]
+    (with-header resp @"Set-Cookie" (Cookie.set &cookie)))
+
+  (doc set-simple-cookie "adds a `Set-Cookie` header with a name and value.
+Uses `Path=/`, `HttpOnly`, and `SameSite=Lax` as defaults.")
+  (defn set-simple-cookie [resp name value]
+    (set-cookie resp
+      (Cookie.init name value @"/"
+        (Maybe.Nothing) (Maybe.Nothing) false true (SameSite.Lax))))
+)
+
+; ---------------------------------------------------------------------------
+; Built-in middleware: request logging
+; ---------------------------------------------------------------------------
+
+(doc log-before "before-hook that records the request start time in params
+under the key `_start`. Pair with [`log-after`](#log-after).")
+(defn log-before [req params]
+  (do (Map.put! params &@"_start" &(Long.str (Uint64.to-long (System.nanotime))))
+      (Maybe.Nothing)))
+
+(doc log-after "after-hook that prints `METHOD path STATUS TIMEms` to
+stdout. Reads the start time from `_start` in params, set by
+[`log-before`](#log-before).
+
+```
+(defserver \"0.0.0.0\" 3000
+  (before log-before)
+  (after log-after)
+  (GET \"/\" hello))
+```")
+(defn log-after [req params resp]
+  (let [start (Maybe.unsafe-from (Long.from-string &(Map.get params "_start")))
+        now (Uint64.to-long (System.nanotime))
+        elapsed (/ (- now start) 1000000l)]
+    (do (Log.info "%s /%s %d %ldms"
+          (Request.verb req)
+          &(web-request-path req)
+          (Response.code &resp)
+          elapsed)
+        resp)))
+
+; ---------------------------------------------------------------------------
 ; defserver: generate a main that builds an App and starts serving
 ; ---------------------------------------------------------------------------
 
@@ -579,20 +747,34 @@ is equivalent to:
 
 ```
 (defn main []
-  (do
-    (Item.create-table &db)
-    (let [app (-> (App.create)
-                  (App.GET    @\"/api/todos\"     api-list)
-                  (App.POST   @\"/api/todos\"     api-add)
-                  (App.DELETE @\"/api/todos/:id\" api-delete))]
-      (App.serve &app \"0.0.0.0\" 3000))))
+  (let [app (-> (App.create) (App.GET @\"/\" hello))
+        bh (the (Array (Fn [&Request] (Maybe Response))) [])
+        ah (the (Array (Fn [&Request Response] Response)) [])]
+    (App.serve &app &bh &ah \"0.0.0.0\" 3000)))
 ```")
 (defmacro defserver [host port :rest body]
-  (let [routes (filter App.route-form? body)
+  (let [; Separate routes, hooks, and setup expressions
+        routes (filter (fn [f] (and (App.route-form? f)
+                                    (not (App.before-form? f))
+                                    (not (App.after-form? f)))) body)
+        befores (filter App.before-form? body)
+        afters (filter App.after-form? body)
         setup (filter (fn [f] (not (App.route-form? f))) body)
+        ; Build the app with routes
         app-form (cons '-> (cons '(App.create) (map App.route-call routes)))
+        ; Build hook arrays as lambdas wrapping the user's functions
+        before-arr (collect-into
+                     (map (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
+                          befores)
+                     array)
+        after-arr (collect-into
+                    (map (fn [f] (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
+                         afters)
+                    array)
         body-forms (append setup
-                    (list (list 'let ['app app-form]
-                            (list 'App.serve '&app host port))))]
+                    (list (list 'let ['app app-form
+                                      'bh before-arr
+                                      'ah after-arr]
+                            (list 'App.serve '&app '&bh '&ah host port))))]
     (eval (list 'defn 'main (array)
       (cons 'do body-forms)))))
