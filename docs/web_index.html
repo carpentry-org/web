@@ -1,0 +1,57 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <a href="https://github.com/carpentry-org/web">
+                <div class="logo">
+                    <img src="" alt="Logo">
+                    <div class="index">
+                        <ul>
+                            <li>
+                                <a href="App.html">
+                                    App
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Route.html">
+                                    Route
+                                </a>
+                            </li>
+                            <li>
+                                <a href="Response.html">
+                                    Response
+                                </a>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+                <div>
+                    <h1>
+                        web
+                    </h1>
+                    <p>A web framework for Carp with routing, JSON
+integration, and concurrent connection handling.</p>
+<p>Define handlers as <code>(Fn [&amp;Request &amp;(Map String String)] Response)</code> functions,
+register them as routes on an <a href="./App.html"><code>App</code></a>, and start serving with
+<a href="./App.html#serve"><code>App.serve</code></a>.</p>
+<h3>Example</h3>
+<pre><code>(load &quot;git@github.com:carpentry-org/web@0.1.0&quot;)
+
+(defn hello [req params]
+  (Response.text @&quot;Hello, world!&quot;))
+
+(defserver &quot;0.0.0.0&quot; 8080
+  (GET &quot;/&quot; hello))
+</code></pre>
+
+                </div>
+            </a>
+        </div>
+    </body>
+</html>
