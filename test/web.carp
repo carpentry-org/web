@@ -1,0 +1,157 @@
+(load "Test.carp")
+(load "../web.carp")
+(use Test)
+
+; ---------------------------------------------------------------------------
+; Response helper tests
+; ---------------------------------------------------------------------------
+
+(deftest test
+  ; -- Response.text --
+  (assert-equal test
+    200
+    @(Response.code &(Response.text @"hi"))
+    "text returns 200")
+
+  (assert-equal test
+    "hi"
+    (Response.body &(Response.text @"hi"))
+    "text sets body")
+
+  ; -- Response.html --
+  (assert-equal test
+    200
+    @(Response.code &(Response.html @"<h1>hi</h1>"))
+    "html returns 200")
+
+  ; -- Response.json --
+  (assert-equal test
+    200
+    @(Response.code &(Response.json &(JSON.Null)))
+    "json returns 200")
+  (assert-equal test
+    "null"
+    (Response.body &(Response.json &(JSON.Null)))
+    "json serializes body")
+
+  ; -- Response.not-found --
+  (assert-equal test
+    404
+    @(Response.code &(Response.not-found))
+    "not-found returns 404")
+
+  ; -- Response.bad-request --
+  (assert-equal test
+    400
+    @(Response.code &(Response.bad-request))
+    "bad-request returns 400")
+
+  ; -- Response.redirect --
+  (assert-equal test
+    302
+    @(Response.code &(Response.redirect @"/other"))
+    "redirect returns 302")
+
+  ; -- Response.with-header --
+  (assert-equal test
+    200
+    @(Response.code &(Response.with-header (Response.text @"hi") @"X-Custom" @"val"))
+    "with-header preserves status")
+
+  ; -- Response.with-status --
+  (assert-equal test
+    201
+    @(Response.code &(Response.with-status (Response.text @"created") 201 @"Created"))
+    "with-status sets code")
+
+  ; ---------------------------------------------------------------------------
+  ; Route matching tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- exact match --
+  (assert-true test
+    (Maybe.just? &(match-route "/hello" "/hello"))
+    "exact path matches")
+
+  (assert-true test
+    (Maybe.nothing? &(match-route "/hello" "/world"))
+    "different path does not match")
+
+  (assert-true test
+    (Maybe.nothing? &(match-route "/a/b" "/a"))
+    "different length does not match")
+
+  ; -- param capture --
+  (assert-true test
+    (Maybe.just? &(match-route "/users/:id" "/users/42"))
+    "param route matches")
+
+  (assert-equal test
+    "42"
+    &(Map.get &(match (match-route "/users/:id" "/users/42")
+                 (Maybe.Just m) m
+                 (Maybe.Nothing) {})
+              "id")
+    "param route captures id")
+
+  ; -- multiple params --
+  (assert-equal test
+    "posts"
+    &(Map.get &(match (match-route "/users/:uid/:resource" "/users/1/posts")
+                 (Maybe.Just m) m
+                 (Maybe.Nothing) {})
+              "resource")
+    "multi-param captures second param")
+
+  ; -- root path --
+  (assert-true test
+    (Maybe.just? &(match-route "/" "/"))
+    "root path matches")
+
+  ; -- wildcard pattern --
+  (assert-true test
+    (Maybe.just? &(match-route "*" "/anything/at/all"))
+    "wildcard pattern matches multi-segment path")
+
+  (assert-true test
+    (Maybe.just? &(match-route "*" "/"))
+    "wildcard pattern matches root")
+
+  ; -- content-type detection --
+  (assert-equal test
+    "text/html; charset=utf-8"
+    &(Response.content-type-for "index.html")
+    "content-type-for html")
+
+  (assert-equal test
+    "application/javascript; charset=utf-8"
+    &(Response.content-type-for "/assets/index.js")
+    "content-type-for js")
+
+  (assert-equal test
+    "application/octet-stream"
+    &(Response.content-type-for "blob.unknown")
+    "content-type-for unknown extension")
+
+  ; -- safe-path? --
+  (assert-true test
+    (web-safe-path? "foo/bar/baz.txt")
+    "safe-path? accepts a normal path")
+
+  (assert-false test
+    (web-safe-path? "foo/../etc/passwd")
+    "safe-path? rejects ..")
+
+  ; ---------------------------------------------------------------------------
+  ; App construction tests
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    3
+    (let [app (-> (App.create)
+                  (App.GET @"/a" (fn [r p] (Response.text @"")))
+                  (App.POST @"/b" (fn [r p] (Response.text @"")))
+                  (App.DELETE @"/c" (fn [r p] (Response.text @""))))]
+      (Array.length (App.routes &app)))
+    "app accumulates routes")
+)

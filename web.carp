@@ -1,0 +1,600 @@
+(doc Web "is a minimal web framework for Carp.
+
+## Installation
+
+```
+(load \"git@github.com:carpentry-org/web@0.1.0\")
+```
+
+## Usage
+
+```
+(load \"git@github.com:carpentry-org/web@0.1.0\")
+
+(defn hello [req params]
+  (Response.text @\"Hello, world!\"))
+
+(defn greet [req params]
+  (let [name (Map.get params \"name\")]
+    (Response.text (fmt \"Hello, %s!\" &name))))
+
+(defn main []
+  (let [app (-> (App.create)
+                (App.GET @\"/hello\" hello)
+                (App.GET @\"/greet/:name\" greet))]
+    (App.serve &app \"0.0.0.0\" 8080)))
+```")
+
+; ---------------------------------------------------------------------------
+; Dependencies
+; ---------------------------------------------------------------------------
+
+(load "git@github.com:carpentry-org/http@0.1.2")
+(load "git@github.com:carpentry-org/socket@0.1.2")
+(load "git@github.com:carpentry-org/json@0.2.0")
+(load "git@github.com:carpentry-org/file@0.1.2")
+
+; ---------------------------------------------------------------------------
+; Map extensions: mutable value access for event loops
+; ---------------------------------------------------------------------------
+
+(defmodule Map
+  (doc update-value! "calls `f` with a reference to the value at key `k`.
+Does nothing if the key is not found. The reference allows mutation through
+FFI functions (e.g. reading into a stream's buffer).")
+  (defn update-value! [m k f]
+    (let [idx (Int.positive-mod (hash k) @(n-buckets m))]
+      (let [bucket (Array.unsafe-nth (buckets m) idx)
+            i (Bucket.find bucket k)]
+        (when (>= i 0)
+          (~f (Pair.b (Array.unsafe-nth (Bucket.entries bucket) i)))))))
+
+  (doc value-ref! "calls `f` with a reference to the value at key `k` and
+returns whatever `f` returns. If the key is missing, returns `default`.")
+  (defn value-ref! [m k f default]
+    (let [idx (Int.positive-mod (hash k) @(n-buckets m))]
+      (let [bucket (Array.unsafe-nth (buckets m) idx)
+            i (Bucket.find bucket k)]
+        (if (>= i 0)
+          (~f (Pair.b (Array.unsafe-nth (Bucket.entries bucket) i)))
+          default))))
+)
+
+; ---------------------------------------------------------------------------
+; Response helpers
+; ---------------------------------------------------------------------------
+
+(defmodule Response
+  (doc text "creates a 200 OK response with a plain text body.")
+  (defn text [body]
+    (let [k @"Content-Type"
+          v [@"text/plain; charset=utf-8"]]
+      (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) body)))
+
+  (doc html "creates a 200 OK response with an HTML body.")
+  (defn html [body]
+    (let [k @"Content-Type"
+          v [@"text/html; charset=utf-8"]]
+      (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) body)))
+
+  (doc json "creates a 200 OK response with a JSON body.")
+  (defn json [j]
+    (let [k @"Content-Type"
+          v [@"application/json"]
+          body (match (JSON.str j)
+                 (Result.Success s) s
+                 (Result.Error _) @"{}")]
+      (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) body)))
+
+  (doc not-found "creates a 404 Not Found response.")
+  (defn not-found []
+    (init 404 @"Not Found" @"HTTP/1.1" [] {} @"Not Found"))
+
+  (doc bad-request "creates a 400 Bad Request response.")
+  (defn bad-request []
+    (init 400 @"Bad Request" @"HTTP/1.1" [] {} @"Bad Request"))
+
+  (doc redirect "creates a 302 redirect response to `url`.")
+  (defn redirect [url]
+    (let [k @"Location"
+          v [url]]
+      (init 302 @"Found" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))
+
+  (doc with-header "adds a header to a response.")
+  (defn with-header [r k v]
+    (set-headers r
+      (Map.update-with-default
+        @(headers &r) &k &(fn [a] (Array.push-back a @&v)) [])))
+
+  (doc with-status "sets the status code and message of a response.")
+  (defn with-status [r code msg]
+    (set-message (set-code r code) msg))
+
+  (doc content-type-for "infers an HTTP `Content-Type` for a file path
+based on its extension. Unknown extensions return `application/octet-stream`.")
+  (defn content-type-for [path]
+    (cond
+      (String.ends-with? path ".html")  @"text/html; charset=utf-8"
+      (String.ends-with? path ".js")    @"application/javascript; charset=utf-8"
+      (String.ends-with? path ".mjs")   @"application/javascript; charset=utf-8"
+      (String.ends-with? path ".css")   @"text/css; charset=utf-8"
+      (String.ends-with? path ".svg")   @"image/svg+xml"
+      (String.ends-with? path ".json")  @"application/json"
+      (String.ends-with? path ".png")   @"image/png"
+      (String.ends-with? path ".jpg")   @"image/jpeg"
+      (String.ends-with? path ".jpeg")  @"image/jpeg"
+      (String.ends-with? path ".gif")   @"image/gif"
+      (String.ends-with? path ".ico")   @"image/x-icon"
+      (String.ends-with? path ".webp")  @"image/webp"
+      (String.ends-with? path ".woff")  @"font/woff"
+      (String.ends-with? path ".woff2") @"font/woff2"
+      (String.ends-with? path ".txt")   @"text/plain; charset=utf-8"
+      (String.ends-with? path ".xml")   @"application/xml"
+      (String.ends-with? path ".pdf")   @"application/pdf"
+      @"application/octet-stream"))
+
+  (doc file "creates a 200 OK response by reading `path` from disk. Returns
+a 404 Not Found response if the file is missing or unreadable. The
+`Content-Type` header is inferred from the file extension via
+[`content-type-for`](#content-type-for).")
+  (defn file [path]
+    (match (File.open-with path "r")
+      (Result.Error _) (not-found)
+      (Result.Success f)
+        (match (File.read-all &f)
+          (Result.Error _) (do (File.close f) (not-found))
+          (Result.Success contents)
+            (let [k @"Content-Type"
+                  v [(content-type-for path)]]
+              (do (File.close f)
+                  (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) contents))))))
+)
+
+; ---------------------------------------------------------------------------
+; Routing
+; ---------------------------------------------------------------------------
+
+(doc Handler "is the type of route handler functions.
+
+A handler takes a reference to the parsed `Request` and a reference to a
+`(Map String String)` of path parameters captured by `:name` segments in the
+route pattern. It returns a `Response`.")
+
+(deftype Route [method String,
+                pattern String,
+                handler (Fn [&Request &(Map String String)] Response)])
+
+(doc match-route "matches a route `pattern` against a request `path`.
+
+Pattern segments starting with `:` are named captures. The literal pattern
+`*` matches any path, returning an empty parameter map. Returns
+`(Maybe (Map String String))` containing the captured parameters, or
+`Nothing` if the path does not match.")
+(defn match-route [pattern path]
+  (if (= pattern "*")
+    (Maybe.Just (the (Map String String) {}))
+    (let [pat-parts &(String.split-by pattern &[\/])
+          path-parts &(String.split-by path &[\/])]
+      (if (/= (Array.length pat-parts) (Array.length path-parts))
+        (Maybe.Nothing)
+        (let-do [params (the (Map String String) {})
+                 matched true]
+          (for [i 0 (Array.length pat-parts)]
+            (let [pp (Array.unsafe-nth pat-parts i)
+                  rp (Array.unsafe-nth path-parts i)]
+              (if (and (> (String.length pp) 0)
+                       (= (String.char-at pp 0) \:))
+                (let [k (String.suffix pp 1)]
+                  (Map.put! &params &k rp))
+                (when (/= pp rp)
+                  (do (set! matched false) (break))))))
+          (if matched
+            (Maybe.Just params)
+            (Maybe.Nothing)))))))
+
+; ---------------------------------------------------------------------------
+; App type (defined early so helpers can reference App.routes)
+; ---------------------------------------------------------------------------
+
+(deftype App [routes (Array Route)])
+
+; ---------------------------------------------------------------------------
+; Internal helpers (top-level for reuse across serve modes)
+; ---------------------------------------------------------------------------
+
+(defn web-has-header-end [buf]
+  (let-do [found false
+           len (Array.length buf)]
+    (when (>= len 4)
+      (for [i 0 (- len 3)]
+        (when (and (= @(Array.unsafe-nth buf i) (Char.to-byte \return))
+                   (and (= @(Array.unsafe-nth buf (+ i 1)) (Char.to-byte \newline))
+                        (and (= @(Array.unsafe-nth buf (+ i 2)) (Char.to-byte \return))
+                             (= @(Array.unsafe-nth buf (+ i 3)) (Char.to-byte \newline)))))
+          (do (set! found true) (break)))))
+    found))
+
+(defn web-keep-alive? [req]
+  (let [http11 (= (Request.version req) "HTTP/1.1")
+        default (if http11 @"keep-alive" @"close")
+        conn (Map.get-with-default (Request.headers req) "Connection"
+               &[default])]
+    (not (= (Array.unsafe-first &conn) "close"))))
+
+(defn web-finalize-response [resp keep-alive]
+  (let [body-len (String.length (Response.body &resp))
+        cl-k @"Content-Length"
+        cl-v [(Int.str body-len)]
+        conn-k @"Connection"
+        conn-v [(if keep-alive @"keep-alive" @"close")]
+        h (Map.put (Map.put @(Response.headers &resp) &cl-k &cl-v)
+                   &conn-k &conn-v)]
+    (Response.set-headers resp h)))
+
+(defn read-request-buf [client buf]
+  (let-do [got-request false]
+    (TcpStream.clear-buf buf)
+    (while true
+      (match (TcpStream.read-append client buf)
+        (Result.Error _) (break)
+        (Result.Success n)
+          (cond
+            (<= n 0) (break)
+            (web-has-header-end buf)
+              (do (set! got-request true) (break))
+            ())))
+    got-request))
+
+; Extract and URL-decode the request path. The leading "/" is stripped
+; by `URI.path`, so this returns "" for the root.
+(defn web-request-path [req]
+  (URI.unescape
+    &(match-ref (URI.path (Request.uri req))
+       (Maybe.Just p) @p
+       (Maybe.Nothing) @"")))
+
+; Reject paths that contain ".." segments to prevent directory traversal.
+(defn web-safe-path? [path]
+  (let-do [parts &(String.split-by path &[\/])
+           safe true]
+    (for [i 0 (Array.length parts)]
+      (when (= (Array.unsafe-nth parts i) "..")
+        (do (set! safe false) (break))))
+    safe))
+
+(defn web-find-handler [routes req]
+  (let-do [result (the (Maybe (Pair Int (Map String String))) (Maybe.Nothing))
+           raw-path (URI.unescape
+                      &(match-ref (URI.path (Request.uri req))
+                         (Maybe.Just p) @p
+                         (Maybe.Nothing) @""))
+           path (if (String.empty? &raw-path) @"/" (String.append "/" &raw-path))]
+    (for [i 0 (Array.length routes)]
+      (let [r (Array.unsafe-nth routes i)]
+        (when (= (Route.method r) (Request.verb req))
+          (match (match-route (Route.pattern r) &path)
+            (Maybe.Just params)
+              (do (set! result (Maybe.Just (Pair.init i params)))
+                  (break))
+            (Maybe.Nothing) ()))))
+    result))
+
+; Build the response for a complete request stored in `buf`. Returns
+; `(Pair (Array Byte) Bool)` where the array is the wire-encoded response
+; (ready to send) and the bool is whether to keep the connection alive.
+(defn web-build-response [routes buf]
+  (let [raw &(String.from-bytes buf)]
+    (match (Request.parse raw)
+      (Result.Error _)
+        (let [s (Response.str &(web-finalize-response (Response.bad-request) false))]
+          (Pair.init (String.to-bytes &s) false))
+      (Result.Success req)
+        (let [ka (web-keep-alive? &req)
+              resp (match (web-find-handler routes &req)
+                     (Maybe.Just p)
+                       (let [idx @(Pair.a &p)
+                             params (Pair.b &p)
+                             r (Array.unsafe-nth routes idx)]
+                         (~(Route.handler r) &req params))
+                     (Maybe.Nothing)
+                       (Response.not-found))
+              s (Response.str &(web-finalize-response resp ka))]
+          (Pair.init (String.to-bytes &s) ka)))))
+
+; ---------------------------------------------------------------------------
+; App module
+; ---------------------------------------------------------------------------
+
+(defmodule App
+  (doc create "creates an empty App with no routes.")
+  (defn create []
+    (init []))
+
+  (doc route "adds a route to the app.")
+  (defn route [app method pattern handler]
+    (set-routes app
+      (Array.push-back @(routes &app)
+        (Route.init method pattern handler))))
+
+  (doc GET "adds a GET route.")
+  (defn GET [app pattern handler] (route app @"GET" pattern handler))
+  (doc POST "adds a POST route.")
+  (defn POST [app pattern handler] (route app @"POST" pattern handler))
+  (doc PUT "adds a PUT route.")
+  (defn PUT [app pattern handler] (route app @"PUT" pattern handler))
+  (doc DELETE "adds a DELETE route.")
+  (defn DELETE [app pattern handler] (route app @"DELETE" pattern handler))
+  (doc PATCH "adds a PATCH route.")
+  (defn PATCH [app pattern handler] (route app @"PATCH" pattern handler))
+
+  (doc static-dir "registers a wildcard GET route that serves files from
+`dir` on disk. The request path is appended to `dir` and read with
+[`Response.file`](#file).
+
+The empty path serves `dir/index.html`. Paths containing `..` segments
+return 404 to prevent directory traversal. Register `static-dir` after
+your API routes so it acts as a fallback.")
+  (defn static-dir [app dir]
+    (route app @"GET" @"*"
+      (fn [req params]
+        (let [path (web-request-path req)
+              rel (if (String.empty? &path) @"index.html" path)]
+          (if (not (web-safe-path? &rel))
+            (Response.not-found)
+            (Response.file &(String.append &(String.append &dir "/") &rel)))))))
+
+  (hidden static-form?)
+  (defndynamic static-form? [f]
+    (and (list? f) (= 'static (car f))))
+
+  (hidden route-form?)
+  (defndynamic route-form? [f]
+    (and (list? f)
+         (or (= 'GET (car f)) (= 'POST (car f)) (= 'PUT (car f))
+             (= 'DELETE (car f)) (= 'PATCH (car f))
+             (= 'static (car f)))))
+
+  (hidden route-call)
+  (defndynamic route-call [r]
+    (if (App.static-form? r)
+      (list 'App.static-dir (list 'copy (cadr r)))
+      (list (Symbol.prefix 'App (car r))
+            (list 'copy (cadr r))
+            (caddr r))))
+
+  (doc serve "starts the web server on `host`:`port`.
+
+Uses kqueue/epoll for concurrent connection handling with HTTP keep-alive.
+Sockets are non-blocking, reads accumulate into a per-connection buffer,
+and writes drain a per-connection buffer across writable events. A large
+response on one connection does not stall the event loop for others.
+
+The loop is single-threaded, so peak throughput is bounded by one core.
+For multi-core scaling, run several copies behind a TCP load balancer.")
+  (def max-request-size 1048576)
+  (def idle-timeout 60)
+  (def running true)
+
+  (defn serve [app host port]
+    (match (TcpListener.bind host port)
+      (Result.Error e)
+        (IO.errorln &(fmt "Failed to bind: %s" &e))
+      (Result.Success listener)
+        (match (Poll.create)
+          (Result.Error e)
+            (do (IO.errorln &e) (TcpListener.close listener))
+          (Result.Success poll)
+            (let-do [lfd (TcpListener.poll-fd &listener)
+                     ; Per-connection state, keyed by client fd.
+                     ; A connection is in "reading" mode when it has no
+                     ; entry in `write-bufs`, and "writing" otherwise.
+                     streams         (the (Map Int TcpStream) {})
+                     read-bufs       (the (Map Int (Array Byte)) {})
+                     write-bufs      (the (Map Int (Array Byte)) {})
+                     write-positions (the (Map Int Int) {})
+                     keep-alives     (the (Map Int Bool) {})
+                     last-active     (the (Map Int Int) {})
+                     to-close        (the (Array Int) [])]
+              (IO.println &(fmt "Listening on %s:%d" host port))
+              (set! App.running true)
+              (System.signal System.signal-int  (fn [_] (set! App.running false)))
+              (System.signal System.signal-term (fn [_] (set! App.running false)))
+              (ignore (Poll.add-read &poll &listener))
+              (while App.running
+                (match (the (Result (Array PollEvent) String) (Poll.wait &poll 30000))
+                  (Result.Error _) (break)
+                  (Result.Success events)
+                    (do
+                      (set! to-close [])
+                      (for [i 0 (Array.length &events)]
+                        (let [e (Array.unsafe-nth &events i)
+                              fd (PollEvent.fd e)]
+                          (cond
+                            ; -- accept --
+                            (= fd lfd)
+                              (match (TcpListener.accept &listener)
+                                (Result.Error _) ()
+                                (Result.Success client)
+                                  (let-do [cfd (TcpStream.poll-fd &client)
+                                           empty-buf (the (Array Byte) [])]
+                                    (TcpStream.set-nodelay &client)
+                                    (TcpStream.set-nonblocking &client)
+                                    (ignore (Poll.add &poll cfd poll-read))
+                                    (set! streams (Map.put streams &cfd &client))
+                                    (set! read-bufs (Map.put read-bufs &cfd &empty-buf))
+                                    (set! last-active (Map.put last-active &cfd &(System.time)))))
+
+                            ; -- writable: drain pending response --
+                            (PollEvent.writable e)
+                              (let [stream (Maybe.unsafe-from (Map.get-maybe &streams &fd))
+                                    pos (Map.get &write-positions &fd)
+                                    n (Map.value-ref! &write-bufs &fd
+                                        &(fn [buf]
+                                          (match (TcpStream.send-nb &stream buf pos)
+                                            (Result.Success k) k
+                                            (Result.Error _) -1))
+                                        -1)]
+                                (cond
+                                  (< n 0)
+                                    (set! to-close (Array.push-back to-close fd))
+                                  (do
+                                    (when (> n 0)
+                                      (set! last-active (Map.put last-active &fd &(System.time))))
+                                  (let [new-pos (+ pos n)
+                                        buf-len (Map.value-ref! &write-bufs &fd
+                                                  &(fn [b] (Array.length b)) 0)]
+                                    (if (< new-pos buf-len)
+                                      ; partial; stay in writing mode
+                                      (set! write-positions
+                                        (Map.put write-positions &fd &new-pos))
+                                      ; done writing
+                                      (let [ka (Map.get &keep-alives &fd)]
+                                        (do
+                                          (set! write-bufs (Map.remove write-bufs &fd))
+                                          (set! write-positions (Map.remove write-positions &fd))
+                                          (set! keep-alives (Map.remove keep-alives &fd))
+                                          (if ka
+                                            (do
+                                              ; Reset read buffer for the next request
+                                              (Map.update-value! &read-bufs &fd
+                                                &(fn [b] (TcpStream.clear-buf b)))
+                                              (ignore (Poll.modify &poll fd poll-read)))
+                                            (set! to-close (Array.push-back to-close fd))))))))))
+
+                            ; -- readable: read more bytes; if request is complete, dispatch --
+                            (PollEvent.readable e)
+                              (let [stream (Maybe.unsafe-from (Map.get-maybe &streams &fd))
+                                    n (Map.value-ref! &read-bufs &fd
+                                        &(fn [buf]
+                                          (match (TcpStream.read-append-nb &stream buf)
+                                            (Result.Success k) k
+                                            (Result.Error _) -1))
+                                        -1)]
+                                (cond
+                                  (= n TcpStream.read-blocked) ()
+                                  (< n 0)
+                                    (set! to-close (Array.push-back to-close fd))
+                                  (= n 0)
+                                    (set! to-close (Array.push-back to-close fd))
+                                  ; got some data
+                                  (do
+                                    (set! last-active (Map.put last-active &fd &(System.time)))
+                                  ; check body size limit
+                                  (let [too-big (Map.value-ref! &read-bufs &fd
+                                                  &(fn [buf] (> (Array.length buf) App.max-request-size))
+                                                  false)]
+                                  (if too-big
+                                    (set! to-close (Array.push-back to-close fd))
+                                  ; check if we have a full request
+                                  (let [ready (Map.value-ref! &read-bufs &fd
+                                                &(fn [buf] (web-has-header-end buf))
+                                                false)]
+                                    (when ready
+                                      ; Build response (this allocates the write buf)
+                                      (let [pair (Map.value-ref! &read-bufs &fd
+                                                   &(fn [buf] (web-build-response (routes app) buf))
+                                                   (Pair.init [] false))
+                                            wbuf @(Pair.a &pair)
+                                            ka @(Pair.b &pair)]
+                                        (do
+                                          (set! write-bufs (Map.put write-bufs &fd &wbuf))
+                                          (set! write-positions (Map.put write-positions &fd &0))
+                                          (set! keep-alives (Map.put keep-alives &fd &ka))
+                                          ; Try to send immediately so a small
+                                          ; response goes out without waiting
+                                          ; for an extra writable event.
+                                          (let [n0 (Map.value-ref! &write-bufs &fd
+                                                    &(fn [b]
+                                                      (match (TcpStream.send-nb &stream b 0)
+                                                        (Result.Success k) k
+                                                        (Result.Error _) -1))
+                                                    -1)
+                                                buf-len (Array.length &wbuf)]
+                                            (cond
+                                              (< n0 0)
+                                                (set! to-close (Array.push-back to-close fd))
+                                              (let [new-pos n0]
+                                                (if (< new-pos buf-len)
+                                                  (do
+                                                    (set! write-positions
+                                                      (Map.put write-positions &fd &new-pos))
+                                                    (ignore (Poll.modify &poll fd poll-write)))
+                                                  ; sent it all in one shot
+                                                  (do
+                                                    (set! write-bufs (Map.remove write-bufs &fd))
+                                                    (set! write-positions (Map.remove write-positions &fd))
+                                                    (set! keep-alives (Map.remove keep-alives &fd))
+                                                    (if ka
+                                                      (Map.update-value! &read-bufs &fd
+                                                        &(fn [b] (TcpStream.clear-buf b)))
+                                                      (set! to-close (Array.push-back to-close fd)))))))))))))))))
+
+                            ; -- other: ignore --
+                            ())))
+
+                      ; -- idle timeout sweep --
+                      (let [now (System.time)
+                            active-keys (Map.keys &last-active)]
+                        (for [j 0 (Array.length &active-keys)]
+                          (let [rfd @(Array.unsafe-nth &active-keys j)
+                                ts (Map.get &last-active &rfd)]
+                            (when (> (- now ts) App.idle-timeout)
+                              (set! to-close (Array.push-back to-close rfd))))))
+
+                      ; -- post-event cleanup of fds queued for close --
+                      (for [j 0 (Array.length &to-close)]
+                        (let [rfd @(Array.unsafe-nth &to-close j)]
+                          (do
+                            (ignore (Poll.remove-fd &poll rfd))
+                            (Map.update-value! &streams &rfd
+                              &(fn [s] (TcpStream.close! s)))
+                            (set! streams (Map.remove streams &rfd))
+                            (set! read-bufs (Map.remove read-bufs &rfd))
+                            (set! write-bufs (Map.remove write-bufs &rfd))
+                            (set! write-positions (Map.remove write-positions &rfd))
+                            (set! keep-alives (Map.remove keep-alives &rfd))
+                            (set! last-active (Map.remove last-active &rfd))))))))
+              (Poll.close poll)
+              (TcpListener.close listener)))))
+)
+
+; ---------------------------------------------------------------------------
+; defserver: generate a main that builds an App and starts serving
+; ---------------------------------------------------------------------------
+
+(doc defserver "generates a `main` function that builds an `App`, registers
+routes, and starts serving on `host`:`port`.
+
+Each route is `(METHOD \"/path\" handler)` where METHOD is one of `GET`,
+`POST`, `PUT`, `DELETE`, or `PATCH`. Any other form in the body is
+evaluated as a setup expression before the server starts, in source order.
+
+```
+(defserver \"0.0.0.0\" 3000
+  (Item.create-table &db)
+  (GET    \"/api/todos\"     api-list)
+  (POST   \"/api/todos\"     api-add)
+  (DELETE \"/api/todos/:id\" api-delete))
+```
+
+is equivalent to:
+
+```
+(defn main []
+  (do
+    (Item.create-table &db)
+    (let [app (-> (App.create)
+                  (App.GET    @\"/api/todos\"     api-list)
+                  (App.POST   @\"/api/todos\"     api-add)
+                  (App.DELETE @\"/api/todos/:id\" api-delete))]
+      (App.serve &app \"0.0.0.0\" 3000))))
+```")
+(defmacro defserver [host port :rest body]
+  (let [routes (filter App.route-form? body)
+        setup (filter (fn [f] (not (App.route-form? f))) body)
+        app-form (cons '-> (cons '(App.create) (map App.route-call routes)))
+        body-forms (append setup
+                    (list (list 'let ['app app-form]
+                            (list 'App.serve '&app host port))))]
+    (eval (list 'defn 'main (array)
+      (cons 'do body-forms)))))

@@ -1,0 +1,477 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/web">
+                    <img src="">
+                </a>
+                <div class="title">
+                    web
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="App.html">
+                                App
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Route.html">
+                                Route
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Response.html">
+                                Response
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    App
+                </h1>
+                <div class="module-description">
+                    
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#DELETE">
+                        <h3 id="DELETE">
+                            DELETE
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (DELETE app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a DELETE route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#GET">
+                        <h3 id="GET">
+                            GET
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (GET app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a GET route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#PATCH">
+                        <h3 id="PATCH">
+                            PATCH
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (PATCH app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a PATCH route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#POST">
+                        <h3 id="POST">
+                            POST
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (POST app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a POST route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#PUT">
+                        <h3 id="PUT">
+                            PUT
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (PUT app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a PUT route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#create">
+                        <h3 id="create">
+                            create
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [] App)
+                    </p>
+                    <pre class="args">
+                        (create)
+                    </pre>
+                    <p class="doc">
+                        <p>creates an empty App with no routes.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>App</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#idle-timeout">
+                        <h3 id="idle-timeout">
+                            idle-timeout
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Array Route)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-request-size">
+                        <h3 id="max-request-size">
+                            max-request-size
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>App</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#route">
+                        <h3 id="route">
+                            route
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] App)
+                    </p>
+                    <pre class="args">
+                        (route app method pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a route to the app.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#routes">
+                        <h3 id="routes">
+                            routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] (Ref (Array Route) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>routes</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#running">
+                        <h3 id="running">
+                            running
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Bool
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#serve">
+                        <h3 id="serve">
+                            serve
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Ref String b), Int] ())
+                    </p>
+                    <pre class="args">
+                        (serve app host port)
+                    </pre>
+                    <p class="doc">
+                        <p>starts the web server on <code>host</code>:<code>port</code>.</p>
+<p>Uses kqueue/epoll for concurrent connection handling with HTTP keep-alive.
+Sockets are non-blocking, reads accumulate into a per-connection buffer,
+and writes drain a per-connection buffer across writable events. A large
+response on one connection does not stall the event loop for others.</p>
+<p>The loop is single-threaded, so peak throughput is bounded by one core
+(roughly 60k req/s for tiny responses on current hardware). For multi-core
+scaling, run several copies behind a TCP load balancer.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-routes">
+                        <h3 id="set-routes">
+                            set-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Array Route)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>routes</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-routes!">
+                        <h3 id="set-routes!">
+                            set-routes!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Array Route)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>routes</code> property of a <code>App</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#static-dir">
+                        <h3 id="static-dir">
+                            static-dir
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String] App)
+                    </p>
+                    <pre class="args">
+                        (static-dir app dir)
+                    </pre>
+                    <p class="doc">
+                        <p>registers a wildcard GET route that serves files from
+<code>dir</code> on disk. The request path is appended to <code>dir</code> and read with
+<a href="#file"><code>Response.file</code></a>.</p>
+<p>The empty path serves <code>dir/index.html</code>. Paths containing <code>..</code> segments
+return 404 to prevent directory traversal. Register <code>static-dir</code> after
+your API routes so it acts as a fallback.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>App</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-routes">
+                        <h3 id="update-routes">
+                            update-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Ref (Fn [(Array Route)] (Array Route) a) b)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

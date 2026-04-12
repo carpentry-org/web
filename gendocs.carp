@@ -1,0 +1,29 @@
+(load "Test.carp")
+(load "web.carp")
+
+(Project.config "title" "web")
+(Project.config "docs-directory" "./docs/")
+(Project.config "docs-logo" "")
+(Project.config "docs-url" "https://github.com/carpentry-org/web")
+(Project.config "docs-styling" "../style.css")
+(Project.config "docs-prelude" "A web framework for Carp with routing, JSON
+integration, and concurrent connection handling.
+
+Define handlers as `(Fn [&Request &(Map String String)] Response)` functions,
+register them as routes on an [`App`](./App.html), and start serving with
+[`App.serve`](./App.html#serve).
+
+### Example
+```
+(load \"git@github.com:carpentry-org/web@0.1.0\")
+
+(defn hello [req params]
+  (Response.text @\"Hello, world!\"))
+
+(defn main []
+  (let [app (App.GET (App.create) @\"/\" hello)]
+    (App.serve &app \"0.0.0.0\" 8080)))
+```")
+
+(save-docs App Route Response)
+(quit)

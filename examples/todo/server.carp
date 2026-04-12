@@ -1,0 +1,104 @@
+(load "git@github.com:carpentry-org/web@0.1.0")
+(load "git@github.com:carpentry-org/orm@0.1.0" "backends/sqlite3.carp")
+
+; ---------------------------------------------------------------------------
+; Model
+; ---------------------------------------------------------------------------
+
+(deftype Item [id Int text String done Bool])
+(derive-model Item SQLiteBackend [id Int])
+
+; The application owns the DB handle. The ORM just uses it.
+(def db (Result.unsafe-from-success (SQLite3.open "todos.db")))
+
+; ---------------------------------------------------------------------------
+; JSON marshalling
+; ---------------------------------------------------------------------------
+
+(defn item-to-json [item]
+  (JSON.obj [(JSON.entry @"id"   (JSON.Num (Double.from-int @(Item.id item))))
+             (JSON.entry @"text" (JSON.Str @(Item.text item)))
+             (JSON.entry @"done" (JSON.Bool @(Item.done item)))]))
+
+(defn items-to-json [items]
+  (JSON.Arr
+    (Array.copy-map
+      &(fn [item] (Box.init (item-to-json item)))
+      items)))
+
+; ---------------------------------------------------------------------------
+; Request helpers
+; ---------------------------------------------------------------------------
+
+; Parse the ":id" URL parameter into an Int, or Nothing if missing/invalid.
+(defn id-param [params]
+  (Int.from-string &(Map.get params "id")))
+
+; Return a 500 response with a text body.
+(defn server-error [msg]
+  (Response.with-status (Response.text msg) 500 @"Internal Server Error"))
+
+; Merge a JSON patch body into an existing Item, returning the updated row.
+; Any fields missing from the patch are left unchanged.
+(defn patch-item [current j]
+  (let [new-text (match (JSON.get j "text")
+                   (Maybe.Just (JSON.Str s)) s
+                   _ @(Item.text current))
+        new-done (match (JSON.get j "done")
+                   (Maybe.Just (JSON.Bool b)) b
+                   _ @(Item.done current))]
+    (Item.init @(Item.id current) new-text new-done)))
+
+; ---------------------------------------------------------------------------
+; API handlers
+; ---------------------------------------------------------------------------
+
+(defn api-list [req params]
+  (match (Item.find-all &db)
+    (Result.Success items) (Response.json &(items-to-json &items))
+    (Result.Error e) (server-error @&e)))
+
+(defn api-add [req params]
+  (match (JSON.parse (Request.body req))
+    (Result.Error _) (Response.bad-request)
+    (Result.Success j)
+      (match (JSON.get &j "text")
+        (Maybe.Nothing) (Response.bad-request)
+        (Maybe.Just (JSON.Str text))
+          (let [item (Item.init 0 text false)
+                stored (Item.set-id @&item (Item.insert &db &item))]
+            (Response.json &(item-to-json &stored))))))
+
+(defn api-update [req params]
+  (match (id-param params)
+    (Maybe.Nothing) (Response.bad-request)
+    (Maybe.Just id)
+      (match (Item.find-by-id &db &id)
+        (Result.Error _) (Response.not-found)
+        (Result.Success current)
+          (match (JSON.parse (Request.body req))
+            (Result.Error _) (Response.bad-request)
+            (Result.Success j)
+              (let [updated (patch-item &current &j)]
+                (do
+                  (Item.update &db &updated)
+                  (Response.json &(item-to-json &updated))))))))
+
+(defn api-delete [req params]
+  (match (id-param params)
+    (Maybe.Nothing) (Response.bad-request)
+    (Maybe.Just id)
+      (do (Item.delete-by-id &db &id)
+          (Response.json &(JSON.Obj {})))))
+
+; ---------------------------------------------------------------------------
+; Main
+; ---------------------------------------------------------------------------
+
+(defserver "0.0.0.0" 3000
+  (Item.create-table &db)
+  (GET    "/api/todos"     api-list)
+  (POST   "/api/todos"     api-add)
+  (PUT    "/api/todos/:id" api-update)
+  (DELETE "/api/todos/:id" api-delete)
+  (static "frontend/dist"))

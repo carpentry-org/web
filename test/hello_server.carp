@@ -1,0 +1,18 @@
+(load "../web.carp")
+
+(defn hello [req params]
+  (Response.text @"Hello, world!"))
+
+(defn greet [req params]
+  (let [name (Map.get params "name")]
+    (Response.text (fmt "Hello, %s!" &name))))
+
+(defn json-example [req params]
+  (let [j (JSON.obj [(JSON.entry @"message" (JSON.Str @"it works"))
+                     (JSON.entry @"status" (JSON.Num 200.0))])]
+    (Response.json &j)))
+
+(defserver "0.0.0.0" 9876
+  (GET "/"             hello)
+  (GET "/hello/:name"  greet)
+  (GET "/json"         json-example))
