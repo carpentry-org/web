@@ -1,6 +1,0 @@
-(load "../web.carp")
-
-(defn hello [req params] (Response.text @"Hello, world!"))
-
-(defserver "0.0.0.0" 3000
-  (GET "/" hello))
