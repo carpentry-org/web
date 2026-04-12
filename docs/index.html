@@ -46,9 +46,8 @@ register them as routes on an <a href="./App.html"><code>App</code></a>, and sta
 (defn hello [req params]
   (Response.text @&quot;Hello, world!&quot;))
 
-(defn main []
-  (let [app (App.GET (App.create) @&quot;/&quot; hello)]
-    (App.serve &amp;app &quot;0.0.0.0&quot; 8080)))
+(defserver &quot;0.0.0.0&quot; 8080
+  (GET &quot;/&quot; hello))
 </code></pre>
 
                 </div>

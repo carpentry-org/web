@@ -18,20 +18,18 @@
   (let [name (Map.get params \"name\")]
     (Response.text (fmt \"Hello, %s!\" &name))))
 
-(defn main []
-  (let [app (-> (App.create)
-                (App.GET @\"/hello\" hello)
-                (App.GET @\"/greet/:name\" greet))]
-    (App.serve &app \"0.0.0.0\" 8080)))
+(defserver \"0.0.0.0\" 8080
+  (GET \"/hello\" hello)
+  (GET \"/greet/:name\" greet))
 ```")
 
 ; ---------------------------------------------------------------------------
 ; Dependencies
 ; ---------------------------------------------------------------------------
 
-(load "git@github.com:carpentry-org/http@0.1.2")
+(load "git@github.com:carpentry-org/http@0.1.3")
 (load "git@github.com:carpentry-org/socket@0.1.2")
-(load "git@github.com:carpentry-org/json@0.2.0")
+(load "git@github.com:carpentry-org/json@0.2.1")
 (load "git@github.com:carpentry-org/file@0.1.2")
 
 ; ---------------------------------------------------------------------------

@@ -20,9 +20,8 @@ register them as routes on an [`App`](./App.html), and start serving with
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
 
-(defn main []
-  (let [app (App.GET (App.create) @\"/\" hello)]
-    (App.serve &app \"0.0.0.0\" 8080)))
+(defserver \"0.0.0.0\" 8080
+  (GET \"/\" hello))
 ```")
 
 (save-docs App Route Response)

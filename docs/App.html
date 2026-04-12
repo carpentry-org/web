@@ -360,9 +360,8 @@
 Sockets are non-blocking, reads accumulate into a per-connection buffer,
 and writes drain a per-connection buffer across writable events. A large
 response on one connection does not stall the event loop for others.</p>
-<p>The loop is single-threaded, so peak throughput is bounded by one core
-(roughly 60k req/s for tiny responses on current hardware). For multi-core
-scaling, run several copies behind a TCP load balancer.</p>
+<p>The loop is single-threaded, so peak throughput is bounded by one core.
+For multi-core scaling, run several copies behind a TCP load balancer.</p>
 
                     </p>
                 </div>
