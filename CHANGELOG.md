@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.3.0 (2026-04-14)
+
+### Added
+
+- **Form body parsing** (#4). `Form.decode` decodes
+  `application/x-www-form-urlencoded` bodies into `(Map String String)`,
+  handling `+` as space and percent-encoding. `Form.decode-request` checks
+  the Content-Type header first.
+- **sendfile()** (#9). `Response.sendfile` serves files via `sendfile(2)`
+  (zero-copy kernel-to-socket transfer). `App.static-dir` uses it
+  automatically. Requires `IO.Raw.open` and `IO.Raw.fstat-size` from the
+  Carp core.
+- **Chunked responses** (#6). `Response.chunked` encodes an array of
+  chunks with `Transfer-Encoding: chunked` framing.
+- **`ConnState` deftype** for per-connection state. Passed by reference to
+  named helper functions (`handle-accept`, `handle-writable`,
+  `handle-readable`, `conn-cleanup`, `sweep-idle`, `flush-closed`).
+  Thread-safe: each `serve` call creates its own state.
+
+### Changed
+
+- Refactored event loop from a monolithic function into named helpers
+  operating on `&ConnState`. The serve function's main loop is now ~30 lines.
+- Bumped `socket` dependency to 0.1.4 (sendfile-chunk).
+- Static file serving (`App.static-dir`) now uses `sendfile(2)` instead of
+  reading files into memory.
+- File operations moved from socket library to Carp core (`IO.Raw.open`,
+  `IO.Raw.close-fd`, `IO.Raw.fstat-size`, `IO.Raw.fileno`).
+
 ## 0.2.0 (2026-04-13)
 
 ### Added
@@ -24,6 +53,15 @@
 - **Custom error pages** (#12). `App.set-error` (or `(errors fn)` in
   `defserver`) registers a handler `(Fn [&Request Int String] Response)`
   that replaces the default plain-text error responses.
+- **Form body parsing** (#4). `Form.decode` decodes
+  `application/x-www-form-urlencoded` bodies into `(Map String String)`,
+  handling `+` as space and percent-encoding. `Form.decode-request` checks
+  the Content-Type header first.
+- **sendfile()** (#9). `Response.sendfile` serves files via `sendfile(2)`
+  (zero-copy kernel-to-socket transfer). `App.static-dir` uses it
+  automatically.
+- **Chunked responses** (#6). `Response.chunked` encodes an array of
+  chunks with `Transfer-Encoding: chunked` framing.
 
 ### Changed
 
@@ -33,6 +71,10 @@
 - `defserver` recognizes `(before fn)`, `(after fn)`, `(errors fn)` forms
   alongside route forms.
 - Added `log@0.1.1` dependency.
+- Bumped `socket` dependency to 0.1.4 (sendfile, open-file, file-size).
+- **Refactored event loop.** Per-connection state moved to module globals,
+  event handlers extracted into `handle-accept`, `handle-writable`,
+  `handle-readable`, `conn-cleanup`, `sweep-idle`, `flush-closed`.
 
 ## 0.1.0 (2026-04-12)
 

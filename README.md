@@ -6,7 +6,7 @@ concurrent connection handling via kqueue/epoll.
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.2.0")
+(load "git@github.com:carpentry-org/web@0.3.0")
 ```
 
 ## Usage
@@ -14,7 +14,7 @@ concurrent connection handling via kqueue/epoll.
 Define handler functions and register them with `defserver`:
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.2.0")
+(load "git@github.com:carpentry-org/web@0.3.0")
 
 (defn hello [req params]
   (Response.text @"Hello, world!"))
@@ -143,6 +143,28 @@ types are inferred from file extensions.
 ```
 
 The error handler receives the request, status code, and reason phrase.
+
+### Form parsing
+
+```clojure
+(defn handle-login [req params]
+  (let [form (Form.decode-request req)]
+    (Response.text (fmt "hello %s" &(Map.get &form "username")))))
+```
+
+`Form.decode` decodes `application/x-www-form-urlencoded` bodies. Handles
+`+` as space and percent-encoding.
+
+### Chunked responses
+
+```clojure
+(defn stream [req params]
+  (Response.chunked 200 @"text/plain"
+    &[@"chunk one\n" @"chunk two\n"]))
+```
+
+The chunks are pre-encoded with `Transfer-Encoding: chunked` framing. The
+client can start processing before the full response arrives.
 
 ### Concurrent connections
 

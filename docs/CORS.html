@@ -1,0 +1,202 @@
+<!DOCTYPE HTML>
+
+<html>
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0">
+        <link rel="stylesheet" href="../style.css">
+    </head>
+    <body>
+        <div class="content">
+            <div class="logo">
+                <a href="https://github.com/carpentry-org/web">
+                    <img src="">
+                </a>
+                <div class="title">
+                    web
+                </div>
+                <div class="index">
+                    <ul>
+                        <li>
+                            <a href="App.html">
+                                App
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Route.html">
+                                Route
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Response.html">
+                                Response
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Form.html">
+                                Form
+                            </a>
+                        </li>
+                        <li>
+                            <a href="CORS.html">
+                                CORS
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ConnState.html">
+                                ConnState
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <div class="module">
+                <h1>
+                    CORS
+                </h1>
+                <div class="module-description">
+                    
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#after-hook">
+                        <h3 id="after-hook">
+                            after-hook
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [a, b, Response] Response)
+                    </p>
+                    <pre class="args">
+                        (after-hook req params resp)
+                    </pre>
+                    <p class="doc">
+                        <p>adds <code>Access-Control-Allow-Origin</code> to every response.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#before-hook">
+                        <h3 id="before-hook">
+                            before-hook
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Request a), b] (Maybe Response))
+                    </p>
+                    <pre class="args">
+                        (before-hook req params)
+                    </pre>
+                    <p class="doc">
+                        <p>handles CORS preflight <code>OPTIONS</code> requests. Returns a
+<code>204 No Content</code> with the appropriate <code>Access-Control-*</code> headers. For
+non-OPTIONS requests, continues to the handler.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#configure">
+                        <h3 id="configure">
+                            configure
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [String] ())
+                    </p>
+                    <pre class="args">
+                        (configure allowed-origin)
+                    </pre>
+                    <p class="doc">
+                        <p>sets the allowed origin for CORS. Call before the server
+starts. The default is <code>*</code> (all origins).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#headers">
+                        <h3 id="headers">
+                            headers
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        String
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-age">
+                        <h3 id="max-age">
+                            max-age
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        String
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#methods">
+                        <h3 id="methods">
+                            methods
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        String
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#origin">
+                        <h3 id="origin">
+                            origin
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        String
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>

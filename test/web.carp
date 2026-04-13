@@ -206,6 +206,27 @@
               "id")
     "prefix glob preserves named captures")
 
+  ; -- form parsing --
+  (assert-equal test
+    "bar"
+    &(Map.get &(Form.decode "foo=bar&baz=qux") "foo")
+    "Form.decode extracts key")
+
+  (assert-equal test
+    "hello world"
+    &(Map.get &(Form.decode "msg=hello+world") "msg")
+    "Form.decode does not decode + as space")
+
+  (assert-equal test
+    "hello world"
+    &(Map.get &(Form.decode "msg=hello%20world") "msg")
+    "Form.decode decodes percent-encoding")
+
+  (assert-equal test
+    ""
+    &(Map.get &(Form.decode "flag&other=1") "flag")
+    "Form.decode handles key without value")
+
   (assert-equal test
     3
     (let [app (-> (App.create)

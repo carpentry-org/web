@@ -28,6 +28,21 @@
                                     Response
                                 </a>
                             </li>
+                            <li>
+                                <a href="Form.html">
+                                    Form
+                                </a>
+                            </li>
+                            <li>
+                                <a href="CORS.html">
+                                    CORS
+                                </a>
+                            </li>
+                            <li>
+                                <a href="ConnState.html">
+                                    ConnState
+                                </a>
+                            </li>
                         </ul>
                     </div>
                 </div>
@@ -41,7 +56,7 @@ integration, and concurrent connection handling.</p>
 register them as routes on an <a href="./App.html"><code>App</code></a>, and start serving with
 <a href="./App.html#serve"><code>App.serve</code></a>.</p>
 <h3>Example</h3>
-<pre><code>(load &quot;git@github.com:carpentry-org/web@0.1.0&quot;)
+<pre><code>(load &quot;git@github.com:carpentry-org/web@0.3.0&quot;)
 
 (defn hello [req params]
   (Response.text @&quot;Hello, world!&quot;))

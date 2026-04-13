@@ -32,6 +32,21 @@
                                 Response
                             </a>
                         </li>
+                        <li>
+                            <a href="Form.html">
+                                Form
+                            </a>
+                        </li>
+                        <li>
+                            <a href="CORS.html">
+                                CORS
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ConnState.html">
+                                ConnState
+                            </a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -81,6 +96,35 @@
                     </span>
                     <p class="doc">
                         <p>gets the <code>body</code> property of a <code>Response</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#chunked">
+                        <h3 id="chunked">
+                            chunked
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Int, String, (Ref (Array String) a)] Response)
+                    </p>
+                    <pre class="args">
+                        (chunked code content-type chunks)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a response with <code>Transfer-Encoding: chunked</code>.</p>
+<p>The body is built from an array of chunk strings, each encoded with the
+chunked framing (<code>&lt;hex-length&gt;\r\n&lt;data&gt;\r\n</code>) and terminated by a
+final <code>0\r\n\r\n</code>.</p>
+<pre><code>(Response.chunked 200 @&quot;text/plain&quot;
+  &amp;[@&quot;first chunk&quot; @&quot;second chunk&quot;])
+</code></pre>
+<p>The chunks are pre-encoded into a single buffer. For truly lazy streaming
+where chunks are generated on demand, a future version will provide a
+callback-based API.</p>
 
                     </p>
                 </div>
@@ -448,6 +492,31 @@ it will return a <code>(Success Response)</code>.</p>
                     </pre>
                     <p class="doc">
                         <p>creates a 302 redirect response to <code>url</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sendfile">
+                        <h3 id="sendfile">
+                            sendfile
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] Response)
+                    </p>
+                    <pre class="args">
+                        (sendfile path)
+                    </pre>
+                    <p class="doc">
+                        <p>creates a 200 OK response that signals the server to
+transfer the file at <code>path</code> directly to the socket via <code>sendfile(2)</code>,
+avoiding the user-space copy. Falls back to <a href="#file"><code>file</code></a> if the
+server does not detect the <code>X-Sendfile</code> header.</p>
+<p>The <code>Content-Type</code> is inferred from the extension. The server sets
+<code>Content-Length</code> from the file size.</p>
 
                     </p>
                 </div>

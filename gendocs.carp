@@ -15,7 +15,7 @@ register them as routes on an [`App`](./App.html), and start serving with
 
 ### Example
 ```
-(load \"git@github.com:carpentry-org/web@0.1.0\")
+(load \"git@github.com:carpentry-org/web@0.3.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -24,5 +24,5 @@ register them as routes on an [`App`](./App.html), and start serving with
   (GET \"/\" hello))
 ```")
 
-(save-docs App Route Response)
+(save-docs App Route Response Form CORS ConnState)
 (quit)

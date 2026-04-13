@@ -32,6 +32,21 @@
                                 Response
                             </a>
                         </li>
+                        <li>
+                            <a href="Form.html">
+                                Form
+                            </a>
+                        </li>
+                        <li>
+                            <a href="CORS.html">
+                                CORS
+                            </a>
+                        </li>
+                        <li>
+                            <a href="ConnState.html">
+                                ConnState
+                            </a>
+                        </li>
                     </ul>
                 </div>
             </div>
@@ -178,8 +193,7 @@
                         (create)
                     </pre>
                     <p class="doc">
-                        <p>creates an empty App with no routes and a default error handler
-that returns plain text responses.</p>
+                        <p>creates an empty App with no routes and a default error handler.</p>
 
                     </p>
                 </div>
@@ -379,8 +393,7 @@ that returns plain text responses.</p>
                         <p>starts the web server on <code>host</code>:<code>port</code>.</p>
 <p>Uses kqueue/epoll for concurrent connection handling with HTTP keep-alive.
 Sockets are non-blocking, reads accumulate into a per-connection buffer,
-and writes drain a per-connection buffer across writable events. A large
-response on one connection does not stall the event loop for others.</p>
+and writes drain across writable events.</p>
 <p>The loop is single-threaded, so peak throughput is bounded by one core.
 For multi-core scaling, run several copies behind a TCP load balancer.</p>
 
@@ -402,15 +415,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.</p>
                         (set-error app handler)
                     </pre>
                     <p class="doc">
-                        <p>sets a custom error handler. The handler receives the
-request, the status code, and the reason phrase, and returns a response.</p>
-<pre><code>(defn my-errors [req code msg]
-  (Response.html (fmt &quot;&lt;h1&gt;%d %s&lt;/h1&gt;&quot; code &amp;msg)))
-
-(defserver &quot;0.0.0.0&quot; 3000
-  (errors my-errors)
-  (GET &quot;/&quot; hello))
-</code></pre>
+                        <p>sets a custom error handler.</p>
 
                     </p>
                 </div>
@@ -511,11 +516,8 @@ request, the status code, and the reason phrase, and returns a response.</p>
                     </pre>
                     <p class="doc">
                         <p>registers a wildcard GET route that serves files from
-<code>dir</code> on disk. The request path is appended to <code>dir</code> and read with
-<a href="#file"><code>Response.file</code></a>.</p>
-<p>The empty path serves <code>dir/index.html</code>. Paths containing <code>..</code> segments
-return 404 to prevent directory traversal. Register <code>static-dir</code> after
-your API routes so it acts as a fallback.</p>
+<code>dir</code> on disk via sendfile. Register after API routes so it acts as a
+fallback.</p>
 
                     </p>
                 </div>

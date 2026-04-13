@@ -1,4 +1,4 @@
-(load "git@github.com:carpentry-org/web@0.1.0")
+(load "git@github.com:carpentry-org/web@0.3.0")
 (load "git@github.com:carpentry-org/orm@0.1.0" "backends/sqlite3.carp")
 
 ; ---------------------------------------------------------------------------
