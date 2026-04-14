@@ -1,12 +1,12 @@
 # web
 
-A web framework for Carp with routing, middleware, JSON integration, and
-concurrent connection handling via kqueue/epoll.
+A web framework for Carp with routing, middleware, WebSocket support, JSON
+integration, and concurrent connection handling via kqueue/epoll.
 
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.3.0")
+(load "git@github.com:carpentry-org/web@0.4.0")
 ```
 
 ## Usage
@@ -14,7 +14,7 @@ concurrent connection handling via kqueue/epoll.
 Define handler functions and register them with `defserver`:
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.3.0")
+(load "git@github.com:carpentry-org/web@0.4.0")
 
 (defn hello [req params]
   (Response.text @"Hello, world!"))
@@ -166,16 +166,41 @@ The error handler receives the request, status code, and reason phrase.
 The chunks are pre-encoded with `Transfer-Encoding: chunked` framing. The
 client can start processing before the full response arrives.
 
+### WebSocket
+
+Register WebSocket routes with `(WS pattern handler)`. The handler
+receives a `WSEvent` (Connect, Message, or Close), the path parameters,
+and a `WebSocket` handle for sending messages:
+
+```clojure
+(defn echo [event params ws]
+  (match-ref event
+    (WSEvent.Connect) (WebSocket.send ws @"connected")
+    (WSEvent.Message msg) (WebSocket.send ws (fmt "echo: %s" msg))
+    (WSEvent.Close) ()))
+
+(defserver "0.0.0.0" 3000
+  (GET  "/api/data" api-handler)
+  (WS   "/ws/echo"  echo))
+```
+
+The upgrade handshake (RFC 6455) is handled automatically. Once upgraded,
+the connection uses WebSocket framing over the same non-blocking event
+loop. Text frames, ping/pong, and close frames are supported. Binary
+frames are not yet supported.
+
 ### Concurrent connections
 
 The server uses kqueue (macOS) or epoll (Linux) in a single-threaded,
-non-blocking event loop. HTTP keep-alive is supported. Large responses
-drain across multiple writable events without stalling other connections.
+non-blocking event loop. HTTP keep-alive is supported. WebSocket and
+HTTP connections share the same event loop. Large responses drain across
+multiple writable events without stalling other connections.
 
 ## Testing
 
 ```
 carp -x test/web.carp
+carp -x test/websocket.carp
 ```
 
 <hr/>

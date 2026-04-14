@@ -7,22 +7,35 @@
 (Project.config "docs-url" "https://github.com/carpentry-org/web")
 (Project.config "docs-styling" "../style.css")
 (Project.config "docs-prelude" "A web framework for Carp with routing, JSON
-integration, and concurrent connection handling.
+integration, WebSocket support, and concurrent connection handling.
 
 Define handlers as `(Fn [&Request &(Map String String)] Response)` functions,
 register them as routes on an [`App`](./App.html), and start serving with
 [`App.serve`](./App.html#serve).
 
-### Example
+### HTTP Example
 ```
-(load \"git@github.com:carpentry-org/web@0.3.0\")
+(load \"git@github.com:carpentry-org/web@0.4.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
 
 (defserver \"0.0.0.0\" 8080
   (GET \"/\" hello))
+```
+
+### WebSocket Example
+```
+(defn echo [event params ws]
+  (match-ref event
+    (WSEvent.Connect) (WebSocket.send ws @\"connected\")
+    (WSEvent.Message msg) (WebSocket.send ws (fmt \"echo: %s\" msg))
+    (WSEvent.Close) ()))
+
+(defserver \"0.0.0.0\" 8080
+  (WS \"/ws/echo\" echo))
 ```")
 
-(save-docs App Route Response Form CORS ConnState)
+(save-docs App Route WSRoute Response Form CORS ConnState
+           WSEvent WebSocket WSFrame SHA1 Base64)
 (quit)

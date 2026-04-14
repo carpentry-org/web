@@ -82,10 +82,30 @@
             </div>
             <div class="module">
                 <h1>
-                    Route
+                    WSFrame
                 </h1>
                 <div class="module-description">
                     
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#consumed">
+                        <h3 id="consumed">
+                            consumed
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>consumed</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#copy">
@@ -97,13 +117,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] Route)
+                        (Fn [(Ref WSFrame a)] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>Route</code>.</p>
+                        <p>copies a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
@@ -117,33 +137,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route] ())
+                        (Fn [WSFrame] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>Route</code>. Should usually not be called manually.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#handler">
-                        <h3 id="handler">
-                            handler
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Route a)] (Ref (Fn [(Ref Request b), (Ref (Map String String) c)] Response) a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>deletes a <code>WSFrame</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
@@ -157,53 +157,53 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [Int, (Array Byte), Int] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>Route</code>.</p>
+                        <p>creates a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#method">
-                        <h3 id="method">
-                            method
+                    <a class="anchor" href="#opcode">
+                        <h3 id="opcode">
+                            opcode
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
+                        (Fn [(Ref WSFrame a)] (Ref Int a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>method</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>opcode</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#pattern">
-                        <h3 id="pattern">
-                            pattern
+                    <a class="anchor" href="#payload">
+                        <h3 id="payload">
+                            payload
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
+                        (Fn [(Ref WSFrame a)] (Ref (Array Byte) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>pattern</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>payload</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
@@ -217,133 +217,133 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WSFrame a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WSFrame</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-handler">
-                        <h3 id="set-handler">
-                            set-handler
+                    <a class="anchor" href="#set-consumed">
+                        <h3 id="set-consumed">
+                            set-consumed
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [WSFrame, Int] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>consumed</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-handler!">
-                        <h3 id="set-handler!">
-                            set-handler!
+                    <a class="anchor" href="#set-consumed!">
+                        <h3 id="set-consumed!">
+                            set-consumed!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), (Fn [(Ref Request b), (Ref (Map String String) c)] Response)] ())
+                        (Fn [(Ref WSFrame a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>consumed</code> property of a <code>WSFrame</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-method">
-                        <h3 id="set-method">
-                            set-method
+                    <a class="anchor" href="#set-opcode">
+                        <h3 id="set-opcode">
+                            set-opcode
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, String] Route)
+                        (Fn [WSFrame, Int] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>opcode</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-method!">
-                        <h3 id="set-method!">
-                            set-method!
+                    <a class="anchor" href="#set-opcode!">
+                        <h3 id="set-opcode!">
+                            set-opcode!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), String] ())
+                        (Fn [(Ref WSFrame a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>opcode</code> property of a <code>WSFrame</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-pattern">
-                        <h3 id="set-pattern">
-                            set-pattern
+                    <a class="anchor" href="#set-payload">
+                        <h3 id="set-payload">
+                            set-payload
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, String] Route)
+                        (Fn [WSFrame, (Array Byte)] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>payload</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-pattern!">
-                        <h3 id="set-pattern!">
-                            set-pattern!
+                    <a class="anchor" href="#set-payload!">
+                        <h3 id="set-payload!">
+                            set-payload!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), String] ())
+                        (Fn [(Ref WSFrame a), (Array Byte)] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>payload</code> property of a <code>WSFrame</code> in place.</p>
 
                     </p>
                 </div>
@@ -357,73 +357,73 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WSFrame a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WSFrame</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-handler">
-                        <h3 id="update-handler">
-                            update-handler
+                    <a class="anchor" href="#update-consumed">
+                        <h3 id="update-consumed">
+                            update-consumed
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [(Fn [(Ref Request a), (Ref (Map String String) b)] Response)] (Fn [(Ref Request a), (Ref (Map String String) b)] Response) c) d)] Route)
+                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>handler</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>consumed</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-method">
-                        <h3 id="update-method">
-                            update-method
+                    <a class="anchor" href="#update-opcode">
+                        <h3 id="update-opcode">
+                            update-opcode
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
+                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>method</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>opcode</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-pattern">
-                        <h3 id="update-pattern">
-                            update-pattern
+                    <a class="anchor" href="#update-payload">
+                        <h3 id="update-payload">
+                            update-payload
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
+                        (Fn [WSFrame, (Ref (Fn [(Array Byte)] (Array Byte) a) b)] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>pattern</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>payload</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

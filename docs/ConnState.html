@@ -28,6 +28,11 @@
                             </a>
                         </li>
                         <li>
+                            <a href="WSRoute.html">
+                                WSRoute
+                            </a>
+                        </li>
+                        <li>
                             <a href="Response.html">
                                 Response
                             </a>
@@ -45,6 +50,31 @@
                         <li>
                             <a href="ConnState.html">
                                 ConnState
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WSEvent.html">
+                                WSEvent
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WebSocket.html">
+                                WebSocket
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WSFrame.html">
+                                WSFrame
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SHA1.html">
+                                SHA1
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Base64.html">
+                                Base64
                             </a>
                         </li>
                     </ul>
@@ -107,7 +137,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int)] ConnState)
+                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String))] ConnState)
                     </p>
                     <span>
                         
@@ -598,6 +628,86 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-ws-params">
+                        <h3 id="set-ws-params">
+                            set-ws-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int (Map String String))] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-params</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-params!">
+                        <h3 id="set-ws-params!">
+                            set-ws-params!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int (Map String String))] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-params</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-route-idx">
+                        <h3 id="set-ws-route-idx">
+                            set-ws-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-route-idx</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-route-idx!">
+                        <h3 id="set-ws-route-idx!">
+                            set-ws-route-idx!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-route-idx</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#sf-fds">
                         <h3 id="sf-fds">
                             sf-fds
@@ -918,6 +1028,46 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#update-ws-params">
+                        <h3 id="update-ws-params">
+                            update-ws-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int (Map String String))] (Map Int (Map String String)) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-params</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-ws-route-idx">
+                        <h3 id="update-ws-route-idx">
+                            update-ws-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-route-idx</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#write-bufs">
                         <h3 id="write-bufs">
                             write-bufs
@@ -954,6 +1104,46 @@
                     </span>
                     <p class="doc">
                         <p>gets the <code>write-positions</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-params">
+                        <h3 id="ws-params">
+                            ws-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int (Map String String)) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-params</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-route-idx">
+                        <h3 id="ws-route-idx">
+                            ws-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-route-idx</code> property of a <code>ConnState</code>.</p>
 
                     </p>
                 </div>

@@ -82,93 +82,175 @@
             </div>
             <div class="module">
                 <h1>
-                    Form
+                    WSEvent
                 </h1>
                 <div class="module-description">
-                    <p>provides helpers for parsing <code>application/x-www-form-urlencoded</code>
-request bodies.</p>
+                    <p>represents an event on a WebSocket connection.</p>
+<p>Handlers receive one of these for each lifecycle event:</p>
+<ul>
+<li><code>Connect</code>: the connection was upgraded from HTTP</li>
+<li><code>(Message msg)</code>: a text message arrived</li>
+<li><code>Close</code>: the peer requested a close</li>
+</ul>
 
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#decode">
-                        <h3 id="decode">
-                            decode
+                    <a class="anchor" href="#Close">
+                        <h3 id="Close">
+                            Close
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref String a)] (Map String String))
-                    </p>
-                    <pre class="args">
-                        (decode body)
-                    </pre>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#decode-request">
-                        <h3 id="decode-request">
-                            decode-request
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Request a)] (Map String String))
-                    </p>
-                    <pre class="args">
-                        (decode-request req)
-                    </pre>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#parse">
-                        <h3 id="parse">
-                            parse
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a)] (Result (Map String String) b))
-                    </p>
-                    <pre class="args">
-                        (parse s)
-                    </pre>
-                    <p class="doc">
-                        <p>parses a URL-encoded form body into a <code>(Map String String)</code>.</p>
-<pre><code>(let [data (Form.decode (Request.body req))]
-  (Map.get &amp;data &quot;username&quot;))
-</code></pre>
-<p>Keys and values are URL-decoded. Duplicate keys keep the last value.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#parse-request">
-                        <h3 id="parse-request">
-                            parse-request
-                        </h3>
-                    </a>
-                    <div class="description">
-                        meta-stub
-                    </div>
-                    <p class="sig">
-                        a
+                        (Fn [] WSEvent)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>parses the form body from a request. Returns an empty
-map if the content type is not <code>application/x-www-form-urlencoded</code>.</p>
+                        <p>creates a <code>Close</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Connect">
+                        <h3 id="Connect">
+                            Connect
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [] WSEvent)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Connect</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#Message">
+                        <h3 id="Message">
+                            Message
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [String] WSEvent)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>creates a <code>Message</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSEvent a)] WSEvent)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>copies a <code>WSEvent</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSEvent] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>deletes a <code>WSEvent</code>. This should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#get-tag">
+                        <h3 id="get-tag">
+                            get-tag
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSEvent a)] Int)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>Gets the tag from a <code>WSEvent</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSEvent a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>WSEvent</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSEvent a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>WSEvent</code> to a string.</p>
 
                     </p>
                 </div>

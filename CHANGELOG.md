@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0 (2026-04-14)
+
+### Added
+
+- **WebSocket support** (#11). RFC 6455 upgrade handshake, text frames,
+  ping/pong, and close frames over the existing non-blocking event loop.
+  - `(WS "/path" handler)` in `defserver` registers a WebSocket route.
+  - `WSEvent` sumtype: `Connect`, `(Message String)`, `Close`. Handlers
+    receive one event at a time with path params and a `WebSocket` handle.
+  - `WebSocket.send` queues outgoing text frames; the event loop drains
+    the outbox after the handler returns.
+  - `WebSocket.encode-text` / `WebSocket.decode-frame` for frame codec.
+  - `ws-accept-key` computes the `Sec-WebSocket-Accept` handshake token.
+- **SHA-1** (`SHA1.digest`) in pure Carp (~75 lines, Long-based 32-bit
+  ops). Used only for the WebSocket handshake, not for security.
+- **Base64** (`Base64.encode`) in pure Carp. No external dependency.
+
+### Changed
+
+- `App` type gains a `ws-routes` field (`(Array WSRoute)`).
+- `ConnState` gains `ws-route-idx` and `ws-params` maps for tracking
+  active WebSocket connections.
+- `conn-done-writing` skips clearing the read buffer for WebSocket
+  connections so partial frames survive across write cycles.
+- `conn-cleanup` removes WebSocket state on disconnect.
+- `handle-readable` checks for WebSocket upgrade before HTTP routing,
+  and dispatches active WebSocket connections to `handle-ws-readable`.
+- `defserver` recognizes `(WS pattern handler)` forms.
+
 ## 0.3.0 (2026-04-14)
 
 ### Added

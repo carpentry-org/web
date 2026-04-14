@@ -24,11 +24,6 @@
                                 </a>
                             </li>
                             <li>
-                                <a href="WSRoute.html">
-                                    WSRoute
-                                </a>
-                            </li>
-                            <li>
                                 <a href="Response.html">
                                     Response
                                 </a>
@@ -48,31 +43,6 @@
                                     ConnState
                                 </a>
                             </li>
-                            <li>
-                                <a href="WSEvent.html">
-                                    WSEvent
-                                </a>
-                            </li>
-                            <li>
-                                <a href="WebSocket.html">
-                                    WebSocket
-                                </a>
-                            </li>
-                            <li>
-                                <a href="WSFrame.html">
-                                    WSFrame
-                                </a>
-                            </li>
-                            <li>
-                                <a href="SHA1.html">
-                                    SHA1
-                                </a>
-                            </li>
-                            <li>
-                                <a href="Base64.html">
-                                    Base64
-                                </a>
-                            </li>
                         </ul>
                     </div>
                 </div>
@@ -81,28 +51,18 @@
                         web
                     </h1>
                     <p>A web framework for Carp with routing, JSON
-integration, WebSocket support, and concurrent connection handling.</p>
+integration, and concurrent connection handling.</p>
 <p>Define handlers as <code>(Fn [&amp;Request &amp;(Map String String)] Response)</code> functions,
 register them as routes on an <a href="./App.html"><code>App</code></a>, and start serving with
 <a href="./App.html#serve"><code>App.serve</code></a>.</p>
-<h3>HTTP Example</h3>
-<pre><code>(load &quot;git@github.com:carpentry-org/web@0.4.0&quot;)
+<h3>Example</h3>
+<pre><code>(load &quot;git@github.com:carpentry-org/web@0.3.0&quot;)
 
 (defn hello [req params]
   (Response.text @&quot;Hello, world!&quot;))
 
 (defserver &quot;0.0.0.0&quot; 8080
   (GET &quot;/&quot; hello))
-</code></pre>
-<h3>WebSocket Example</h3>
-<pre><code>(defn echo [event params ws]
-  (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @&quot;connected&quot;)
-    (WSEvent.Message msg) (WebSocket.send ws (fmt &quot;echo: %s&quot; msg))
-    (WSEvent.Close) ()))
-
-(defserver &quot;0.0.0.0&quot; 8080
-  (WS &quot;/ws/echo&quot; echo))
 </code></pre>
 
                 </div>

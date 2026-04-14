@@ -82,93 +82,28 @@
             </div>
             <div class="module">
                 <h1>
-                    Form
+                    Base64
                 </h1>
                 <div class="module-description">
-                    <p>provides helpers for parsing <code>application/x-www-form-urlencoded</code>
-request bodies.</p>
-
+                    
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#decode">
-                        <h3 id="decode">
-                            decode
+                    <a class="anchor" href="#encode">
+                        <h3 id="encode">
+                            encode
                         </h3>
                     </a>
                     <div class="description">
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref String a)] (Map String String))
+                        (Fn [(Ref (Array Byte) a)] String)
                     </p>
                     <pre class="args">
-                        (decode body)
+                        (encode data)
                     </pre>
                     <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#decode-request">
-                        <h3 id="decode-request">
-                            decode-request
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Request a)] (Map String String))
-                    </p>
-                    <pre class="args">
-                        (decode-request req)
-                    </pre>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#parse">
-                        <h3 id="parse">
-                            parse
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref String a)] (Result (Map String String) b))
-                    </p>
-                    <pre class="args">
-                        (parse s)
-                    </pre>
-                    <p class="doc">
-                        <p>parses a URL-encoded form body into a <code>(Map String String)</code>.</p>
-<pre><code>(let [data (Form.decode (Request.body req))]
-  (Map.get &amp;data &quot;username&quot;))
-</code></pre>
-<p>Keys and values are URL-decoded. Duplicate keys keep the last value.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#parse-request">
-                        <h3 id="parse-request">
-                            parse-request
-                        </h3>
-                    </a>
-                    <div class="description">
-                        meta-stub
-                    </div>
-                    <p class="sig">
-                        a
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>parses the form body from a request. Returns an empty
-map if the content type is not <code>application/x-www-form-urlencoded</code>.</p>
+                        <p>base64-encodes a byte array.</p>
 
                     </p>
                 </div>

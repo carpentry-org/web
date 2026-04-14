@@ -28,6 +28,11 @@
                             </a>
                         </li>
                         <li>
+                            <a href="WSRoute.html">
+                                WSRoute
+                            </a>
+                        </li>
+                        <li>
                             <a href="Response.html">
                                 Response
                             </a>
@@ -45,6 +50,31 @@
                         <li>
                             <a href="ConnState.html">
                                 ConnState
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WSEvent.html">
+                                WSEvent
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WebSocket.html">
+                                WebSocket
+                            </a>
+                        </li>
+                        <li>
+                            <a href="WSFrame.html">
+                                WSFrame
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SHA1.html">
+                                SHA1
+                            </a>
+                        </li>
+                        <li>
+                            <a href="Base64.html">
+                                Base64
                             </a>
                         </li>
                     </ul>
@@ -158,6 +188,36 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#WS">
+                        <h3 id="WS">
+                            WS
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] App)
+                    </p>
+                    <pre class="args">
+                        (WS app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a WebSocket route. The handler is called for each lifecycle
+event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code>Message</code>, and <code>Close</code>.</p>
+<pre><code>(defn echo [event params ws]
+  (match-ref event
+    (WSEvent.Connect) (WebSocket.send ws @&quot;connected&quot;)
+    (WSEvent.Message msg) (WebSocket.send ws (fmt &quot;echo: %s&quot; msg))
+    (WSEvent.Close) ()))
+
+(defserver &quot;0.0.0.0&quot; 3000
+  (WS &quot;/ws/echo&quot; echo))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#copy">
                         <h3 id="copy">
                             copy
@@ -266,7 +326,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Array Route), (Fn [(Ref Request a), Int, String] Response)] App)
+                        (Fn [(Array Route), (Array WSRoute), (Fn [(Ref Request a), Int, String] Response)] App)
                     </p>
                     <span>
                         
@@ -500,6 +560,46 @@ For multi-core scaling, run several copies behind a TCP load balancer.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-ws-routes">
+                        <h3 id="set-ws-routes">
+                            set-ws-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Array WSRoute)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-routes</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-routes!">
+                        <h3 id="set-ws-routes!">
+                            set-ws-routes!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Array WSRoute)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-routes</code> property of a <code>App</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#static-dir">
                         <h3 id="static-dir">
                             static-dir
@@ -578,6 +678,46 @@ fallback.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-ws-routes">
+                        <h3 id="update-ws-routes">
+                            update-ws-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Ref (Fn [(Array WSRoute)] (Array WSRoute) a) b)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-routes">
+                        <h3 id="ws-routes">
+                            ws-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] (Ref (Array WSRoute) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-routes</code> property of a <code>App</code>.</p>
 
                     </p>
                 </div>

@@ -82,10 +82,13 @@
             </div>
             <div class="module">
                 <h1>
-                    Route
+                    WSRoute
                 </h1>
                 <div class="module-description">
-                    
+                    <p>a WebSocket route entry. The handler receives a <a href="#WSEvent"><code>WSEvent</code></a>,
+the captured path parameters, and a <a href="#WebSocket"><code>WebSocket</code></a> handle for sending
+responses.</p>
+
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#copy">
@@ -97,13 +100,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] Route)
+                        (Fn [(Ref WSRoute a)] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>Route</code>.</p>
+                        <p>copies a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -117,13 +120,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route] ())
+                        (Fn [WSRoute] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>Route</code>. Should usually not be called manually.</p>
+                        <p>deletes a <code>WSRoute</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
@@ -137,13 +140,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref (Fn [(Ref Request b), (Ref (Map String String) c)] Response) a))
+                        (Fn [(Ref WSRoute a)] (Ref (Fn [(Ref WSEvent b), (Ref (Map String String) c), (Ref WebSocket d)] ()) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>handler</code> property of a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -157,33 +160,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [String, (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>Route</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#method">
-                        <h3 id="method">
-                            method
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>method</code> property of a <code>Route</code>.</p>
+                        <p>creates a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -197,13 +180,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
+                        (Fn [(Ref WSRoute a)] (Ref String a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>pattern</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>pattern</code> property of a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -217,13 +200,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WSRoute a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WSRoute</code> to a string.</p>
 
                     </p>
                 </div>
@@ -237,13 +220,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [WSRoute, (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>handler</code> property of a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -257,53 +240,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), (Fn [(Ref Request b), (Ref (Map String String) c)] Response)] ())
+                        (Fn [(Ref WSRoute a), (Fn [(Ref WSEvent b), (Ref (Map String String) c), (Ref WebSocket d)] ())] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-method">
-                        <h3 id="set-method">
-                            set-method
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Route, String] Route)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-method!">
-                        <h3 id="set-method!">
-                            set-method!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Route a), String] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>handler</code> property of a <code>WSRoute</code> in place.</p>
 
                     </p>
                 </div>
@@ -317,13 +260,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, String] Route)
+                        (Fn [WSRoute, String] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>pattern</code> property of a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -337,13 +280,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), String] ())
+                        (Fn [(Ref WSRoute a), String] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>pattern</code> property of a <code>WSRoute</code> in place.</p>
 
                     </p>
                 </div>
@@ -357,13 +300,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WSRoute a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WSRoute</code> to a string.</p>
 
                     </p>
                 </div>
@@ -377,33 +320,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [(Fn [(Ref Request a), (Ref (Map String String) b)] Response)] (Fn [(Ref Request a), (Ref (Map String String) b)] Response) c) d)] Route)
+                        (Fn [WSRoute, (Ref (Fn [(Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ()) d) e)] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>handler</code> property of a <code>Route</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-method">
-                        <h3 id="update-method">
-                            update-method
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>method</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>handler</code> property of a <code>WSRoute</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
@@ -417,13 +340,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
+                        (Fn [WSRoute, (Ref (Fn [String] String a) b)] WSRoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>pattern</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>pattern</code> property of a <code>WSRoute</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

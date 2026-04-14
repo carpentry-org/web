@@ -1,0 +1,175 @@
+(load "Test.carp")
+(load "../web.carp")
+(use Test)
+
+; Build a masked client frame for testing decode-frame.
+; Opcode 1 (text), mask key [0x37 0xfa 0x21 0x3d].
+(defn make-masked-text-frame [msg]
+  (let-do [bytes (String.to-bytes msg)
+           len (Array.length &bytes)
+           frame (the (Array Byte) [])
+           mask [(Byte.from-int 55) (Byte.from-int 250)
+                 (Byte.from-int 33) (Byte.from-int 61)]]
+    ; FIN + text
+    (Array.push-back! &frame (Byte.from-int 129))
+    ; MASK bit + length (assume < 126)
+    (Array.push-back! &frame (Byte.from-int (+ 128 len)))
+    ; Mask key
+    (for [i 0 4]
+      (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+    ; Masked payload
+    (for [i 0 len]
+      (Array.push-back! &frame
+        (Byte.from-int (bit-xor (Byte.to-int @(Array.unsafe-nth &bytes i))
+                                (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
+    frame))
+
+(deftest test
+  ; ---------------------------------------------------------------------------
+  ; Base64 encoding
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    ""
+    &(Base64.encode &(String.to-bytes &@""))
+    "Base64 empty")
+
+  (assert-equal test
+    "Zg=="
+    &(Base64.encode &(String.to-bytes &@"f"))
+    "Base64 single byte")
+
+  (assert-equal test
+    "Zm8="
+    &(Base64.encode &(String.to-bytes &@"fo"))
+    "Base64 two bytes")
+
+  (assert-equal test
+    "Zm9v"
+    &(Base64.encode &(String.to-bytes &@"foo"))
+    "Base64 three bytes")
+
+  (assert-equal test
+    "Zm9vYmFy"
+    &(Base64.encode &(String.to-bytes &@"foobar"))
+    "Base64 six bytes")
+
+  ; ---------------------------------------------------------------------------
+  ; SHA-1 + Base64
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "qZk+NkcGgWq6PiVxeFDCbJzQ2J0="
+    &(Base64.encode &(SHA1.digest &(String.to-bytes &@"abc")))
+    "SHA1 of 'abc'")
+
+  (assert-equal test
+    "2jmj7l5rSw0yVb/vlWAYkK/YBwk="
+    &(Base64.encode &(SHA1.digest &(String.to-bytes &@"")))
+    "SHA1 of empty string")
+
+  ; ---------------------------------------------------------------------------
+  ; WebSocket accept key (RFC 6455 section 4.2.2 example)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    &(ws-accept-key "dGhlIHNhbXBsZSBub25jZQ==")
+    "accept key matches RFC 6455 example")
+
+  ; ---------------------------------------------------------------------------
+  ; Frame encoding (server-to-client, no mask)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    2
+    (let [f (WebSocket.encode-text "")]
+      (Array.length &f))
+    "encode-text empty is 2 bytes (header only)")
+
+  (assert-equal test
+    (Byte.from-int 129) ; 0x81 = FIN + text
+    (let [f (WebSocket.encode-text "hi")]
+      @(Array.unsafe-nth &f 0))
+    "encode-text sets FIN + opcode 1")
+
+  (assert-equal test
+    (Byte.from-int 2)
+    (let [f (WebSocket.encode-text "hi")]
+      @(Array.unsafe-nth &f 1))
+    "encode-text sets payload length")
+
+  (assert-equal test
+    "hi"
+    &(let-do [f (WebSocket.encode-text "hi")
+              payload (the (Array Byte) [])]
+       (for [i 2 (Array.length &f)]
+         (Array.push-back! &payload @(Array.unsafe-nth &f i)))
+       (String.from-bytes &payload))
+    "encode-text payload matches input")
+
+  ; ---------------------------------------------------------------------------
+  ; Frame decoding (client-to-server, masked)
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (Maybe.just? &(WebSocket.decode-frame &(make-masked-text-frame "hello") 0))
+    "decode-frame succeeds on complete frame")
+
+  (assert-equal test
+    1
+    (match (WebSocket.decode-frame &(make-masked-text-frame "hello") 0)
+      (Maybe.Just f) @(WSFrame.opcode &f)
+      (Maybe.Nothing) -1)
+    "decode-frame returns opcode 1 for text")
+
+  (assert-equal test
+    "hello"
+    &(match (WebSocket.decode-frame &(make-masked-text-frame "hello") 0)
+       (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+       (Maybe.Nothing) @"FAIL")
+    "decode-frame unmasks payload correctly")
+
+  (assert-equal test
+    11  ; 2 header + 4 mask + 5 payload
+    (match (WebSocket.decode-frame &(make-masked-text-frame "hello") 0)
+      (Maybe.Just f) @(WSFrame.consumed &f)
+      (Maybe.Nothing) -1)
+    "decode-frame reports correct consumed bytes")
+
+  (assert-true test
+    (Maybe.nothing? &(WebSocket.decode-frame &(the (Array Byte) [(Byte.from-int 129)]) 0))
+    "decode-frame returns Nothing for incomplete buffer")
+
+  ; ---------------------------------------------------------------------------
+  ; Encode/decode round-trip (encode server frame, decode without mask)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "round-trip"
+    &(let [encoded (WebSocket.encode-text "round-trip")]
+       (match (WebSocket.decode-frame &encoded 0)
+         (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+         (Maybe.Nothing) @"FAIL"))
+    "server frame round-trips through decode")
+
+  ; ---------------------------------------------------------------------------
+  ; App construction with WS routes
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    1
+    (let [app (-> (App.create)
+                  (App.WS @"/ws/echo"
+                    (fn [event params ws] ())))]
+      (Array.length (App.ws-routes &app)))
+    "App.WS adds a WS route")
+
+  (assert-equal test
+    1
+    (let [app (-> (App.create)
+                  (App.GET @"/" (fn [r p] (Response.text @"")))
+                  (App.WS @"/ws/echo" (fn [e p w] ())))]
+      (Array.length (App.routes &app)))
+    "WS routes do not affect HTTP routes count")
+)

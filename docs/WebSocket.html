@@ -82,10 +82,14 @@
             </div>
             <div class="module">
                 <h1>
-                    Route
+                    WebSocket
                 </h1>
                 <div class="module-description">
-                    
+                    <p>represents an active WebSocket connection.</p>
+<p>Handlers receive a reference to this and call <a href="#send"><code>WebSocket.send</code></a> to
+queue outgoing text frames. The event loop drains the outbox after the handler
+returns.</p>
+
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#copy">
@@ -97,13 +101,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] Route)
+                        (Fn [(Ref WebSocket a)] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>Route</code>.</p>
+                        <p>copies a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
@@ -117,33 +121,53 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route] ())
+                        (Fn [WebSocket] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>Route</code>. Should usually not be called manually.</p>
+                        <p>deletes a <code>WebSocket</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#handler">
-                        <h3 id="handler">
-                            handler
+                    <a class="anchor" href="#encode-text">
+                        <h3 id="encode-text">
+                            encode-text
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Array Byte))
+                    </p>
+                    <pre class="args">
+                        (encode-text msg)
+                    </pre>
+                    <p class="doc">
+                        <p>encodes a string as a WebSocket text frame (no mask).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#fd">
+                        <h3 id="fd">
+                            fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref (Fn [(Ref Request b), (Ref (Map String String) c)] Response) a))
+                        (Fn [(Ref WebSocket a)] (Ref Int a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>fd</code> property of a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
@@ -157,53 +181,33 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, String, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [Int, (Array (Array Byte))] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>Route</code>.</p>
+                        <p>creates a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#method">
-                        <h3 id="method">
-                            method
+                    <a class="anchor" href="#outbox">
+                        <h3 id="outbox">
+                            outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
+                        (Fn [(Ref WebSocket a)] (Ref (Array (Array Byte)) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>method</code> property of a <code>Route</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#pattern">
-                        <h3 id="pattern">
-                            pattern
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Route a)] (Ref String a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>pattern</code> property of a <code>Route</code>.</p>
+                        <p>gets the <code>outbox</code> property of a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
@@ -217,133 +221,113 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WebSocket a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WebSocket</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-handler">
-                        <h3 id="set-handler">
-                            set-handler
+                    <a class="anchor" href="#send">
+                        <h3 id="send">
+                            send
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a), (Ref String b)] ())
+                    </p>
+                    <pre class="args">
+                        (send ws msg)
+                    </pre>
+                    <p class="doc">
+                        <p>queues a text message for sending on the WebSocket connection.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-fd">
+                        <h3 id="set-fd">
+                            set-fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Fn [(Ref Request a), (Ref (Map String String) b)] Response)] Route)
+                        (Fn [WebSocket, Int] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>fd</code> property of a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-handler!">
-                        <h3 id="set-handler!">
-                            set-handler!
+                    <a class="anchor" href="#set-fd!">
+                        <h3 id="set-fd!">
+                            set-fd!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), (Fn [(Ref Request b), (Ref (Map String String) c)] Response)] ())
+                        (Fn [(Ref WebSocket a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>handler</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>fd</code> property of a <code>WebSocket</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-method">
-                        <h3 id="set-method">
-                            set-method
+                    <a class="anchor" href="#set-outbox">
+                        <h3 id="set-outbox">
+                            set-outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, String] Route)
+                        (Fn [WebSocket, (Array (Array Byte))] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code>.</p>
+                        <p>sets the <code>outbox</code> property of a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-method!">
-                        <h3 id="set-method!">
-                            set-method!
+                    <a class="anchor" href="#set-outbox!">
+                        <h3 id="set-outbox!">
+                            set-outbox!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a), String] ())
+                        (Fn [(Ref WebSocket a), (Array (Array Byte))] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>method</code> property of a <code>Route</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-pattern">
-                        <h3 id="set-pattern">
-                            set-pattern
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Route, String] Route)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-pattern!">
-                        <h3 id="set-pattern!">
-                            set-pattern!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref Route a), String] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>pattern</code> property of a <code>Route</code> in place.</p>
+                        <p>sets the <code>outbox</code> property of a <code>WebSocket</code> in place.</p>
 
                     </p>
                 </div>
@@ -357,73 +341,53 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Route a)] String)
+                        (Fn [(Ref WebSocket a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>Route</code> to a string.</p>
+                        <p>converts a <code>WebSocket</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-handler">
-                        <h3 id="update-handler">
-                            update-handler
+                    <a class="anchor" href="#update-fd">
+                        <h3 id="update-fd">
+                            update-fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [(Fn [(Ref Request a), (Ref (Map String String) b)] Response)] (Fn [(Ref Request a), (Ref (Map String String) b)] Response) c) d)] Route)
+                        (Fn [WebSocket, (Ref (Fn [Int] Int a) b)] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>handler</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>fd</code> property of a <code>WebSocket</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-method">
-                        <h3 id="update-method">
-                            update-method
+                    <a class="anchor" href="#update-outbox">
+                        <h3 id="update-outbox">
+                            update-outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
+                        (Fn [WebSocket, (Ref (Fn [(Array (Array Byte))] (Array (Array Byte)) a) b)] WebSocket)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>method</code> property of a <code>Route</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-pattern">
-                        <h3 id="update-pattern">
-                            update-pattern
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [Route, (Ref (Fn [String] String a) b)] Route)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>pattern</code> property of a <code>Route</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>outbox</code> property of a <code>WebSocket</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
