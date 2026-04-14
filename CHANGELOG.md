@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (2026-04-14)
+## 0.4.0 (2026-04-15)
 
 ### Added
 
@@ -11,11 +11,17 @@
     receive one event at a time with path params and a `WebSocket` handle.
   - `WebSocket.send` queues outgoing text frames; the event loop drains
     the outbox after the handler returns.
-  - `WebSocket.encode-text` / `WebSocket.decode-frame` for frame codec.
-  - `ws-accept-key` computes the `Sec-WebSocket-Accept` handshake token.
+  - `WebSocket.send-now` writes a frame directly to the socket,
+    bypassing the outbox. For handlers that block (e.g. LLM token
+    streaming) so each message reaches the client immediately.
+  - Frame codec: `WebSocket.encode-text`, `encode-pong`, `encode-close`,
+    `decode-frame`. Supports 7-bit, 16-bit, and 64-bit payload lengths.
+  - Max frame size enforcement: frames exceeding `App.max-request-size`
+    close the connection.
 - **SHA-1** (`SHA1.digest`) in pure Carp (~75 lines, Long-based 32-bit
   ops). Used only for the WebSocket handshake, not for security.
 - **Base64** (`Base64.encode`) in pure Carp. No external dependency.
+- **Coverage harness** (`test/cov.carp`) using `Coverage.carp` from core.
 
 ### Changed
 
@@ -27,7 +33,12 @@
 - `conn-cleanup` removes WebSocket state on disconnect.
 - `handle-readable` checks for WebSocket upgrade before HTTP routing,
   and dispatches active WebSocket connections to `handle-ws-readable`.
+  The upgrade check parses the request once and passes the result through
+  to avoid a double parse.
 - `defserver` recognizes `(WS pattern handler)` forms.
+- Extracted `web-routable-path` helper (was inlined 3 times).
+- Extracted `ws-flatten-outbox` helper (was inlined 2 times).
+- `.gitignore` now excludes gcov artifacts.
 
 ## 0.3.0 (2026-04-14)
 

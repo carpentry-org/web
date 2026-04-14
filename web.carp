@@ -29,9 +29,9 @@
 ; Dependencies
 ; ---------------------------------------------------------------------------
 
-(load "git@github.com:carpentry-org/http@0.1.3")
+(load "git@github.com:carpentry-org/http@0.1.4")
 (load "git@github.com:carpentry-org/socket@0.1.4")
-(load "git@github.com:carpentry-org/json@0.2.1")
+(load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.1.2")
 (load "git@github.com:carpentry-org/log@0.1.1")
 
@@ -493,6 +493,19 @@ returns.")
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg]
     (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
+
+  (private ws-write-fd-)
+  (hidden ws-write-fd-)
+  (relative-include "src/ws_write.h")
+  (register ws-write-fd- (Fn [Int &(Array Byte)] Int) "ws_write_fd")
+
+  (doc send-now "sends a text message immediately, bypassing the outbox.
+Writes the WebSocket frame directly to the socket. Use this inside handlers
+that block for a long time (e.g. LLM streaming) so that each message reaches
+the client without waiting for the handler to return.")
+  (defn send-now [ws msg]
+    (let [frame (encode-text msg)]
+      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
 )
 
 ; WebSocket accept key (RFC 6455 section 4.2.2)

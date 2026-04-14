@@ -154,6 +154,117 @@
     "server frame round-trips through decode")
 
   ; ---------------------------------------------------------------------------
+  ; Extended length encoding (16-bit)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    (Byte.from-int 126)
+    (let [f (WebSocket.encode-text &(String.allocate 200 \x))]
+      @(Array.unsafe-nth &f 1))
+    "encode-text uses 16-bit length for >125 bytes")
+
+  (assert-equal test
+    200
+    (let [f (WebSocket.encode-text &(String.allocate 200 \x))]
+      (- (Array.length &f) 4))
+    "encode-text 16-bit payload length correct")
+
+  ; ---------------------------------------------------------------------------
+  ; Decode at non-zero offset (multiple frames in buffer)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "world"
+    &(let-do [f1 (make-masked-text-frame "hello")
+              f2 (make-masked-text-frame "world")
+              buf (the (Array Byte) [])]
+       (for [i 0 (Array.length &f1)]
+         (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+       (for [i 0 (Array.length &f2)]
+         (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
+       (let [off (Array.length &f1)]
+         (match (WebSocket.decode-frame &buf off)
+           (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+           (Maybe.Nothing) @"FAIL")))
+    "decode-frame at non-zero offset")
+
+  ; ---------------------------------------------------------------------------
+  ; Close and pong frame codec
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    8
+    (let [f (WebSocket.encode-close)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.opcode &frame)
+        (Maybe.Nothing) -1))
+    "decode close frame opcode")
+
+  (assert-equal test
+    10
+    (let [f (WebSocket.encode-pong &(String.to-bytes &@"ping"))]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.opcode &frame)
+        (Maybe.Nothing) -1))
+    "decode pong frame opcode")
+
+  ; ---------------------------------------------------------------------------
+  ; web-routable-path
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "/"
+    &(let [req (Result.unsafe-from-success
+                 (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+       (web-routable-path &req))
+    "routable-path for root")
+
+  (assert-equal test
+    "/users/42"
+    &(let [req (Result.unsafe-from-success
+                 (Request.parse "GET /users/42 HTTP/1.1\r\nHost: x\r\n\r\n"))]
+       (web-routable-path &req))
+    "routable-path with segments")
+
+  ; ---------------------------------------------------------------------------
+  ; Keep-alive detection
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (let [req (Result.unsafe-from-success
+                (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (web-keep-alive? &req))
+    "HTTP/1.1 defaults to keep-alive")
+
+  (assert-false test
+    (let [req (Result.unsafe-from-success
+                (Request.parse "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))]
+      (web-keep-alive? &req))
+    "Connection: close disables keep-alive")
+
+  ; ---------------------------------------------------------------------------
+  ; Upgrade detection
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "upgrade detection matches WS route")
+
+  (assert-true test
+    (let [app (App.create)
+          buf (String.to-bytes &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: abc\r\n\r\n")]
+      (Maybe.nothing? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "upgrade detection with no WS routes")
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes &@"GET / HTTP/1.1\r\nHost: x\r\n\r\n")]
+      (Maybe.nothing? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "non-upgrade request returns Nothing")
+
+  ; ---------------------------------------------------------------------------
   ; App construction with WS routes
   ; ---------------------------------------------------------------------------
 
