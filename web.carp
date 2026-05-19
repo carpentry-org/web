@@ -644,7 +644,8 @@ frames. The event loop drains the outbox after the handler returns.")
                     outbox (Array (Array Byte))])
 
 (hidden WSFrame)
-(deftype WSFrame [opcode Int
+(deftype WSFrame [fin Bool
+                  opcode Int
                   payload (Array Byte)
                   consumed Int])
 
@@ -726,6 +727,7 @@ frames. The event loop drains the outbox after the handler returns.")
         (the (Maybe WSFrame) (Maybe.Nothing))
         (let-do [b0 (Byte.to-int @(Array.unsafe-nth buf offset))
                  b1 (Byte.to-int @(Array.unsafe-nth buf (+ offset 1)))
+                 fin (> (bit-and b0 128) 0)
                  opcode (bit-and b0 15)
                  masked (> (bit-and b1 128) 0)
                  plen0 (bit-and b1 127)
@@ -784,7 +786,7 @@ frames. The event loop drains the outbox after the handler returns.")
                                                                (Int.mod k 4))))))
                             b)]
                       (Array.aset! &payload k unmasked)))
-                  (Maybe.Just (WSFrame.init opcode payload total))))))))))
+                  (Maybe.Just (WSFrame.init fin opcode payload total))))))))))
 
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
@@ -1111,7 +1113,9 @@ responses.")
    sf-sizes (Map Int Long)
    to-close (Array Int)
    ws-route-idx (Map Int Int)
-   ws-params (Map Int (Map String String))])
+   ws-params (Map Int (Map String String))
+   ws-frag-bufs (Map Int (Array Byte))
+   ws-frag-opcodes (Map Int Int)])
 
 (defmodule App
   (doc create "creates an empty App with no routes and a default error handler.")
@@ -1231,7 +1235,9 @@ fallback.")
           (Map.remove! (ConnState.sf-offsets cs) &fd)
           (Map.remove! (ConnState.sf-sizes cs) &fd)))
       (Map.remove! (ConnState.ws-route-idx cs) &fd)
-      (Map.remove! (ConnState.ws-params cs) &fd)))
+      (Map.remove! (ConnState.ws-params cs) &fd)
+      (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
+      (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)))
 
   ; -----------------------------------------------------------------------
   ; Event handlers
@@ -1368,28 +1374,16 @@ fallback.")
               (match (WebSocket.decode-frame &buf offset)
                 (Maybe.Nothing) (break)
                 (Maybe.Just frame)
-                  (let [op @(WSFrame.opcode &frame)
+                  (let [fin @(WSFrame.fin &frame)
+                        op @(WSFrame.opcode &frame)
                         consumed @(WSFrame.consumed &frame)
-                        plen (Array.length (WSFrame.payload &frame))]
-                    (if (> plen App.max-request-size)
-                      (do (set! should-close true) (break))
+                        plen (Array.length (WSFrame.payload &frame))
+                        is-control (>= op 8)]
+                    (cond
+                      ; Control frames: always process immediately (RFC 6455 §5.4)
+                      is-control
                       (do
                         (cond
-                          (= op 1)
-                          ; text
-                          (~(WSRoute.handler (Array.unsafe-nth ws-routes
-                                                               route-idx))
-                            &(WSEvent.Message
-                              (String.from-bytes (WSFrame.payload &frame)))
-                            &params
-                            &ws)
-                          (= op 2)
-                          ; binary
-                          (~(WSRoute.handler (Array.unsafe-nth ws-routes
-                                                               route-idx))
-                            &(WSEvent.Binary @(WSFrame.payload &frame))
-                            &params
-                            &ws)
                           (= op 9)
                           ; ping -> pong
                           (Array.push-back! (WebSocket.outbox &ws)
@@ -1405,7 +1399,100 @@ fallback.")
                                               (WebSocket.encode-close))
                             (set! should-close true))
                           ())
-                        (set! offset (+ offset consumed)))))))
+                        ; pong (10) — ignore
+                        (set! offset (+ offset consumed)))
+                      ; Single data frame too large
+                      (> plen App.max-request-size)
+                      (do (set! should-close true) (break))
+                      ; First fragment (FIN=0, opcode 1 or 2)
+                      (and (not fin) (or (= op 1) (= op 2)))
+                      (if (Map.contains? (ConnState.ws-frag-opcodes cs) &fd)
+                        ; Protocol error: new message while fragments pending
+                        (do
+                          (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
+                          (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                          (set! should-close true)
+                          (break))
+                        (let-do [payload @(WSFrame.payload &frame)]
+                          (Map.put! (ConnState.ws-frag-opcodes cs) &fd &op)
+                          (Map.put! (ConnState.ws-frag-bufs cs) &fd &payload)
+                          (set! offset (+ offset consumed))))
+                      ; Continuation frame (opcode 0)
+                      (= op 0)
+                      (if (not
+                          (Map.contains? (ConnState.ws-frag-opcodes cs) &fd))
+                        ; Protocol error: continuation without start
+                        (do (set! should-close true) (break))
+                        (let [frag-size (Map.value-ref! (ConnState.ws-frag-bufs cs)
+                                                        &fd
+                                                        &(fn [b]
+                                                          (Array.length b))
+                                                        0)]
+                          (if (> (+ frag-size plen) App.max-request-size)
+                            ; Accumulated message too large
+                            (do
+                              (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
+                              (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                              (set! should-close true)
+                              (break))
+                            (let-do [frag-buf (Map.value-ref! (ConnState.ws-frag-bufs cs)
+                                                              &fd
+                                                              &(fn [b] @b)
+                                                              (the (Array Byte)
+                                                                   []))]
+                              (for [k 0 plen]
+                                (Array.push-back! &frag-buf
+                                                  @(Array.unsafe-nth (WSFrame.payload &frame)
+                                                                     k)))
+                              (if fin
+                                ; Message complete — dispatch
+                                (let-do [orig-op (Map.get (ConnState.ws-frag-opcodes cs)
+                                                          &fd)]
+                                  (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
+                                  (Map.remove! (ConnState.ws-frag-opcodes cs)
+                                               &fd)
+                                  (if (= orig-op 1)
+                                    (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                         route-idx))
+                                      &(WSEvent.Message (String.from-bytes &frag-buf))
+                                      &params
+                                      &ws)
+                                    (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                         route-idx)) &(WSEvent.Binary @&frag-buf)
+                                                                                     &params
+                                                                                     &ws))
+                                  (set! offset (+ offset consumed)))
+                                ; More fragments expected
+                                (do
+                                  (Map.put! (ConnState.ws-frag-bufs cs)
+                                            &fd
+                                            &frag-buf)
+                                  (set! offset (+ offset consumed))))))))
+                      ; Unfragmented message (FIN=1, opcode 1 or 2)
+                      (and fin (or (= op 1) (= op 2)))
+                      (if (Map.contains? (ConnState.ws-frag-opcodes cs) &fd)
+                        ; Protocol error: non-continuation during fragmentation
+                        (do
+                          (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
+                          (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                          (set! should-close true)
+                          (break))
+                        (do
+                          (if (= op 1)
+                            (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                 route-idx))
+                              &(WSEvent.Message
+                                (String.from-bytes (WSFrame.payload &frame)))
+                              &params
+                              &ws)
+                            (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                 route-idx))
+                              &(WSEvent.Binary @(WSFrame.payload &frame))
+                              &params
+                              &ws))
+                          (set! offset (+ offset consumed))))
+                      ; Unknown opcode — skip frame
+                      (set! offset (+ offset consumed))))))
             ; Update read-buf with remaining bytes
             (if (>= offset (Array.length &buf))
               (Map.update-value! (ConnState.read-bufs cs)
@@ -1635,7 +1722,20 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
           (Result.Error e) (do (IO.errorln &e) (TcpListener.close listener))
           (Result.Success poll)
             (let-do [lfd (TcpListener.poll-fd &listener)
-                     cs (ConnState.init {} {} {} {} {} {} {} {} {} [] {} {})]
+                     cs (ConnState.init {}
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        []
+                                        {}
+                                        {}
+                                        {}
+                                        {})]
               (IO.println &(fmt "Listening on %s:%d" host port))
               (set! App.running true)
               (System.signal System.signal-int (fn [_] (set! App.running false)))
