@@ -463,8 +463,9 @@ map if the content type is not `application/x-www-form-urlencoded`.")
              result (the (Maybe String) (Maybe.Nothing))
              search (String.append key "=")]
       (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))]
-          (when (String.starts-with? part &search)
+        (let [part &(String.trim (Array.unsafe-nth parts i))
+              part-lower &(String.ascii-to-lower part)]
+          (when (String.starts-with? part-lower &search)
             (let-do [val-start (String.length &search)
                      val-str &(String.byte-slice part
                                                  val-start
@@ -518,8 +519,9 @@ map if the content type is not `application/x-www-form-urlencoded`.")
     (let-do [parts &(String.split-by content-type &[\;])
              result (the (Maybe String) (Maybe.Nothing))]
       (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))]
-          (when (String.starts-with? part "boundary=")
+        (let [part &(String.trim (Array.unsafe-nth parts i))
+              part-lower &(String.ascii-to-lower part)]
+          (when (String.starts-with? part-lower "boundary=")
             (let-do [val-str &(String.byte-slice part 9 (String.length part))]
               (if (and (> (String.length val-str) 0)
                        (= (String.char-at val-str 0) \"))
@@ -530,6 +532,16 @@ map if the content type is not `application/x-www-form-urlencoded`.")
                 (set! result (Maybe.Just @val-str)))
               (break)))))
       result))
+
+  (hidden skip-lwsp)
+  (defn skip-lwsp [s pos]
+    (let-do [p pos
+             len (String.length s)]
+      (while (and (< p len)
+                  (or (= (String.char-at s p) \space)
+                      (= (String.char-at s p) \tab)))
+        (set! p (+ p 1)))
+      p))
 
   (doc decode-multipart "parses a `multipart/form-data` body given the
 boundary string. Returns an array of [`FormPart`](#FormPart) values.
@@ -550,6 +562,7 @@ part headers and the next boundary delimiter.")
              start (find-substring body &delim 0)]
       (when (>= start 0)
         (let-do [pos (+ start (String.length &delim))]
+          (set! pos (skip-lwsp body pos))
           (when (and (< (+ pos 1) body-len)
                      (= (String.char-at body pos) \return)
                      (= (String.char-at body (+ pos 1)) \newline))
@@ -562,7 +575,8 @@ part headers and the next boundary delimiter.")
                   (match (parse-multipart-part part-str)
                     (Maybe.Just part) (Array.push-back! &parts part)
                     (Maybe.Nothing) ())
-                  (let [after (+ next (String.length &crlf-delim))]
+                  (let-do [after (+ next (String.length &crlf-delim))]
+                    (set! after (skip-lwsp body after))
                     (if (and (<= (+ after 2) body-len)
                              (= (String.char-at body after) \-)
                              (= (String.char-at body (+ after 1)) \-))

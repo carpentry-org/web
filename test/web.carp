@@ -370,6 +370,57 @@
         0))
     "decode-multipart handles lowercase headers")
 
+  ; -- decode-multipart: case-insensitive param names --
+  (assert-equal test
+    "field1"
+    (FormPart.name
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; Name=\"field1\"\r\n\r\nval\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart handles uppercase param Name")
+
+  (assert-equal test
+    "test.txt"
+    &(Maybe.unsafe-from
+      @(FormPart.filename
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"f\"; Filename=\"test.txt\"\r\n\r\ndata\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart handles uppercase Filename param")
+
+  ; -- decode-multipart: transport padding on boundary --
+  (assert-equal test
+    1
+    (Array.length
+      &(Form.decode-multipart
+        "--abc  \r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nval\r\n--abc--"
+        "abc"))
+    "decode-multipart tolerates padding after initial boundary")
+
+  (assert-equal test
+    2
+    (Array.length
+      &(Form.decode-multipart
+        "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc \t\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
+        "abc"))
+    "decode-multipart tolerates padding between parts")
+
+  ; -- decode-multipart-request: case-insensitive boundary param --
+  (assert-equal test
+    "hello"
+    (FormPart.body
+      (Array.unsafe-nth
+        &(Form.decode-multipart-request
+          &(Result.unsafe-from-success
+            (Request.parse
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
+        0))
+    "decode-multipart-request handles uppercase Boundary param")
+
   ; -- multipart? --
   (assert-true test
     (Form.multipart?
