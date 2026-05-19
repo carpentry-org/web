@@ -18,6 +18,7 @@
   (match-ref event
     (WSEvent.Connect) (WebSocket.send ws @\"connected\")
     (WSEvent.Message msg) (WebSocket.send ws (fmt \"echo: %s\" msg))
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
 (defserver \"0.0.0.0\" 8080
@@ -386,17 +387,19 @@ map if the content type is not `application/x-www-form-urlencoded`.")
 Handlers receive one of these for each lifecycle event:
 - `Connect`: the connection was upgraded from HTTP
 - `(Message msg)`: a text message arrived
+- `(Binary data)`: a binary message arrived
 - `Close`: the peer requested a close")
 (deftype WSEvent
   Connect
   (Message [String])
+  (Binary [(Array Byte)])
   Close)
 
 (doc WebSocket "represents an active WebSocket connection.
 
-Handlers receive a reference to this and call [`WebSocket.send`](#send) to
-queue outgoing text frames. The event loop drains the outbox after the handler
-returns.")
+Handlers receive a reference to this and call [`WebSocket.send`](#send) or
+[`WebSocket.send-binary`](#send-binary) to queue outgoing text or binary
+frames. The event loop drains the outbox after the handler returns.")
 (deftype WebSocket [fd Int
                     outbox (Array (Array Byte))])
 
@@ -426,6 +429,29 @@ returns.")
             (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
       (for [k 0 len]
         (Array.push-back! &frame @(Array.unsafe-nth &bytes k)))
+      frame))
+
+  (doc encode-binary "encodes a byte array as a WebSocket binary frame (no mask).")
+  (defn encode-binary [data]
+    (let-do [len (Array.length data)
+             frame (the (Array Byte) [])]
+      (Array.push-back! &frame (Byte.from-int 130)) ; 0x82 FIN + binary
+      (cond
+        (< len 126)
+          (Array.push-back! &frame (Byte.from-int len))
+        (< len 65536)
+          (do (Array.push-back! &frame (Byte.from-int 126))
+              (Array.push-back! &frame (Byte.from-int (/ len 256)))
+              (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
+        (do (Array.push-back! &frame (Byte.from-int 127))
+            (for [k 0 4]
+              (Array.push-back! &frame (Byte.from-int 0)))
+            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
+            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
+            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
+            (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
+      (for [k 0 len]
+        (Array.push-back! &frame @(Array.unsafe-nth data k)))
       frame))
 
   (hidden encode-pong)
@@ -494,6 +520,10 @@ returns.")
   (defn send [ws msg]
     (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
 
+  (doc send-binary "queues a binary message for sending on the WebSocket connection.")
+  (defn send-binary [ws data]
+    (Array.push-back! (WebSocket.outbox ws) (encode-binary data)))
+
   (private ws-write-fd-)
   (hidden ws-write-fd-)
   (relative-include "src/ws_write.h")
@@ -505,6 +535,12 @@ that block for a long time (e.g. LLM streaming) so that each message reaches
 the client without waiting for the handler to return.")
   (defn send-now [ws msg]
     (let [frame (encode-text msg)]
+      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
+
+  (doc send-binary-now "sends a binary message immediately, bypassing the outbox.
+Like [`send-now`](#send-now) but for binary data.")
+  (defn send-binary-now [ws data]
+    (let [frame (encode-binary data)]
       (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
 )
 
@@ -832,13 +868,14 @@ responses.")
   (defn PATCH [app pattern handler] (route app @"PATCH" pattern handler))
 
   (doc WS "adds a WebSocket route. The handler is called for each lifecycle
-event ([`WSEvent`](#WSEvent)): `Connect`, `Message`, and `Close`.
+event ([`WSEvent`](#WSEvent)): `Connect`, `Message`, `Binary`, and `Close`.
 
 ```
 (defn echo [event params ws]
   (match-ref event
     (WSEvent.Connect) (WebSocket.send ws @\"connected\")
     (WSEvent.Message msg) (WebSocket.send ws (fmt \"echo: %s\" msg))
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
 (defserver \"0.0.0.0\" 3000
@@ -1044,6 +1081,10 @@ fallback.")
                           (= op 1) ; text
                           (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
                             &(WSEvent.Message (String.from-bytes (WSFrame.payload &frame)))
+                            &params &ws)
+                        (= op 2) ; binary
+                          (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
+                            &(WSEvent.Binary @(WSFrame.payload &frame))
                             &params &ws)
                         (= op 9) ; ping -> pong
                           (Array.push-back! (WebSocket.outbox &ws)

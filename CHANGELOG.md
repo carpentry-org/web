@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Binary WebSocket frame support.** `WSEvent.Binary` variant for receiving
+  binary frames (opcode 0x2). `WebSocket.encode-binary` encodes byte arrays
+  as binary frames. `WebSocket.send-binary` and `WebSocket.send-binary-now`
+  mirror their text counterparts for binary data.
+
 ## 0.4.0 (2026-04-15)
 
 ### Added
