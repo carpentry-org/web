@@ -24,6 +24,27 @@
                                 (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
     frame))
 
+; Build a masked client frame for testing decode-frame with binary opcode.
+; Opcode 2 (binary), mask key [0x37 0xfa 0x21 0x3d].
+(defn make-masked-binary-frame [data]
+  (let-do [len (Array.length data)
+           frame (the (Array Byte) [])
+           mask [(Byte.from-int 55) (Byte.from-int 250)
+                 (Byte.from-int 33) (Byte.from-int 61)]]
+    ; FIN + binary
+    (Array.push-back! &frame (Byte.from-int 130))
+    ; MASK bit + length (assume < 126)
+    (Array.push-back! &frame (Byte.from-int (+ 128 len)))
+    ; Mask key
+    (for [i 0 4]
+      (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+    ; Masked payload
+    (for [i 0 len]
+      (Array.push-back! &frame
+        (Byte.from-int (bit-xor (Byte.to-int @(Array.unsafe-nth data i))
+                                (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
+    frame))
+
 (deftest test
   ; ---------------------------------------------------------------------------
   ; Base64 encoding
@@ -283,4 +304,89 @@
                   (App.WS @"/ws/echo" (fn [e p w] ())))]
       (Array.length (App.routes &app)))
     "WS routes do not affect HTTP routes count")
+
+  ; ---------------------------------------------------------------------------
+  ; Binary frame encoding (server-to-client, no mask)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    2
+    (let [f (WebSocket.encode-binary &(the (Array Byte) []))]
+      (Array.length &f))
+    "encode-binary empty is 2 bytes (header only)")
+
+  (assert-equal test
+    (Byte.from-int 130) ; 0x82 = FIN + binary
+    (let [f (WebSocket.encode-binary &[(Byte.from-int 1) (Byte.from-int 2)])]
+      @(Array.unsafe-nth &f 0))
+    "encode-binary sets FIN + opcode 2")
+
+  (assert-equal test
+    (Byte.from-int 3)
+    (let [f (WebSocket.encode-binary &[(Byte.from-int 10) (Byte.from-int 20) (Byte.from-int 30)])]
+      @(Array.unsafe-nth &f 1))
+    "encode-binary sets payload length")
+
+  (assert-equal test
+    &[(Byte.from-int 0xDE) (Byte.from-int 0xAD)]
+    &(let-do [f (WebSocket.encode-binary &[(Byte.from-int 0xDE) (Byte.from-int 0xAD)])
+              payload (the (Array Byte) [])]
+       (for [i 2 (Array.length &f)]
+         (Array.push-back! &payload @(Array.unsafe-nth &f i)))
+       @&payload)
+    "encode-binary payload matches input")
+
+  ; ---------------------------------------------------------------------------
+  ; Binary frame decoding (client-to-server, masked)
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
+      (Maybe.just? &(WebSocket.decode-frame &(make-masked-binary-frame &data) 0)))
+    "decode-frame succeeds on binary frame")
+
+  (assert-equal test
+    2
+    (let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
+      (match (WebSocket.decode-frame &(make-masked-binary-frame &data) 0)
+        (Maybe.Just f) @(WSFrame.opcode &f)
+        (Maybe.Nothing) -1))
+    "decode-frame returns opcode 2 for binary")
+
+  (assert-equal test
+    &[(Byte.from-int 0xCA) (Byte.from-int 0xFE)]
+    &(let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
+       (match (WebSocket.decode-frame &(make-masked-binary-frame &data) 0)
+         (Maybe.Just f) @(WSFrame.payload &f)
+         (Maybe.Nothing) (the (Array Byte) [])))
+    "decode-frame unmasks binary payload correctly")
+
+  ; ---------------------------------------------------------------------------
+  ; Binary encode/decode round-trip (server frame, no mask)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    &[(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
+    &(let [data [(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
+           encoded (WebSocket.encode-binary &data)]
+       (match (WebSocket.decode-frame &encoded 0)
+         (Maybe.Just f) @(WSFrame.payload &f)
+         (Maybe.Nothing) (the (Array Byte) [])))
+    "binary frame round-trips through decode")
+
+  ; ---------------------------------------------------------------------------
+  ; Binary extended length encoding (16-bit)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    (Byte.from-int 126)
+    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 0xFF)))]
+      @(Array.unsafe-nth &f 1))
+    "encode-binary uses 16-bit length for >125 bytes")
+
+  (assert-equal test
+    200
+    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 0xFF)))]
+      (- (Array.length &f) 4))
+    "encode-binary 16-bit payload length correct")
 )
