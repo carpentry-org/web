@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Multipart form-data parsing.** `FormPart` type represents a single part
+  from a `multipart/form-data` request, with `name`, optional `filename`,
+  `content-type`, and `body` fields. `Form.decode-multipart` parses a
+  multipart body given a boundary string. `Form.decode-multipart-request`
+  extracts the boundary from the Content-Type header and parses automatically.
+  `Form.multipart?` checks whether a request has multipart content type.
+  Header matching is case-insensitive.
+
 - **Binary WebSocket frame support.** `WSEvent.Binary` variant for receiving
   binary frames (opcode 0x2). `WebSocket.encode-binary` encodes byte arrays
   as binary frames. `WebSocket.send-binary` and `WebSocket.send-binary-now`

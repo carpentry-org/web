@@ -47,30 +47,34 @@
   (hidden rotl32)
   (defn rotl32 [x n]
     (let [m (mask32 x)]
-      (mask32 (bit-or (bit-shift-left m n)
-                      (bit-shift-right m (- 32l n))))))
+      (mask32 (bit-or (bit-shift-left m n) (bit-shift-right m (- 32l n))))))
 
   (hidden word32)
   (defn word32 [b0 b1 b2 b3]
-    (mask32 (bit-or (bit-or (bit-shift-left (Long.from-int b0) 24l)
-                            (bit-shift-left (Long.from-int b1) 16l))
-                    (bit-or (bit-shift-left (Long.from-int b2) 8l)
-                            (Long.from-int b3)))))
+    (mask32
+      (bit-or
+        (bit-or (bit-shift-left (Long.from-int b0) 24l)
+                (bit-shift-left (Long.from-int b1) 16l))
+        (bit-or (bit-shift-left (Long.from-int b2) 8l) (Long.from-int b3)))))
 
   (doc digest "computes the SHA-1 digest of a byte array, returning 20 bytes.")
   (defn digest [data]
     (let-do [msg-len (Array.length data)
              bit-len (* (Long.from-int msg-len) 8l)
              pad-len (let [r (Int.mod (+ msg-len 9) 64)]
-                       (+ (+ msg-len 9) (if (= r 0) 0 (- 64 r))))
+               (+ (+ msg-len 9) (if (= r 0) 0 (- 64 r))))
              buf (Array.replicate pad-len &(Byte.from-int 0))]
-      (for [i 0 msg-len]
-        (Array.aset! &buf i @(Array.unsafe-nth data i)))
+      (for [i 0 msg-len] (Array.aset! &buf i @(Array.unsafe-nth data i)))
       (Array.aset! &buf msg-len (Byte.from-int 128))
       (for [i 0 8]
-        (Array.aset! &buf (+ (- pad-len 8) i)
-          (Byte.from-int (Long.to-int
-            (bit-and (bit-shift-right bit-len (* (Long.from-int (- 7 i)) 8l)) 255l)))))
+        (Array.aset! &buf
+                     (+ (- pad-len 8) i)
+                     (Byte.from-int
+                       (Long.to-int
+                         (bit-and
+                           (bit-shift-right bit-len
+                                            (* (Long.from-int (- 7 i)) 8l))
+                           255l)))))
       (let-do [h0 1732584193l
                h1 4023233417l
                h2 2562383102l
@@ -81,37 +85,54 @@
                    w (Array.replicate 80 &0l)]
             (for [j 0 16]
               (let [bi (+ off (* j 4))]
-                (Array.aset! &w j
-                  (word32 (Byte.to-int @(Array.unsafe-nth &buf bi))
-                          (Byte.to-int @(Array.unsafe-nth &buf (+ bi 1)))
-                          (Byte.to-int @(Array.unsafe-nth &buf (+ bi 2)))
-                          (Byte.to-int @(Array.unsafe-nth &buf (+ bi 3)))))))
+                (Array.aset! &w
+                             j
+                             (word32
+                               (Byte.to-int @(Array.unsafe-nth &buf bi))
+                               (Byte.to-int @(Array.unsafe-nth &buf (+ bi 1)))
+                               (Byte.to-int @(Array.unsafe-nth &buf (+ bi 2)))
+                               (Byte.to-int @(Array.unsafe-nth &buf (+ bi 3)))))))
             (for [j 16 80]
-              (Array.aset! &w j
-                (rotl32 (bit-xor (bit-xor @(Array.unsafe-nth &w (- j 3))
-                                          @(Array.unsafe-nth &w (- j 8)))
-                                 (bit-xor @(Array.unsafe-nth &w (- j 14))
-                                          @(Array.unsafe-nth &w (- j 16))))
-                        1l)))
-            (let-do [a h0 b h1 c h2 d h3 e h4]
+              (Array.aset! &w
+                           j
+                           (rotl32
+                             (bit-xor
+                               (bit-xor @(Array.unsafe-nth &w (- j 3))
+                                        @(Array.unsafe-nth &w (- j 8)))
+                               (bit-xor @(Array.unsafe-nth &w (- j 14))
+                                        @(Array.unsafe-nth &w (- j 16))))
+                             1l)))
+            (let-do [a h0
+                     b h1
+                     c h2
+                     d h3
+                     e h4]
               (for [j 0 80]
                 (let [f (cond
-                          (< j 20) (mask32 (bit-or (bit-and b c)
-                                                   (bit-and (mask32 (bit-not b)) d)))
-                          (< j 40) (mask32 (bit-xor b (bit-xor c d)))
-                          (< j 60) (mask32 (bit-or (bit-or (bit-and b c) (bit-and b d))
-                                                   (bit-and c d)))
-                          (mask32 (bit-xor b (bit-xor c d))))
+                        (< j 20)
+                          (mask32
+                            (bit-or (bit-and b c)
+                                    (bit-and (mask32 (bit-not b)) d)))
+                        (< j 40) (mask32 (bit-xor b (bit-xor c d)))
+                        (< j 60)
+                          (mask32
+                            (bit-or (bit-or (bit-and b c) (bit-and b d))
+                                    (bit-and c d)))
+                        (mask32 (bit-xor b (bit-xor c d))))
                       k (cond
-                          (< j 20) 1518500249l
-                          (< j 40) 1859775393l
-                          (< j 60) 2400959708l
-                          3395469782l)
-                      temp (mask32 (+ (+ (+ (+ (rotl32 a 5l) f) e) k)
-                                     @(Array.unsafe-nth &w j)))]
-                  (do (set! e d) (set! d c)
-                      (set! c (rotl32 b 30l))
-                      (set! b a) (set! a temp))))
+                        (< j 20) 1518500249l
+                        (< j 40) 1859775393l
+                        (< j 60) 2400959708l
+                        3395469782l)
+                      temp (mask32
+                        (+ (+ (+ (+ (rotl32 a 5l) f) e) k)
+                           @(Array.unsafe-nth &w j)))]
+                  (do
+                    (set! e d)
+                    (set! d c)
+                    (set! c (rotl32 b 30l))
+                    (set! b a)
+                    (set! a temp))))
               (set! h0 (mask32 (+ h0 a)))
               (set! h1 (mask32 (+ h1 b)))
               (set! h2 (mask32 (+ h2 c)))
@@ -122,11 +143,16 @@
             (let [h (cond (= i 0) h0 (= i 1) h1 (= i 2) h2 (= i 3) h3 h4)
                   base (* i 4)]
               (for [j 0 4]
-                (Array.aset! &result (+ base j)
-                  (Byte.from-int (Long.to-int
-                    (bit-and (bit-shift-right h (* (Long.from-int (- 3 j)) 8l)) 255l)))))))
-          result))))
-)
+                (Array.aset! &result
+                             (+ base j)
+                             (Byte.from-int
+                               (Long.to-int
+                                 (bit-and
+                                   (bit-shift-right h
+                                                    (* (Long.from-int (- 3 j))
+                                                       8l))
+                                   255l)))))))
+          result)))))
 
 ; ---------------------------------------------------------------------------
 ; Base64 encoding (RFC 4648)
@@ -134,7 +160,8 @@
 
 (defmodule Base64
   (hidden b64-alphabet)
-  (def b64-alphabet @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
+  (def b64-alphabet
+    @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/")
 
   (doc encode "base64-encodes a byte array.")
   (defn encode [data]
@@ -145,34 +172,59 @@
         (let [b0 (Byte.to-int @(Array.unsafe-nth data i))
               b1 (Byte.to-int @(Array.unsafe-nth data (+ i 1)))
               b2 (Byte.to-int @(Array.unsafe-nth data (+ i 2)))]
-          (do (Array.push-back! &out (String.char-at &b64-alphabet (bit-shift-right b0 2)))
-              (Array.push-back! &out (String.char-at &b64-alphabet
-                (bit-or (bit-shift-left (bit-and b0 3) 4) (bit-shift-right b1 4))))
-              (Array.push-back! &out (String.char-at &b64-alphabet
-                (bit-or (bit-shift-left (bit-and b1 15) 2) (bit-shift-right b2 6))))
-              (Array.push-back! &out (String.char-at &b64-alphabet (bit-and b2 63)))
-              (set! i (+ i 3)))))
+          (do
+            (Array.push-back! &out
+                              (String.char-at &b64-alphabet
+                                              (bit-shift-right b0 2)))
+            (Array.push-back! &out
+                              (String.char-at &b64-alphabet
+                                              (bit-or (bit-shift-left (bit-and b0
+                                                                               3)
+                                                                      4)
+                                                      (bit-shift-right b1 4))))
+            (Array.push-back! &out
+                              (String.char-at &b64-alphabet
+                                              (bit-or (bit-shift-left (bit-and b1
+                                                                               15)
+                                                                      2)
+                                                      (bit-shift-right b2 6))))
+            (Array.push-back! &out
+                              (String.char-at &b64-alphabet (bit-and b2 63)))
+            (set! i (+ i 3)))))
       (let [rem (- len i)]
         (cond
           (= rem 1)
             (let [b0 (Byte.to-int @(Array.unsafe-nth data i))]
-              (do (Array.push-back! &out (String.char-at &b64-alphabet (bit-shift-right b0 2)))
-                  (Array.push-back! &out (String.char-at &b64-alphabet
-                    (bit-shift-left (bit-and b0 3) 4)))
-                  (Array.push-back! &out \=)
-                  (Array.push-back! &out \=)))
+              (do
+                (Array.push-back! &out
+                                  (String.char-at &b64-alphabet
+                                                  (bit-shift-right b0 2)))
+                (Array.push-back! &out
+                                  (String.char-at &b64-alphabet
+                                                  (bit-shift-left (bit-and b0 3)
+                                                                  4)))
+                (Array.push-back! &out \=)
+                (Array.push-back! &out \=)))
           (= rem 2)
             (let [b0 (Byte.to-int @(Array.unsafe-nth data i))
                   b1 (Byte.to-int @(Array.unsafe-nth data (+ i 1)))]
-              (do (Array.push-back! &out (String.char-at &b64-alphabet (bit-shift-right b0 2)))
-                  (Array.push-back! &out (String.char-at &b64-alphabet
-                    (bit-or (bit-shift-left (bit-and b0 3) 4) (bit-shift-right b1 4))))
-                  (Array.push-back! &out (String.char-at &b64-alphabet
-                    (bit-shift-left (bit-and b1 15) 2)))
-                  (Array.push-back! &out \=)))
+              (do
+                (Array.push-back! &out
+                                  (String.char-at &b64-alphabet
+                                                  (bit-shift-right b0 2)))
+                (Array.push-back! &out
+                                  (String.char-at &b64-alphabet
+                                                  (bit-or (bit-shift-left (bit-and b0
+                                                                                   3)
+                                                                          4)
+                                                          (bit-shift-right b1 4))))
+                (Array.push-back! &out
+                                  (String.char-at &b64-alphabet
+                                                  (bit-shift-left (bit-and b1 15)
+                                                                  2)))
+                (Array.push-back! &out \=)))
           ()))
-      (String.from-chars &out)))
-)
+      (String.from-chars &out))))
 
 ; ---------------------------------------------------------------------------
 ; Map extensions: mutable value access for event loops
@@ -197,9 +249,7 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
             i (Bucket.find bucket k)]
         (if (>= i 0)
           (~f (Pair.b (Array.unsafe-nth (Bucket.entries bucket) i)))
-          default))))
-
-)
+          default)))))
 
 ; ---------------------------------------------------------------------------
 ; Response helpers
@@ -222,14 +272,11 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
   (defn json [j]
     (let [k @"Content-Type"
           v [@"application/json"]
-          body (match (JSON.str j)
-                 (Result.Success s) s
-                 (Result.Error _) @"{}")]
+          body (match (JSON.str j) (Result.Success s) s (Result.Error _) @"{}")]
       (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) body)))
 
   (doc not-found "creates a 404 Not Found response.")
-  (defn not-found []
-    (init 404 @"Not Found" @"HTTP/1.1" [] {} @"Not Found"))
+  (defn not-found [] (init 404 @"Not Found" @"HTTP/1.1" [] {} @"Not Found"))
 
   (doc bad-request "creates a 400 Bad Request response.")
   (defn bad-request []
@@ -244,34 +291,35 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
   (doc with-header "adds a header to a response.")
   (defn with-header [r k v]
     (set-headers r
-      (Map.update-with-default
-        @(headers &r) &k &(fn [a] (Array.push-back a @&v)) [])))
+                 (Map.update-with-default @(headers &r)
+                                          &k
+                                          &(fn [a] (Array.push-back a @&v))
+                                          [])))
 
   (doc with-status "sets the status code and message of a response.")
-  (defn with-status [r code msg]
-    (set-message (set-code r code) msg))
+  (defn with-status [r code msg] (set-message (set-code r code) msg))
 
   (doc content-type-for "infers an HTTP `Content-Type` for a file path
 based on its extension. Unknown extensions return `application/octet-stream`.")
   (defn content-type-for [path]
     (cond
-      (String.ends-with? path ".html")  @"text/html; charset=utf-8"
-      (String.ends-with? path ".js")    @"application/javascript; charset=utf-8"
-      (String.ends-with? path ".mjs")   @"application/javascript; charset=utf-8"
-      (String.ends-with? path ".css")   @"text/css; charset=utf-8"
-      (String.ends-with? path ".svg")   @"image/svg+xml"
-      (String.ends-with? path ".json")  @"application/json"
-      (String.ends-with? path ".png")   @"image/png"
-      (String.ends-with? path ".jpg")   @"image/jpeg"
-      (String.ends-with? path ".jpeg")  @"image/jpeg"
-      (String.ends-with? path ".gif")   @"image/gif"
-      (String.ends-with? path ".ico")   @"image/x-icon"
-      (String.ends-with? path ".webp")  @"image/webp"
-      (String.ends-with? path ".woff")  @"font/woff"
+      (String.ends-with? path ".html") @"text/html; charset=utf-8"
+      (String.ends-with? path ".js") @"application/javascript; charset=utf-8"
+      (String.ends-with? path ".mjs") @"application/javascript; charset=utf-8"
+      (String.ends-with? path ".css") @"text/css; charset=utf-8"
+      (String.ends-with? path ".svg") @"image/svg+xml"
+      (String.ends-with? path ".json") @"application/json"
+      (String.ends-with? path ".png") @"image/png"
+      (String.ends-with? path ".jpg") @"image/jpeg"
+      (String.ends-with? path ".jpeg") @"image/jpeg"
+      (String.ends-with? path ".gif") @"image/gif"
+      (String.ends-with? path ".ico") @"image/x-icon"
+      (String.ends-with? path ".webp") @"image/webp"
+      (String.ends-with? path ".woff") @"font/woff"
       (String.ends-with? path ".woff2") @"font/woff2"
-      (String.ends-with? path ".txt")   @"text/plain; charset=utf-8"
-      (String.ends-with? path ".xml")   @"application/xml"
-      (String.ends-with? path ".pdf")   @"application/pdf"
+      (String.ends-with? path ".txt") @"text/plain; charset=utf-8"
+      (String.ends-with? path ".xml") @"application/xml"
+      (String.ends-with? path ".pdf") @"application/pdf"
       @"application/octet-stream"))
 
   (doc file "creates a 200 OK response by reading `path` from disk. Returns
@@ -287,8 +335,9 @@ a 404 Not Found response if the file is missing or unreadable. The
           (Result.Success contents)
             (let [k @"Content-Type"
                   v [(content-type-for path)]]
-              (do (File.close f)
-                  (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) contents))))))
+              (do
+                (File.close f)
+                (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) contents))))))
 
   (doc chunked "creates a response with `Transfer-Encoding: chunked`.
 
@@ -309,9 +358,10 @@ callback-based API.")
       (for [i 0 (Array.length chunks)]
         (let [chunk (Array.unsafe-nth chunks i)
               len (String.length chunk)]
-          (do (set! buf (String.append &buf &(fmt "%x\r\n" len)))
-              (set! buf (String.append &buf chunk))
-              (set! buf (String.append &buf "\r\n")))))
+          (do
+            (set! buf (String.append &buf &(fmt "%x\r\n" len)))
+            (set! buf (String.append &buf chunk))
+            (set! buf (String.append &buf "\r\n")))))
       (set! buf (String.append &buf "0\r\n\r\n"))
       (-> (init code @"OK" @"HTTP/1.1" [] {} buf)
           (with-header @"Transfer-Encoding" @"chunked")
@@ -327,15 +377,25 @@ The `Content-Type` is inferred from the extension. The server sets
   (defn sendfile [path]
     (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
         (with-header @"Content-Type" (content-type-for path))
-        (with-header @"X-Sendfile" @path)))
-)
+        (with-header @"X-Sendfile" @path))))
 
 ; ---------------------------------------------------------------------------
 ; Form parsing
 ; ---------------------------------------------------------------------------
 
+(doc FormPart "represents a single part from a `multipart/form-data` request.
+
+Each part has a `name` (from the Content-Disposition header), an optional
+`filename` for file uploads, a `content-type` (defaults to `text/plain`),
+and the part `body`.")
+(deftype FormPart
+  [name String
+   filename (Maybe String)
+   content-type String
+   body String])
+
 (doc Form "provides helpers for parsing `application/x-www-form-urlencoded`
-request bodies.")
+and `multipart/form-data` request bodies.")
 (defmodule Form
   (doc parse "parses a URL-encoded form body into a `(Map String String)`.
 
@@ -351,7 +411,7 @@ Keys and values are URL-decoded. Duplicate keys keep the last value.")
              len (Array.length &cs)]
       (for [i 0 len]
         (when (= @(Array.unsafe-nth &cs i) (Char.to-byte \+))
-          (Array.aset! &cs i (Char.to-byte \ ))))
+          (Array.aset! &cs i (Char.to-byte \space))))
       (URI.unescape &(String.from-bytes &cs))))
 
   (defn decode [body]
@@ -371,12 +431,178 @@ Keys and values are URL-decoded. Duplicate keys keep the last value.")
   (doc parse-request "parses the form body from a request. Returns an empty
 map if the content type is not `application/x-www-form-urlencoded`.")
   (defn decode-request [req]
-    (let [ct (Map.get-with-default (Request.headers req) "Content-Type"
-               &[@""])]
-      (if (String.starts-with? (Array.unsafe-first &ct) "application/x-www-form-urlencoded")
+    (let [ct (Map.get-with-default (Request.headers req) "Content-Type" &[@""])]
+      (if (String.starts-with? (Array.unsafe-first &ct)
+                               "application/x-www-form-urlencoded")
         (decode (Request.body req))
         (the (Map String String) {}))))
-)
+
+  ; -----------------------------------------------------------------------
+  ; Multipart form-data parsing (RFC 2046)
+  ; -----------------------------------------------------------------------
+
+  (hidden find-substring)
+  (defn find-substring [haystack needle start]
+    (let-do [h-len (String.length haystack)
+             n-len (String.length needle)
+             result -1]
+      (when (and (> n-len 0) (<= (+ start n-len) h-len))
+        (for [i start (+ (- h-len n-len) 1)]
+          (let-do [matched true]
+            (for [j 0 n-len]
+              (when-do (/= (String.char-at haystack (+ i j))
+                           (String.char-at needle j))
+                (set! matched false)
+                (break)))
+            (when-do matched (set! result i) (break)))))
+      result))
+
+  (hidden extract-header-param)
+  (defn extract-header-param [s key]
+    (let-do [parts &(String.split-by s &[\;])
+             result (the (Maybe String) (Maybe.Nothing))
+             search (String.append key "=")]
+      (for [i 0 (Array.length parts)]
+        (let [part &(String.trim (Array.unsafe-nth parts i))]
+          (when (String.starts-with? part &search)
+            (let-do [val-start (String.length &search)
+                     val-str &(String.byte-slice part
+                                                 val-start
+                                                 (String.length part))]
+              (if (and (> (String.length val-str) 0)
+                       (= (String.char-at val-str 0) \"))
+                (let [end-quote (String.index-of-from val-str \" 1)]
+                  (when (> end-quote 0)
+                    (set! result
+                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
+                (set! result (Maybe.Just @val-str)))
+              (break)))))
+      result))
+
+  (hidden parse-multipart-part)
+  (defn parse-multipart-part [raw]
+    (let [hdr-end (find-substring raw "\r\n\r\n" 0)]
+      (if (< hdr-end 0)
+        (the (Maybe FormPart) (Maybe.Nothing))
+        (let [headers-str &(String.byte-slice raw 0 hdr-end)
+              headers-lower &(String.ascii-to-lower headers-str)
+              body (String.byte-slice raw (+ hdr-end 4) (String.length raw))
+              disp-pos (find-substring headers-lower "content-disposition:" 0)]
+          (if (< disp-pos 0)
+            (Maybe.Nothing)
+            (let [disp-start (+ disp-pos 20)
+                  disp-eol (find-substring headers-str "\r\n" disp-start)
+                  disp-end (if (< disp-eol 0)
+                    (String.length headers-str)
+                    disp-eol)
+                  disp-val &(String.byte-slice headers-str disp-start disp-end)
+                  name-result (extract-header-param disp-val "name")
+                  filename-result (extract-header-param disp-val "filename")
+                  ct-pos (find-substring headers-lower "content-type:" 0)
+                  ct (if (< ct-pos 0)
+                    @"text/plain"
+                    (let [ct-start (+ ct-pos 13)
+                          ct-eol (find-substring headers-str "\r\n" ct-start)
+                          ct-end (if (< ct-eol 0)
+                            (String.length headers-str)
+                            ct-eol)]
+                      (String.trim
+                        &(String.byte-slice headers-str ct-start ct-end))))]
+              (match name-result
+                (Maybe.Nothing) (Maybe.Nothing)
+                (Maybe.Just name)
+                  (Maybe.Just (FormPart.init name filename-result ct body)))))))))
+
+  (hidden extract-boundary)
+  (defn extract-boundary [content-type]
+    (let-do [parts &(String.split-by content-type &[\;])
+             result (the (Maybe String) (Maybe.Nothing))]
+      (for [i 0 (Array.length parts)]
+        (let [part &(String.trim (Array.unsafe-nth parts i))]
+          (when (String.starts-with? part "boundary=")
+            (let-do [val-str &(String.byte-slice part 9 (String.length part))]
+              (if (and (> (String.length val-str) 0)
+                       (= (String.char-at val-str 0) \"))
+                (let [end-quote (String.index-of-from val-str \" 1)]
+                  (when (> end-quote 0)
+                    (set! result
+                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
+                (set! result (Maybe.Just @val-str)))
+              (break)))))
+      result))
+
+  (doc decode-multipart "parses a `multipart/form-data` body given the
+boundary string. Returns an array of [`FormPart`](#FormPart) values.
+
+```
+(let [parts (Form.decode-multipart body \"boundary123\")]
+  (Array.nth &parts 0))
+```
+
+Each part’s `name`, optional `filename`, and `content-type` are extracted
+from its MIME headers. The `body` field is the raw content between the
+part headers and the next boundary delimiter.")
+  (defn decode-multipart [body boundary]
+    (let-do [delim (String.append "--" boundary)
+             crlf-delim (String.append "\r\n" &delim)
+             parts (the (Array FormPart) [])
+             body-len (String.length body)
+             start (find-substring body &delim 0)]
+      (when (>= start 0)
+        (let-do [pos (+ start (String.length &delim))]
+          (when (and (< (+ pos 1) body-len)
+                     (= (String.char-at body pos) \return)
+                     (= (String.char-at body (+ pos 1)) \newline))
+            (set! pos (+ pos 2)))
+          (while (< pos body-len)
+            (let [next (find-substring body &crlf-delim pos)]
+              (if (< next 0)
+                (break)
+                (let-do [part-str &(String.byte-slice body pos next)]
+                  (match (parse-multipart-part part-str)
+                    (Maybe.Just part) (Array.push-back! &parts part)
+                    (Maybe.Nothing) ())
+                  (let [after (+ next (String.length &crlf-delim))]
+                    (if (and (<= (+ after 2) body-len)
+                             (= (String.char-at body after) \-)
+                             (= (String.char-at body (+ after 1)) \-))
+                      (break)
+                      (if (and (< (+ after 1) body-len)
+                               (= (String.char-at body after) \return)
+                               (= (String.char-at body (+ after 1)) \newline))
+                        (set! pos (+ after 2))
+                        (set! pos after))))))))))
+      parts))
+
+  (doc multipart? "checks whether a request has a `multipart/form-data`
+content type.")
+  (defn multipart? [req]
+    (match (Request.header req "Content-Type")
+      (Maybe.Just ct) (String.starts-with? &ct "multipart/form-data")
+      (Maybe.Nothing) false))
+
+  (doc decode-multipart-request "parses the multipart form body from a
+request. Returns an array of [`FormPart`](#FormPart) values, or an empty
+array if the content type is not `multipart/form-data` or the boundary
+is missing.
+
+```
+(defn upload [req params]
+  (let [parts (Form.decode-multipart-request req)]
+    (if (> (Array.length &parts) 0)
+      (Response.text (fmt \"got %d parts\" (Array.length &parts)))
+      (Response.bad-request))))
+```")
+  (defn decode-multipart-request [req]
+    (match (Request.header req "Content-Type")
+      (Maybe.Nothing) (the (Array FormPart) [])
+      (Maybe.Just ct)
+        (if (not (String.starts-with? &ct "multipart/form-data"))
+          (the (Array FormPart) [])
+          (match (extract-boundary &ct)
+            (Maybe.Nothing) (the (Array FormPart) [])
+            (Maybe.Just boundary)
+              (decode-multipart (Request.body req) &boundary))))))
 
 ; ---------------------------------------------------------------------------
 ; WebSocket types
@@ -404,7 +630,9 @@ frames. The event loop drains the outbox after the handler returns.")
                     outbox (Array (Array Byte))])
 
 (hidden WSFrame)
-(deftype WSFrame [opcode Int payload (Array Byte) consumed Int])
+(deftype WSFrame [opcode Int
+                  payload (Array Byte)
+                  consumed Int])
 
 (defmodule WebSocket
   (doc encode-text "encodes a string as a WebSocket text frame (no mask).")
@@ -412,61 +640,69 @@ frames. The event loop drains the outbox after the handler returns.")
     (let-do [bytes (String.to-bytes msg)
              len (Array.length &bytes)
              frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 129)) ; 0x81 FIN + text
+      (Array.push-back! &frame (Byte.from-int 129))
+      ; 0x81 FIN + text
       (cond
-        (< len 126)
-          (Array.push-back! &frame (Byte.from-int len))
+        (< len 126) (Array.push-back! &frame (Byte.from-int len))
         (< len 65536)
-          (do (Array.push-back! &frame (Byte.from-int 126))
-              (Array.push-back! &frame (Byte.from-int (/ len 256)))
-              (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
-        (do (Array.push-back! &frame (Byte.from-int 127))
-            (for [k 0 4]
-              (Array.push-back! &frame (Byte.from-int 0)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
-      (for [k 0 len]
-        (Array.push-back! &frame @(Array.unsafe-nth &bytes k)))
+          (do
+            (Array.push-back! &frame (Byte.from-int 126))
+            (Array.push-back! &frame (Byte.from-int (/ len 256)))
+            (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
+        (do
+          (Array.push-back! &frame (Byte.from-int 127))
+          (for [k 0 4] (Array.push-back! &frame (Byte.from-int 0)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
+          (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
+      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth &bytes k)))
       frame))
 
-  (doc encode-binary "encodes a byte array as a WebSocket binary frame (no mask).")
+  (doc encode-binary
+    "encodes a byte array as a WebSocket binary frame (no mask).")
   (defn encode-binary [data]
     (let-do [len (Array.length data)
              frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 130)) ; 0x82 FIN + binary
+      (Array.push-back! &frame (Byte.from-int 130))
+      ; 0x82 FIN + binary
       (cond
-        (< len 126)
-          (Array.push-back! &frame (Byte.from-int len))
+        (< len 126) (Array.push-back! &frame (Byte.from-int len))
         (< len 65536)
-          (do (Array.push-back! &frame (Byte.from-int 126))
-              (Array.push-back! &frame (Byte.from-int (/ len 256)))
-              (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
-        (do (Array.push-back! &frame (Byte.from-int 127))
-            (for [k 0 4]
-              (Array.push-back! &frame (Byte.from-int 0)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
-            (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
-      (for [k 0 len]
-        (Array.push-back! &frame @(Array.unsafe-nth data k)))
+          (do
+            (Array.push-back! &frame (Byte.from-int 126))
+            (Array.push-back! &frame (Byte.from-int (/ len 256)))
+            (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
+        (do
+          (Array.push-back! &frame (Byte.from-int 127))
+          (for [k 0 4] (Array.push-back! &frame (Byte.from-int 0)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
+          (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
+      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth data k)))
       frame))
 
   (hidden encode-pong)
   (defn encode-pong [payload]
     (let-do [len (Array.length payload)
              frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 138)) ; 0x8A FIN + pong
+      (Array.push-back! &frame (Byte.from-int 138))
+      ; 0x8A FIN + pong
       (Array.push-back! &frame (Byte.from-int len))
-      (for [k 0 len]
-        (Array.push-back! &frame @(Array.unsafe-nth payload k)))
+      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth payload k)))
       frame))
 
   (hidden encode-close)
   (defn encode-close []
-    (the (Array Byte) [(Byte.from-int 136) (Byte.from-int 0)])) ; 0x88 FIN + close, len 0
+    (the (Array Byte) [(Byte.from-int 136) (Byte.from-int 0)]))
+  ; 0x88 FIN + close, len 0
 
   (hidden decode-frame)
   (defn decode-frame [buf offset]
@@ -486,17 +722,33 @@ frames. The event loop drains the outbox after the handler returns.")
             (= plen0 126)
               (if (< avail 4)
                 (set! ok false)
-                (do (set! hdr-size 4)
-                    (set! plen (+ (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 2))) 256)
-                                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 3)))))))
+                (do
+                  (set! hdr-size 4)
+                  (set! plen
+                        (+
+                          (*
+                            (Byte.to-int @(Array.unsafe-nth buf (+ offset 2)))
+                            256)
+                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 3)))))))
             (= plen0 127)
               (if (< avail 10)
                 (set! ok false)
-                (do (set! hdr-size 10)
-                    (set! plen (+ (+ (+ (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 6))) 16777216)
-                                        (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 7))) 65536))
-                                     (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 8))) 256))
-                                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 9)))))))
+                (do
+                  (set! hdr-size 10)
+                  (set! plen
+                        (+
+                          (+
+                            (+
+                              (*
+                                (Byte.to-int @(Array.unsafe-nth buf (+ offset 6)))
+                                16777216)
+                              (*
+                                (Byte.to-int @(Array.unsafe-nth buf (+ offset 7)))
+                                65536))
+                            (*
+                              (Byte.to-int @(Array.unsafe-nth buf (+ offset 8)))
+                              256))
+                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 9)))))))
             ())
           (if (not ok)
             (Maybe.Nothing)
@@ -510,17 +762,21 @@ frames. The event loop drains the outbox after the handler returns.")
                   (for [k 0 plen]
                     (let [b @(Array.unsafe-nth buf (+ data-off k))
                           unmasked (if masked
-                                     (Byte.from-int (bit-xor (Byte.to-int b)
-                                       (Byte.to-int @(Array.unsafe-nth buf (+ mask-off (Int.mod k 4))))))
-                                     b)]
+                            (Byte.from-int
+                              (bit-xor (Byte.to-int b)
+                                       (Byte.to-int
+                                         @(Array.unsafe-nth buf
+                                                            (+ mask-off
+                                                               (Int.mod k 4))))))
+                            b)]
                       (Array.aset! &payload k unmasked)))
                   (Maybe.Just (WSFrame.init opcode payload total))))))))))
 
   (doc send "queues a text message for sending on the WebSocket connection.")
-  (defn send [ws msg]
-    (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
+  (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
 
-  (doc send-binary "queues a binary message for sending on the WebSocket connection.")
+  (doc send-binary
+    "queues a binary message for sending on the WebSocket connection.")
   (defn send-binary [ws data]
     (Array.push-back! (WebSocket.outbox ws) (encode-binary data)))
 
@@ -537,12 +793,12 @@ the client without waiting for the handler to return.")
     (let [frame (encode-text msg)]
       (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
 
-  (doc send-binary-now "sends a binary message immediately, bypassing the outbox.
+  (doc send-binary-now
+    "sends a binary message immediately, bypassing the outbox.
 Like [`send-now`](#send-now) but for binary data.")
   (defn send-binary-now [ws data]
     (let [frame (encode-binary data)]
-      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
-)
+      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame)))))
 
 ; WebSocket accept key (RFC 6455 section 4.2.2)
 (hidden ws-magic-guid)
@@ -564,9 +820,10 @@ A handler takes a reference to the parsed `Request` and a reference to a
 `(Map String String)` of path parameters captured by `:name` segments in the
 route pattern. It returns a `Response`.")
 
-(deftype Route [method String,
-                pattern String,
-                handler (Fn [&Request &(Map String String)] Response)])
+(deftype Route
+  [method String
+   pattern String
+   handler (Fn [&Request &(Map String String)] Response)])
 
 (doc match-route "matches a route `pattern` against a request `path`.
 
@@ -586,9 +843,7 @@ Examples: `/api/*` matches `/api/foo/bar` with `* = foo/bar`.
           n-path (Array.length path-parts)
           has-glob (and (> n-pat 0)
                         (= (Array.unsafe-nth pat-parts (- n-pat 1)) "*"))]
-      (if (if has-glob
-            (< n-path (- n-pat 1))
-            (/= n-pat n-path))
+      (if (if has-glob (< n-path (- n-pat 1)) (/= n-pat n-path))
         (Maybe.Nothing)
         (let-do [params (the (Map String String) {})
                  matched true
@@ -596,38 +851,36 @@ Examples: `/api/*` matches `/api/foo/bar` with `* = foo/bar`.
           (for [i 0 fixed-segs]
             (let [pp (Array.unsafe-nth pat-parts i)
                   rp (Array.unsafe-nth path-parts i)]
-              (if (and (> (String.length pp) 0)
-                       (= (String.char-at pp 0) \:))
-                (let [k (String.suffix pp 1)]
-                  (Map.put! &params &k rp))
-                (when (/= pp rp)
-                  (do (set! matched false) (break))))))
+              (if (and (> (String.length pp) 0) (= (String.char-at pp 0) \:))
+                (let [k (String.suffix pp 1)] (Map.put! &params &k rp))
+                (when (/= pp rp) (do (set! matched false) (break))))))
           ; Capture the glob tail if present
           (when (and matched has-glob)
             (let-do [tail @""]
               (for [j fixed-segs n-path]
                 (do
-                  (when (> j fixed-segs)
-                    (set! tail (String.append &tail "/")))
-                  (set! tail (String.append &tail (Array.unsafe-nth path-parts j)))))
+                  (when (> j fixed-segs) (set! tail (String.append &tail "/")))
+                  (set! tail
+                        (String.append &tail (Array.unsafe-nth path-parts j)))))
               (Map.put! &params &@"*" &tail)))
-          (if matched
-            (Maybe.Just params)
-            (Maybe.Nothing)))))))
+          (if matched (Maybe.Just params) (Maybe.Nothing)))))))
 
-(doc WSRoute "a WebSocket route entry. The handler receives a [`WSEvent`](#WSEvent),
+(doc WSRoute
+  "a WebSocket route entry. The handler receives a [`WSEvent`](#WSEvent),
 the captured path parameters, and a [`WebSocket`](#WebSocket) handle for sending
 responses.")
-(deftype WSRoute [pattern String
-                  handler (Fn [&WSEvent &(Map String String) &WebSocket] ())])
+(deftype WSRoute
+  [pattern String
+   handler (Fn [&WSEvent &(Map String String) &WebSocket] ())])
 
 ; ---------------------------------------------------------------------------
 ; App type (defined early so helpers can reference App.routes)
 ; ---------------------------------------------------------------------------
 
-(deftype App [routes (Array Route)
-              ws-routes (Array WSRoute)
-              error-handler (Fn [&Request Int String] Response)])
+(deftype App
+  [routes (Array Route)
+   ws-routes (Array WSRoute)
+   error-handler (Fn [&Request Int String] Response)])
 
 ; ---------------------------------------------------------------------------
 ; Internal helpers (top-level for reuse across serve modes)
@@ -638,18 +891,20 @@ responses.")
            len (Array.length buf)]
     (when (>= len 4)
       (for [i 0 (- len 3)]
-        (when (and (= @(Array.unsafe-nth buf i) (Char.to-byte \return))
-                   (and (= @(Array.unsafe-nth buf (+ i 1)) (Char.to-byte \newline))
-                        (and (= @(Array.unsafe-nth buf (+ i 2)) (Char.to-byte \return))
-                             (= @(Array.unsafe-nth buf (+ i 3)) (Char.to-byte \newline)))))
+        (when (and
+            (= @(Array.unsafe-nth buf i) (Char.to-byte \return))
+            (and
+              (= @(Array.unsafe-nth buf (+ i 1)) (Char.to-byte \newline))
+              (and
+                (= @(Array.unsafe-nth buf (+ i 2)) (Char.to-byte \return))
+                (= @(Array.unsafe-nth buf (+ i 3)) (Char.to-byte \newline)))))
           (do (set! found true) (break)))))
     found))
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
         default (if http11 @"keep-alive" @"close")
-        conn (Map.get-with-default (Request.headers req) "Connection"
-               &[default])]
+        conn (Map.get-with-default (Request.headers req) "Connection" &[default])]
     (not (= (Array.unsafe-first &conn) "close"))))
 
 (defn web-finalize-response [resp keep-alive]
@@ -658,8 +913,10 @@ responses.")
         cl-v [(Int.str body-len)]
         conn-k @"Connection"
         conn-v [(if keep-alive @"keep-alive" @"close")]
-        h (Map.put (Map.put @(Response.headers &resp) &cl-k &cl-v)
-                   &conn-k &conn-v)]
+        h (Map.put
+          (Map.put @(Response.headers &resp) &cl-k &cl-v)
+          &conn-k
+          &conn-v)]
     (Response.set-headers resp h)))
 
 (defn read-request-buf [client buf]
@@ -671,8 +928,7 @@ responses.")
         (Result.Success n)
           (cond
             (<= n 0) (break)
-            (web-has-header-end buf)
-              (do (set! got-request true) (break))
+            (web-has-header-end buf) (do (set! got-request true) (break))
             ())))
     got-request))
 
@@ -682,8 +938,8 @@ responses.")
 (defn web-request-path [req]
   (URI.unescape
     &(match-ref (URI.path (Request.uri req))
-       (Maybe.Just p) @p
-       (Maybe.Nothing) @"")))
+      (Maybe.Just p) @p
+      (Maybe.Nothing) @"")))
 
 ; Like web-request-path but with a leading "/" suitable for route matching.
 (hidden web-routable-path)
@@ -696,8 +952,7 @@ responses.")
   (let-do [parts &(String.split-by path &[\/])
            safe true]
     (for [i 0 (Array.length parts)]
-      (when (= (Array.unsafe-nth parts i) "..")
-        (do (set! safe false) (break))))
+      (when (= (Array.unsafe-nth parts i) "..") (do (set! safe false) (break))))
     safe))
 
 (defn web-find-handler [routes req]
@@ -708,8 +963,7 @@ responses.")
         (when (= (Route.method r) (Request.verb req))
           (match (match-route (Route.pattern r) &path)
             (Maybe.Just params)
-              (do (set! result (Maybe.Just (Pair.init i params)))
-                  (break))
+              (do (set! result (Maybe.Just (Pair.init i params))) (break))
             (Maybe.Nothing) ()))))
     result))
 
@@ -721,8 +975,7 @@ responses.")
       (let [r (Array.unsafe-nth ws-routes i)]
         (match (match-route (WSRoute.pattern r) path)
           (Maybe.Just params)
-            (do (set! result (Maybe.Just (Pair.init i params)))
-                (break))
+            (do (set! result (Maybe.Just (Pair.init i params))) (break))
           (Maybe.Nothing) ())))
     result))
 
@@ -737,20 +990,24 @@ responses.")
       (match (Request.parse raw)
         (Result.Error _) (Maybe.Nothing)
         (Result.Success req)
-          (let [has-upgrade
-                  (let [vals (Map.get-with-default (Request.headers &req) "Upgrade"
-                              &(the (Array String) []))]
-                    (if (> (Array.length &vals) 0)
-                      (= (Array.unsafe-first &vals) "websocket")
-                      false))
-                key-vals (Map.get-with-default (Request.headers &req) "Sec-WebSocket-Key"
-                           &(the (Array String) []))]
+          (let [has-upgrade (let [vals (Map.get-with-default (Request.headers &req)
+                                                             "Upgrade"
+                                                             &(the (Array String)
+                                                                   []))]
+                  (if (> (Array.length &vals) 0)
+                    (= (Array.unsafe-first &vals) "websocket")
+                    false))
+                key-vals (Map.get-with-default (Request.headers &req)
+                                               "Sec-WebSocket-Key"
+                                               &(the (Array String) []))]
             (if (and has-upgrade (> (Array.length &key-vals) 0))
               (let [path (web-routable-path &req)]
                 (match (web-find-ws-handler ws-routes &path)
                   (Maybe.Just route-match)
-                    (Maybe.Just (Pair.init (ws-accept-key (Array.unsafe-first &key-vals))
-                                          @&route-match))
+                    (Maybe.Just
+                      (Pair.init
+                        (ws-accept-key (Array.unsafe-first &key-vals))
+                        @&route-match))
                   (Maybe.Nothing) (Maybe.Nothing)))
               (Maybe.Nothing)))))))
 
@@ -775,24 +1032,23 @@ responses.")
 (defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)]
     (match (Request.parse raw)
-      (Result.Error _)
-        (Pair.init (Response.bad-request) false)
+      (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
         (let [ka (web-keep-alive? &req)
               route-match (web-find-handler (App.routes app) &req)
               handler-idx (match-ref &route-match
-                            (Maybe.Just p) @(Pair.a p)
-                            (Maybe.Nothing) -1)
+                (Maybe.Just p) @(Pair.a p)
+                (Maybe.Nothing) -1)
               params (match route-match
-                       (Maybe.Just p) @(Pair.b &p)
-                       (Maybe.Nothing) (the (Map String String) {}))
+                (Maybe.Just p) @(Pair.b &p)
+                (Maybe.Nothing) (the (Map String String) {}))
               resp (match (web-run-before before-hooks &req &params)
-                     (Maybe.Just early) early
-                     (Maybe.Nothing)
-                       (if (< handler-idx 0)
-                         (~(App.error-handler app) &req 404 @"Not Found")
-                         (let [r (Array.unsafe-nth (App.routes app) handler-idx)]
-                           (~(Route.handler r) &req &params))))
+                (Maybe.Just early) early
+                (Maybe.Nothing)
+                  (if (< handler-idx 0)
+                    (~(App.error-handler app) &req 404 @"Not Found")
+                    (let [r (Array.unsafe-nth (App.routes app) handler-idx)]
+                      (~(Route.handler r) &req &params))))
               final (web-run-after after-hooks &req &params resp)]
           (Pair.init final ka)))))
 
@@ -809,17 +1065,19 @@ responses.")
 ; X-Sendfile header and sets Content-Length from the file size.
 (defn web-serialize-response [resp ka file-size]
   (let [clean (if (>= file-size 0l)
-                (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")]
-                  (-> resp (Response.set-body @"") (Response.set-headers hdrs)))
-                resp)
+          (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")]
+            (-> resp (Response.set-body @"") (Response.set-headers hdrs)))
+          resp)
         finalized (web-finalize-response clean ka)
         ; For sendfile: override Content-Length with the actual file size
         final (if (>= file-size 0l)
-                (let [cl-key @"Content-Length"
-                      cl-val [(Long.str file-size)]]
-                  (Response.set-headers finalized
-                    (Map.put @(Response.headers &finalized) &cl-key &cl-val)))
-                finalized)
+          (let [cl-key @"Content-Length"
+                cl-val [(Long.str file-size)]]
+            (Response.set-headers finalized
+                                  (Map.put @(Response.headers &finalized)
+                                           &cl-key
+                                           &cl-val)))
+          finalized)
         s (Response.str &final)]
     (String.to-bytes &s)))
 
@@ -828,33 +1086,35 @@ responses.")
 ; ---------------------------------------------------------------------------
 
 (deftype ConnState
-  [streams         (Map Int TcpStream)
-   read-bufs       (Map Int (Array Byte))
-   write-bufs      (Map Int (Array Byte))
+  [streams (Map Int TcpStream)
+   read-bufs (Map Int (Array Byte))
+   write-bufs (Map Int (Array Byte))
    write-positions (Map Int Int)
-   keep-alives     (Map Int Bool)
-   last-active     (Map Int Int)
-   sf-fds          (Map Int Int)
-   sf-offsets      (Map Int Long)
-   sf-sizes        (Map Int Long)
-   to-close        (Array Int)
-   ws-route-idx    (Map Int Int)
-   ws-params       (Map Int (Map String String))])
+   keep-alives (Map Int Bool)
+   last-active (Map Int Int)
+   sf-fds (Map Int Int)
+   sf-offsets (Map Int Long)
+   sf-sizes (Map Int Long)
+   to-close (Array Int)
+   ws-route-idx (Map Int Int)
+   ws-params (Map Int (Map String String))])
 
 (defmodule App
   (doc create "creates an empty App with no routes and a default error handler.")
   (defn create []
-    (init [] [] (fn [req code msg] (Response.with-status (Response.text @&msg) code msg))))
+    (init []
+          []
+          (fn [req code msg]
+            (Response.with-status (Response.text @&msg) code msg))))
 
   (doc set-error "sets a custom error handler.")
-  (defn set-error [app handler]
-    (set-error-handler app handler))
+  (defn set-error [app handler] (set-error-handler app handler))
 
   (doc route "adds a route to the app.")
   (defn route [app method pattern handler]
     (set-routes app
-      (Array.push-back @(routes &app)
-        (Route.init method pattern handler))))
+                (Array.push-back @(routes &app)
+                                 (Route.init method pattern handler))))
 
   (doc GET "adds a GET route.")
   (defn GET [app pattern handler] (route app @"GET" pattern handler))
@@ -883,20 +1143,23 @@ event ([`WSEvent`](#WSEvent)): `Connect`, `Message`, `Binary`, and `Close`.
 ```")
   (defn WS [app pattern handler]
     (set-ws-routes app
-      (Array.push-back @(ws-routes &app)
-        (WSRoute.init pattern handler))))
+                   (Array.push-back @(ws-routes &app)
+                                    (WSRoute.init pattern handler))))
 
   (doc static-dir "registers a wildcard GET route that serves files from
 `dir` on disk via sendfile. Register after API routes so it acts as a
 fallback.")
   (defn static-dir [app dir]
-    (route app @"GET" @"*"
-      (fn [req params]
-        (let [path (web-request-path req)
-              rel (if (String.empty? &path) @"index.html" path)]
-          (if (not (web-safe-path? &rel))
-            (Response.not-found)
-            (Response.sendfile &(String.append &(String.append &dir "/") &rel)))))))
+    (route app
+           @"GET"
+           @"*"
+           (fn [req params]
+             (let [path (web-request-path req)
+                   rel (if (String.empty? &path) @"index.html" path)]
+               (if (not (web-safe-path? &rel))
+                 (Response.not-found)
+                 (Response.sendfile
+                   &(String.append &(String.append &dir "/") &rel)))))))
 
   (def max-request-size 1048576)
   (def idle-timeout 60)
@@ -907,8 +1170,7 @@ fallback.")
   ; -----------------------------------------------------------------------
 
   (hidden queue-close)
-  (defn queue-close [cs fd]
-    (Array.push-back! (ConnState.to-close cs) fd))
+  (defn queue-close [cs fd] (Array.push-back! (ConnState.to-close cs) fd))
 
   (hidden conn-done-writing)
   (defn conn-done-writing [cs poll fd]
@@ -918,10 +1180,12 @@ fallback.")
         (Map.remove! (ConnState.write-positions cs) &fd)
         (Map.remove! (ConnState.keep-alives cs) &fd)
         (if ka
-          (do (when (not (Map.contains? (ConnState.ws-route-idx cs) &fd))
-                (Map.update-value! (ConnState.read-bufs cs) &fd
-                  &(fn [b] (TcpStream.clear-buf b))))
-              (ignore (Poll.modify poll fd poll-read)))
+          (do
+            (when (not (Map.contains? (ConnState.ws-route-idx cs) &fd))
+              (Map.update-value! (ConnState.read-bufs cs)
+                                 &fd
+                                 &(fn [b] (TcpStream.clear-buf b))))
+            (ignore (Poll.modify poll fd poll-read)))
           (queue-close cs fd)))))
 
   (hidden conn-done-sendfile)
@@ -937,7 +1201,9 @@ fallback.")
   (defn conn-cleanup [cs poll fd]
     (do
       (ignore (Poll.remove-fd poll fd))
-      (Map.update-value! (ConnState.streams cs) &fd &(fn [s] (TcpStream.close! s)))
+      (Map.update-value! (ConnState.streams cs)
+                         &fd
+                         &(fn [s] (TcpStream.close! s)))
       (Map.remove! (ConnState.streams cs) &fd)
       (Map.remove! (ConnState.read-bufs cs) &fd)
       (Map.remove! (ConnState.write-bufs cs) &fd)
@@ -945,10 +1211,11 @@ fallback.")
       (Map.remove! (ConnState.keep-alives cs) &fd)
       (Map.remove! (ConnState.last-active cs) &fd)
       (when (Map.contains? (ConnState.sf-fds cs) &fd)
-        (do (ignore (IO.Raw.close-fd (Map.get (ConnState.sf-fds cs) &fd)))
-            (Map.remove! (ConnState.sf-fds cs) &fd)
-            (Map.remove! (ConnState.sf-offsets cs) &fd)
-            (Map.remove! (ConnState.sf-sizes cs) &fd)))
+        (do
+          (ignore (IO.Raw.close-fd (Map.get (ConnState.sf-fds cs) &fd)))
+          (Map.remove! (ConnState.sf-fds cs) &fd)
+          (Map.remove! (ConnState.sf-offsets cs) &fd)
+          (Map.remove! (ConnState.sf-sizes cs) &fd)))
       (Map.remove! (ConnState.ws-route-idx cs) &fd)
       (Map.remove! (ConnState.ws-params cs) &fd)))
 
@@ -974,32 +1241,37 @@ fallback.")
     (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
           stream2 @&stream
           pos (Map.get (ConnState.write-positions cs) &fd)
-          n (Map.value-ref! (ConnState.write-bufs cs) &fd
-              &(fn [buf]
-                (match (TcpStream.send-nb &stream buf pos)
-                  (Result.Success k) k
-                  (Result.Error _) -1))
-              -1)]
+          n (Map.value-ref! (ConnState.write-bufs cs)
+                            &fd
+                            &(fn [buf]
+                              (match (TcpStream.send-nb &stream buf pos)
+                                (Result.Success k) k
+                                (Result.Error _) -1))
+                            -1)]
       (cond
         (< n 0) (queue-close cs fd)
         (do
-          (when (> n 0)
-            (Map.put! (ConnState.last-active cs) &fd &(System.time)))
+          (when (> n 0) (Map.put! (ConnState.last-active cs) &fd &(System.time)))
           (let [new-pos (+ pos n)
-                buf-len (Map.value-ref! (ConnState.write-bufs cs) &fd
-                          &(fn [b] (Array.length b)) 0)]
+                buf-len (Map.value-ref! (ConnState.write-bufs cs)
+                                        &fd
+                                        &(fn [b] (Array.length b))
+                                        0)]
             (if (< new-pos buf-len)
               (Map.put! (ConnState.write-positions cs) &fd &new-pos)
               (if (Map.contains? (ConnState.sf-fds cs) &fd)
                 (let-do [sf-fd (Map.get (ConnState.sf-fds cs) &fd)
                          sf-off (Map.get (ConnState.sf-offsets cs) &fd)
                          sf-sz (Map.get (ConnState.sf-sizes cs) &fd)
-                         sn (match (TcpStream.sendfile-chunk &stream2 sf-fd &sf-off (- sf-sz sf-off))
-                              (Result.Success k) k
-                              (Result.Error _) -1)]
+                         sn (match (TcpStream.sendfile-chunk &stream2
+                                                             sf-fd
+                                                             &sf-off
+                                                             (- sf-sz sf-off))
+                           (Result.Success k) k
+                           (Result.Error _) -1)]
                   (Map.put! (ConnState.sf-offsets cs) &fd &sf-off)
                   (cond
-                    (< sn 0)          (queue-close cs fd)
+                    (< sn 0) (queue-close cs fd)
                     (>= sf-off sf-sz) (conn-done-sendfile cs poll fd)
                     ()))
                 (conn-done-writing cs poll fd))))))))
@@ -1017,53 +1289,64 @@ fallback.")
 
   (hidden handle-ws-upgrade)
   (defn handle-ws-upgrade [cs ws-routes poll fd stream accept route-idx params]
-    (let-do [resp-str (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n" accept)
+    (let-do [resp-str (fmt
+               "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
+               accept)
              wbuf (String.to-bytes &resp-str)
              ws (WebSocket.init fd [])]
-      (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
-        &(WSEvent.Connect) params &ws)
+      (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx)) &(WSEvent.Connect)
+                                                                 params
+                                                                 &ws)
       (ws-flatten-outbox &ws &wbuf)
       (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
       (Map.put! (ConnState.write-positions cs) &fd &0)
       (Map.put! (ConnState.keep-alives cs) &fd &true)
       (Map.put! (ConnState.ws-route-idx cs) &fd &route-idx)
       (Map.put! (ConnState.ws-params cs) &fd params)
-      (Map.update-value! (ConnState.read-bufs cs) &fd
-        &(fn [b] (TcpStream.clear-buf b)))
-      (let [n0 (Map.value-ref! (ConnState.write-bufs cs) &fd
-                &(fn [b]
-                  (match (TcpStream.send-nb &stream b 0)
-                    (Result.Success k) k
-                    (Result.Error _) -1))
-                -1)
+      (Map.update-value! (ConnState.read-bufs cs)
+                         &fd
+                         &(fn [b] (TcpStream.clear-buf b)))
+      (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                               &fd
+                               &(fn [b]
+                                 (match (TcpStream.send-nb &stream b 0)
+                                   (Result.Success k) k
+                                   (Result.Error _) -1))
+                               -1)
             buf-len (Array.length &wbuf)]
         (cond
           (< n0 0) (queue-close cs fd)
           (if (< n0 buf-len)
-            (do (Map.put! (ConnState.write-positions cs) &fd &n0)
-                (ignore (Poll.modify poll fd poll-write)))
+            (do
+              (Map.put! (ConnState.write-positions cs) &fd &n0)
+              (ignore (Poll.modify poll fd poll-write)))
             (conn-done-writing cs poll fd))))))
 
   (hidden handle-ws-readable)
   (defn handle-ws-readable [cs ws-routes poll fd]
     (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
           stream2 @&stream
-          n (Map.value-ref! (ConnState.read-bufs cs) &fd
-              &(fn [buf]
-                (match (TcpStream.read-append-nb &stream buf)
-                  (Result.Success k) k
-                  (Result.Error _) -1))
-              -1)]
+          n (Map.value-ref! (ConnState.read-bufs cs)
+                            &fd
+                            &(fn [buf]
+                              (match (TcpStream.read-append-nb &stream buf)
+                                (Result.Success k) k
+                                (Result.Error _) -1))
+                            -1)]
       (cond
         (= n TcpStream.read-blocked) ()
         (<= n 0) (queue-close cs fd)
         (do
           (Map.put! (ConnState.last-active cs) &fd &(System.time))
-          (let-do [buf (Map.value-ref! (ConnState.read-bufs cs) &fd
-                         &(fn [b] @b) (the (Array Byte) []))
+          (let-do [buf (Map.value-ref! (ConnState.read-bufs cs)
+                                       &fd
+                                       &(fn [b] @b)
+                                       (the (Array Byte) []))
                    route-idx (Map.get (ConnState.ws-route-idx cs) &fd)
-                   params (Map.value-ref! (ConnState.ws-params cs) &fd
-                            &(fn [p] @p) (the (Map String String) {}))
+                   params (Map.value-ref! (ConnState.ws-params cs)
+                                          &fd
+                                          &(fn [p] @p)
+                                          (the (Map String String) {}))
                    ws (WebSocket.init fd [])
                    offset 0
                    should-close false]
@@ -1078,29 +1361,42 @@ fallback.")
                       (do (set! should-close true) (break))
                       (do
                         (cond
-                          (= op 1) ; text
-                          (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
-                            &(WSEvent.Message (String.from-bytes (WSFrame.payload &frame)))
-                            &params &ws)
-                        (= op 2) ; binary
-                          (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
+                          (= op 1)
+                          ; text
+                          (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                               route-idx))
+                            &(WSEvent.Message
+                              (String.from-bytes (WSFrame.payload &frame)))
+                            &params
+                            &ws)
+                          (= op 2)
+                          ; binary
+                          (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                               route-idx))
                             &(WSEvent.Binary @(WSFrame.payload &frame))
-                            &params &ws)
-                        (= op 9) ; ping -> pong
+                            &params
+                            &ws)
+                          (= op 9)
+                          ; ping -> pong
                           (Array.push-back! (WebSocket.outbox &ws)
-                            (WebSocket.encode-pong (WSFrame.payload &frame)))
-                        (= op 8) ; close
-                          (do (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx))
-                                &(WSEvent.Close) &params &ws)
-                              (Array.push-back! (WebSocket.outbox &ws)
-                                (WebSocket.encode-close))
-                              (set! should-close true))
-                        ())
+                                            (WebSocket.encode-pong (WSFrame.payload &frame)))
+                          (= op 8)
+                          ; close
+                          (do
+                            (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                 route-idx)) &(WSEvent.Close)
+                                                                             &params
+                                                                             &ws)
+                            (Array.push-back! (WebSocket.outbox &ws)
+                                              (WebSocket.encode-close))
+                            (set! should-close true))
+                          ())
                         (set! offset (+ offset consumed)))))))
             ; Update read-buf with remaining bytes
             (if (>= offset (Array.length &buf))
-              (Map.update-value! (ConnState.read-bufs cs) &fd
-                &(fn [b] (TcpStream.clear-buf b)))
+              (Map.update-value! (ConnState.read-bufs cs)
+                                 &fd
+                                 &(fn [b] (TcpStream.clear-buf b)))
               (let-do [remaining (the (Array Byte) [])]
                 (for [i offset (Array.length &buf)]
                   (Array.push-back! &remaining @(Array.unsafe-nth &buf i)))
@@ -1113,23 +1409,24 @@ fallback.")
                   (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
                   (Map.put! (ConnState.write-positions cs) &fd &0)
                   (Map.put! (ConnState.keep-alives cs) &fd &(not should-close))
-                  (let [n0 (Map.value-ref! (ConnState.write-bufs cs) &fd
-                            &(fn [b]
-                              (match (TcpStream.send-nb &stream2 b 0)
-                                (Result.Success k) k
-                                (Result.Error _) -1))
-                            -1)
+                  (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                           &fd
+                                           &(fn [b]
+                                             (match (TcpStream.send-nb &stream2
+                                                                       b
+                                                                       0)
+                                               (Result.Success k) k
+                                               (Result.Error _) -1))
+                                           -1)
                         buf-len (Array.length &wbuf)]
                     (cond
                       (< n0 0) (queue-close cs fd)
                       (if (< n0 buf-len)
-                        (do (Map.put! (ConnState.write-positions cs) &fd &n0)
-                            (ignore (Poll.modify poll fd poll-write)))
-                        (if should-close
-                          (queue-close cs fd)
-                          ())))))
-                (when should-close
-                  (queue-close cs fd)))))))))
+                        (do
+                          (Map.put! (ConnState.write-positions cs) &fd &n0)
+                          (ignore (Poll.modify poll fd poll-write)))
+                        (if should-close (queue-close cs fd) ())))))
+                (when should-close (queue-close cs fd)))))))))
 
   (hidden handle-readable)
   (defn handle-readable [cs app before-hooks after-hooks poll fd]
@@ -1138,72 +1435,117 @@ fallback.")
       (handle-ws-readable cs (App.ws-routes app) poll fd)
       (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
             stream2 @&stream
-            n (Map.value-ref! (ConnState.read-bufs cs) &fd
-                &(fn [buf]
-                  (match (TcpStream.read-append-nb &stream buf)
-                    (Result.Success k) k
-                    (Result.Error _) -1))
-                -1)]
+            n (Map.value-ref! (ConnState.read-bufs cs)
+                              &fd
+                              &(fn [buf]
+                                (match (TcpStream.read-append-nb &stream buf)
+                                  (Result.Success k) k
+                                  (Result.Error _) -1))
+                              -1)]
         (cond
           (= n TcpStream.read-blocked) ()
           (<= n 0) (queue-close cs fd)
           (do
             (Map.put! (ConnState.last-active cs) &fd &(System.time))
-            (let [too-big (Map.value-ref! (ConnState.read-bufs cs) &fd
-                            &(fn [buf] (> (Array.length buf) App.max-request-size))
-                            false)]
+            (let [too-big (Map.value-ref! (ConnState.read-bufs cs)
+                                          &fd
+                                          &(fn [buf]
+                                            (> (Array.length buf)
+                                               App.max-request-size))
+                                          false)]
               (if too-big
                 (queue-close cs fd)
-                (let [ready (Map.value-ref! (ConnState.read-bufs cs) &fd
-                              &(fn [buf] (web-has-header-end buf))
-                              false)]
+                (let [ready (Map.value-ref! (ConnState.read-bufs cs)
+                                            &fd
+                                            &(fn [buf] (web-has-header-end buf))
+                                            false)]
                   (when ready
                     ; Check for WebSocket upgrade before normal HTTP response
-                    (let [ws-info (Map.value-ref! (ConnState.read-bufs cs) &fd
-                                    &(fn [buf] (web-try-ws-upgrade buf (App.ws-routes app)))
-                                    (the (Maybe (Pair String (Pair Int (Map String String)))) (Maybe.Nothing)))]
+                    (let [ws-info (Map.value-ref! (ConnState.read-bufs cs)
+                                                  &fd
+                                                  &(fn [buf]
+                                                    (web-try-ws-upgrade buf
+                                                                        (App.ws-routes app)))
+                                                  (the
+                                                    (Maybe
+                                                      (Pair String
+                                                            (Pair Int
+                                                                  (Map String
+                                                                       String))))
+                                                    (Maybe.Nothing)))]
                       (if (Maybe.just? &ws-info)
                         (let [info (Maybe.unsafe-from ws-info)
                               accept @(Pair.a &info)
                               ri @(Pair.a (Pair.b &info))
                               ps @(Pair.b (Pair.b &info))]
-                          (handle-ws-upgrade cs (App.ws-routes app) poll fd stream2 &accept ri &ps))
-                        (let [pair (Map.value-ref! (ConnState.read-bufs cs) &fd
-                                     &(fn [buf] (web-build-response app before-hooks after-hooks buf))
-                                     (Pair.init (Response.bad-request) false))
+                          (handle-ws-upgrade cs
+                                             (App.ws-routes app)
+                                             poll
+                                             fd
+                                             stream2
+                                             &accept
+                                             ri
+                                             &ps))
+                        (let [pair (Map.value-ref! (ConnState.read-bufs cs)
+                                                   &fd
+                                                   &(fn [buf]
+                                                     (web-build-response app
+                                                                         before-hooks
+                                                                         after-hooks
+                                                                         buf))
+                                                   (Pair.init (Response.bad-request)
+                                                              false))
                               resp @(Pair.a &pair)
                               ka @(Pair.b &pair)
                               sf-path (web-sendfile-path &resp)
                               sf-result (match-ref &sf-path
-                                          (Maybe.Just p)
-                                            (let [ffd (IO.Raw.open p IO.Raw.O-RDONLY)]
-                                              (if (< ffd 0)
-                                                -1l
-                                                (let [sz (IO.Raw.fstat-size ffd)]
-                                                  (do (Map.put! (ConnState.sf-fds cs) &fd &ffd)
-                                                      (Map.put! (ConnState.sf-offsets cs) &fd &0l)
-                                                      (Map.put! (ConnState.sf-sizes cs) &fd &sz)
-                                                      sz))))
-                                          (Maybe.Nothing) -1l)
-                              actual-resp (if (and (Maybe.just? &sf-path) (< sf-result 0l))
-                                            (Response.not-found) resp)
-                              wbuf (web-serialize-response actual-resp ka sf-result)]
+                                (Maybe.Just p)
+                                  (let [ffd (IO.Raw.open p IO.Raw.O-RDONLY)]
+                                    (if (< ffd 0)
+                                      -1l
+                                      (let [sz (IO.Raw.fstat-size ffd)]
+                                        (do
+                                          (Map.put! (ConnState.sf-fds cs)
+                                                    &fd
+                                                    &ffd)
+                                          (Map.put! (ConnState.sf-offsets cs)
+                                                    &fd
+                                                    &0l)
+                                          (Map.put! (ConnState.sf-sizes cs)
+                                                    &fd
+                                                    &sz)
+                                          sz))))
+                                (Maybe.Nothing) -1l)
+                              actual-resp (if (and (Maybe.just? &sf-path)
+                                                   (< sf-result 0l))
+                                (Response.not-found)
+                                resp)
+                              wbuf (web-serialize-response actual-resp
+                                                           ka
+                                                           sf-result)]
                           (do
                             (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
                             (Map.put! (ConnState.write-positions cs) &fd &0)
                             (Map.put! (ConnState.keep-alives cs) &fd &ka)
-                            (let [n0 (Map.value-ref! (ConnState.write-bufs cs) &fd
-                                      &(fn [b]
-                                        (match (TcpStream.send-nb &stream2 b 0)
-                                          (Result.Success k) k
-                                          (Result.Error _) -1))
-                                      -1)
+                            (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                                     &fd
+                                                     &(fn [b]
+                                                       (match (TcpStream.send-nb &stream2
+                                                                                 b
+                                                                                 0)
+                                                         (Result.Success k) k
+                                                         (Result.Error _) -1))
+                                                     -1)
                                   buf-len (Array.length &wbuf)]
                               (cond
                                 (< n0 0) (queue-close cs fd)
-                                (if (or (< n0 buf-len) (Map.contains? (ConnState.sf-fds cs) &fd))
-                                  (do (Map.put! (ConnState.write-positions cs) &fd &n0)
-                                      (ignore (Poll.modify poll fd poll-write)))
+                                (if (or (< n0 buf-len)
+                                        (Map.contains? (ConnState.sf-fds cs) &fd))
+                                  (do
+                                    (Map.put! (ConnState.write-positions cs)
+                                              &fd
+                                              &n0)
+                                    (ignore (Poll.modify poll fd poll-write)))
                                   (conn-done-writing cs poll fd)))))))))))))))))
 
   (hidden sweep-idle)
@@ -1213,8 +1555,7 @@ fallback.")
       (for [j 0 (Array.length &keys)]
         (let [rfd @(Array.unsafe-nth &keys j)
               ts (Map.get (ConnState.last-active cs) &rfd)]
-          (when (> (- now ts) App.idle-timeout)
-            (queue-close cs rfd))))))
+          (when (> (- now ts) App.idle-timeout) (queue-close cs rfd))))))
 
   (hidden flush-closed)
   (defn flush-closed [cs poll]
@@ -1226,39 +1567,39 @@ fallback.")
   ; -----------------------------------------------------------------------
 
   (hidden static-form?)
-  (defndynamic static-form? [f]
-    (and (list? f) (= 'static (car f))))
+  (defndynamic static-form? [f] (and (list? f) (= 'static (car f))))
 
   (hidden before-form?)
-  (defndynamic before-form? [f]
-    (and (list? f) (= 'before (car f))))
+  (defndynamic before-form? [f] (and (list? f) (= 'before (car f))))
 
   (hidden after-form?)
-  (defndynamic after-form? [f]
-    (and (list? f) (= 'after (car f))))
+  (defndynamic after-form? [f] (and (list? f) (= 'after (car f))))
 
   (hidden errors-form?)
-  (defndynamic errors-form? [f]
-    (and (list? f) (= 'errors (car f))))
+  (defndynamic errors-form? [f] (and (list? f) (= 'errors (car f))))
 
   (hidden route-form?)
   (defndynamic route-form? [f]
     (and (list? f)
-         (or (= 'GET (car f)) (= 'POST (car f)) (= 'PUT (car f))
-             (= 'DELETE (car f)) (= 'PATCH (car f)) (= 'WS (car f))
-             (= 'static (car f)) (= 'before (car f)) (= 'after (car f))
+         (or (= 'GET (car f))
+             (= 'POST (car f))
+             (= 'PUT (car f))
+             (= 'DELETE (car f))
+             (= 'PATCH (car f))
+             (= 'WS (car f))
+             (= 'static (car f))
+             (= 'before (car f))
+             (= 'after (car f))
              (= 'errors (car f)))))
 
   (hidden route-call)
   (defndynamic route-call [r]
     (cond
-      (App.static-form? r)  (list 'App.static-dir (list 'copy (cadr r)))
-      (App.before-form? r)  (list 'App.use-before (cadr r))
-      (App.after-form? r)   (list 'App.use-after (cadr r))
-      (App.errors-form? r)  (list 'App.set-error (cadr r))
-      (list (Symbol.prefix 'App (car r))
-            (list 'copy (cadr r))
-            (caddr r))))
+      (App.static-form? r) (list 'App.static-dir (list 'copy (cadr r)))
+      (App.before-form? r) (list 'App.use-before (cadr r))
+      (App.after-form? r) (list 'App.use-after (cadr r))
+      (App.errors-form? r) (list 'App.set-error (cadr r))
+      (list (Symbol.prefix 'App (car r)) (list 'copy (cadr r)) (caddr r))))
 
   ; -----------------------------------------------------------------------
   ; serve
@@ -1274,22 +1615,22 @@ The loop is single-threaded, so peak throughput is bounded by one core.
 For multi-core scaling, run several copies behind a TCP load balancer.")
   (defn serve [app before-hooks after-hooks host port]
     (match (TcpListener.bind host port)
-      (Result.Error e)
-        (IO.errorln &(fmt "Failed to bind: %s" &e))
+      (Result.Error e) (IO.errorln &(fmt "Failed to bind: %s" &e))
       (Result.Success listener)
         (match (Poll.create)
-          (Result.Error e)
-            (do (IO.errorln &e) (TcpListener.close listener))
+          (Result.Error e) (do (IO.errorln &e) (TcpListener.close listener))
           (Result.Success poll)
             (let-do [lfd (TcpListener.poll-fd &listener)
                      cs (ConnState.init {} {} {} {} {} {} {} {} {} [] {} {})]
               (IO.println &(fmt "Listening on %s:%d" host port))
               (set! App.running true)
-              (System.signal System.signal-int  (fn [_] (set! App.running false)))
-              (System.signal System.signal-term (fn [_] (set! App.running false)))
+              (System.signal System.signal-int (fn [_] (set! App.running false)))
+              (System.signal System.signal-term
+                             (fn [_] (set! App.running false)))
               (ignore (Poll.add-read &poll &listener))
               (while App.running
-                (match (the (Result (Array PollEvent) String) (Poll.wait &poll 30000))
+                (match (the (Result (Array PollEvent) String)
+                            (Poll.wait &poll 30000))
                   (Result.Error _) (break)
                   (Result.Success events)
                     (do
@@ -1298,16 +1639,22 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                         (let [e (Array.unsafe-nth &events i)
                               fd (PollEvent.fd e)]
                           (cond
-                            (= fd lfd)             (handle-accept &cs &poll &listener)
-                            (PollEvent.writable e)  (handle-writable &cs &poll fd)
-                            (PollEvent.readable e)  (handle-readable &cs app before-hooks after-hooks &poll fd)
+                            (= fd lfd) (handle-accept &cs &poll &listener)
+                            (PollEvent.writable e)
+                              (handle-writable &cs &poll fd)
+                            (PollEvent.readable e)
+                              (handle-readable &cs
+                                               app
+                                               before-hooks
+                                               after-hooks
+                                               &poll
+                                               fd)
                             ())))
                       (sweep-idle &cs)
                       (flush-closed &cs &poll))))
               (Poll.close poll)
-              (TcpListener.close listener)))))
-)
- ; end defmodule App
+              (TcpListener.close listener))))))
+; end defmodule App
 
 ; ---------------------------------------------------------------------------
 ; Built-in middleware: CORS
@@ -1321,8 +1668,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
 
   (doc configure "sets the allowed origin for CORS. Call before the server
 starts. The default is `*` (all origins).")
-  (defn configure [allowed-origin]
-    (set! origin allowed-origin))
+  (defn configure [allowed-origin] (set! origin allowed-origin))
 
   (doc before-hook "handles CORS preflight `OPTIONS` requests. Returns a
 `204 No Content` with the appropriate `Access-Control-*` headers. For
@@ -1330,17 +1676,17 @@ non-OPTIONS requests, continues to the handler.")
   (defn before-hook [req params]
     (if (= (Request.verb req) "OPTIONS")
       ; Allow-Origin is added by after-hook; only set the other CORS headers here
-      (Maybe.Just (-> (Response.text @"")
-                      (Response.with-status 204 @"No Content")
-                      (Response.with-header @"Access-Control-Allow-Methods" @&methods)
-                      (Response.with-header @"Access-Control-Allow-Headers" @&headers)
-                      (Response.with-header @"Access-Control-Max-Age" @&max-age)))
+      (Maybe.Just
+        (-> (Response.text @"")
+            (Response.with-status 204 @"No Content")
+            (Response.with-header @"Access-Control-Allow-Methods" @&methods)
+            (Response.with-header @"Access-Control-Allow-Headers" @&headers)
+            (Response.with-header @"Access-Control-Max-Age" @&max-age)))
       (Maybe.Nothing)))
 
   (doc after-hook "adds `Access-Control-Allow-Origin` to every response.")
   (defn after-hook [req params resp]
-    (Response.with-header resp @"Access-Control-Allow-Origin" @&origin))
-)
+    (Response.with-header resp @"Access-Control-Allow-Origin" @&origin)))
 
 ; ---------------------------------------------------------------------------
 ; Cookie response helper
@@ -1364,9 +1710,14 @@ For simple name/value cookies, use [`set-simple-cookie`](#set-simple-cookie).")
 Uses `Path=/`, `HttpOnly`, and `SameSite=Lax` as defaults.")
   (defn set-simple-cookie [resp name value]
     (set-cookie resp
-      (Cookie.init name value @"/"
-        (Maybe.Nothing) (Maybe.Nothing) false true (SameSite.Lax))))
-)
+                (Cookie.init name
+                             value
+                             @"/"
+                             (Maybe.Nothing)
+                             (Maybe.Nothing)
+                             false
+                             true
+                             (SameSite.Lax)))))
 
 ; ---------------------------------------------------------------------------
 ; Built-in middleware: request logging
@@ -1375,8 +1726,9 @@ Uses `Path=/`, `HttpOnly`, and `SameSite=Lax` as defaults.")
 (doc log-before "before-hook that records the request start time in params
 under the key `_start`. Pair with [`log-after`](#log-after).")
 (defn log-before [req params]
-  (do (Map.put! params &@"_start" &(Long.str (Uint64.to-long (System.nanotime))))
-      (Maybe.Nothing)))
+  (do
+    (Map.put! params &@"_start" &(Long.str (Uint64.to-long (System.nanotime))))
+    (Maybe.Nothing)))
 
 (doc log-after "after-hook that prints `METHOD path STATUS TIMEms` to
 stdout. Reads the start time from `_start` in params, set by
@@ -1392,12 +1744,13 @@ stdout. Reads the start time from `_start` in params, set by
   (let [start (Maybe.unsafe-from (Long.from-string &(Map.get params "_start")))
         now (Uint64.to-long (System.nanotime))
         elapsed (/ (- now start) 1000000l)]
-    (do (Log.info "%s /%s %d %ldms"
-          (Request.verb req)
-          &(web-request-path req)
-          (Response.code &resp)
-          elapsed)
-        resp)))
+    (do
+      (Log.info "%s /%s %d %ldms"
+                (Request.verb req)
+                &(web-request-path req)
+                (Response.code &resp)
+                elapsed)
+      resp)))
 
 ; ---------------------------------------------------------------------------
 ; defserver: generate a main that builds an App and starts serving
@@ -1429,9 +1782,12 @@ is equivalent to:
 ```")
 (defmacro defserver [host port :rest body]
   (let [; Separate routes, hooks, and setup expressions
-        routes (filter (fn [f] (and (App.route-form? f)
-                                    (not (App.before-form? f))
-                                    (not (App.after-form? f)))) body)
+        routes (filter
+          (fn [f]
+            (and (App.route-form? f)
+                 (not (App.before-form? f))
+                 (not (App.after-form? f))))
+          body)
         befores (filter App.before-form? body)
         afters (filter App.after-form? body)
         setup (filter (fn [f] (not (App.route-form? f))) body)
@@ -1439,17 +1795,19 @@ is equivalent to:
         app-form (cons '-> (cons '(App.create) (map App.route-call routes)))
         ; Build hook arrays as lambdas wrapping the user's functions
         before-arr (collect-into
-                     (map (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
-                          befores)
-                     array)
+          (map
+            (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
+            befores)
+          array)
         after-arr (collect-into
-                    (map (fn [f] (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
-                         afters)
-                    array)
+          (map
+            (fn [f]
+              (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
+            afters)
+          array)
         body-forms (append setup
-                    (list (list 'let ['app app-form
-                                      'bh before-arr
-                                      'ah after-arr]
-                            (list 'App.serve '&app '&bh '&ah host port))))]
-    (eval (list 'defn 'main (array)
-      (cons 'do body-forms)))))
+                           (list
+                             (list 'let
+                                   ['app app-form 'bh before-arr 'ah after-arr]
+                                   (list 'App.serve '&app '&bh '&ah host port))))]
+    (eval (list 'defn 'main (array) (cons 'do body-forms)))))
