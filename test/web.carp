@@ -55,13 +55,15 @@
   ; -- Response.with-header --
   (assert-equal test
     200
-    @(Response.code &(Response.with-header (Response.text @"hi") @"X-Custom" @"val"))
+    @(Response.code
+      &(Response.with-header (Response.text @"hi") @"X-Custom" @"val"))
     "with-header preserves status")
 
   ; -- Response.with-status --
   (assert-equal test
     201
-    @(Response.code &(Response.with-status (Response.text @"created") 201 @"Created"))
+    @(Response.code
+      &(Response.with-status (Response.text @"created") 201 @"Created"))
     "with-status sets code")
 
   ; ---------------------------------------------------------------------------
@@ -88,25 +90,25 @@
 
   (assert-equal test
     "42"
-    &(Map.get &(match (match-route "/users/:id" "/users/42")
-                 (Maybe.Just m) m
-                 (Maybe.Nothing) {})
-              "id")
+    &(Map.get
+      &(match (match-route "/users/:id" "/users/42")
+        (Maybe.Just m) m
+        (Maybe.Nothing) {})
+      "id")
     "param route captures id")
 
   ; -- multiple params --
   (assert-equal test
     "posts"
-    &(Map.get &(match (match-route "/users/:uid/:resource" "/users/1/posts")
-                 (Maybe.Just m) m
-                 (Maybe.Nothing) {})
-              "resource")
+    &(Map.get
+      &(match (match-route "/users/:uid/:resource" "/users/1/posts")
+        (Maybe.Just m) m
+        (Maybe.Nothing) {})
+      "resource")
     "multi-param captures second param")
 
   ; -- root path --
-  (assert-true test
-    (Maybe.just? &(match-route "/" "/"))
-    "root path matches")
+  (assert-true test (Maybe.just? &(match-route "/" "/")) "root path matches")
 
   ; -- wildcard pattern --
   (assert-true test
@@ -147,18 +149,22 @@
     (let [params (the (Map String String) {})]
       (Maybe.just?
         &(web-run-before
-            &[(fn [req p] (Maybe.Just (Response.text @"blocked")))]
-            &(Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
-            &params)))
+          &[(fn [req p] (Maybe.Just (Response.text @"blocked")))]
+          &(Result.unsafe-from-success
+            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+          &params)))
     "before-hook can short-circuit")
 
   ; -- before-hook annotates params --
   (assert-true test
     (let-do [params (the (Map String String) {})
-             req (Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
-      (ignore (web-run-before
-        &[(fn [r p] (do (Map.put! p &@"_tagged" &@"yes") (Maybe.Nothing)))]
-        &req &params))
+             req (Result.unsafe-from-success
+               (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (ignore
+        (web-run-before
+          &[(fn [r p] (do (Map.put! p &@"_tagged" &@"yes") (Maybe.Nothing)))]
+          &req
+          &params))
       (Map.contains? &params "_tagged"))
     "before-hook can annotate params")
 
@@ -166,10 +172,13 @@
   (assert-equal test
     201
     (let-do [params (the (Map String String) {})
-             req (Result.unsafe-from-success (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+             req (Result.unsafe-from-success
+               (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
              resp (web-run-after
-                    &[(fn [r p resp] (Response.with-status resp 201 @"Created"))]
-                    &req &params (Response.text @"ok"))]
+               &[(fn [r p resp] (Response.with-status resp 201 @"Created"))]
+               &req
+               &params
+               (Response.text @"ok"))]
       @(Response.code &resp))
     "after-hook can modify status code")
 
@@ -184,10 +193,11 @@
 
   (assert-equal test
     "foo/bar"
-    &(Map.get &(match (match-route "/api/*" "/api/foo/bar")
-                 (Maybe.Just m) m
-                 (Maybe.Nothing) {})
-              "*")
+    &(Map.get
+      &(match (match-route "/api/*" "/api/foo/bar")
+        (Maybe.Just m) m
+        (Maybe.Nothing) {})
+      "*")
     "prefix glob captures tail as *")
 
   (assert-true test
@@ -200,10 +210,11 @@
 
   (assert-equal test
     "42"
-    &(Map.get &(match (match-route "/users/:id/*" "/users/42/posts/1")
-                 (Maybe.Just m) m
-                 (Maybe.Nothing) {})
-              "id")
+    &(Map.get
+      &(match (match-route "/users/:id/*" "/users/42/posts/1")
+        (Maybe.Just m) m
+        (Maybe.Nothing) {})
+      "id")
     "prefix glob preserves named captures")
 
   ; -- form parsing --
@@ -235,4 +246,219 @@
                   (App.DELETE @"/c" (fn [r p] (Response.text @""))))]
       (Array.length (App.routes &app)))
     "app accumulates routes")
-)
+
+  ; ---------------------------------------------------------------------------
+  ; Multipart form-data parsing tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- decode-multipart: single text field --
+  (assert-equal test
+    1
+    (Array.length
+      &(Form.decode-multipart
+        "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
+        "abc"))
+    "decode-multipart parses single part")
+
+  (assert-equal test
+    "field1"
+    (FormPart.name
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart extracts name")
+
+  (assert-equal test
+    "value1"
+    (FormPart.body
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart extracts body")
+
+  ; -- decode-multipart: multiple parts --
+  (assert-equal test
+    2
+    (Array.length
+      &(Form.decode-multipart
+        "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
+        "abc"))
+    "decode-multipart parses two parts")
+
+  (assert-equal test
+    "val-b"
+    (FormPart.body
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
+          "abc")
+        1))
+    "decode-multipart extracts second part body")
+
+  ; -- decode-multipart: file upload with filename and content-type --
+  (assert-true test
+    (Maybe.just?
+      (FormPart.filename
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart detects filename")
+
+  (assert-equal test
+    "test.txt"
+    &(Maybe.unsafe-from
+      @(FormPart.filename
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart extracts filename value")
+
+  (assert-equal test
+    "text/plain"
+    (FormPart.content-type
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart extracts content-type")
+
+  ; -- decode-multipart: default content-type --
+  (assert-equal test
+    "text/plain"
+    (FormPart.content-type
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart defaults content-type to text/plain")
+
+  ; -- decode-multipart: no filename for text field --
+  (assert-true test
+    (Maybe.nothing?
+      (FormPart.filename
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart has no filename for text field")
+
+  ; -- decode-multipart: empty body --
+  (assert-equal test
+    0
+    (Array.length &(Form.decode-multipart "" "abc"))
+    "decode-multipart returns empty for empty body")
+
+  ; -- decode-multipart: case-insensitive headers --
+  (assert-equal test
+    "field1"
+    (FormPart.name
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\ncontent-disposition: form-data; name=\"field1\"\r\n\r\nval\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart handles lowercase headers")
+
+  ; -- decode-multipart: case-insensitive param names --
+  (assert-equal test
+    "field1"
+    (FormPart.name
+      (Array.unsafe-nth
+        &(Form.decode-multipart
+          "--abc\r\nContent-Disposition: form-data; Name=\"field1\"\r\n\r\nval\r\n--abc--"
+          "abc")
+        0))
+    "decode-multipart handles uppercase param Name")
+
+  (assert-equal test
+    "test.txt"
+    &(Maybe.unsafe-from
+      @(FormPart.filename
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"f\"; Filename=\"test.txt\"\r\n\r\ndata\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart handles uppercase Filename param")
+
+  ; -- decode-multipart: transport padding on boundary --
+  (assert-equal test
+    1
+    (Array.length
+      &(Form.decode-multipart
+        "--abc  \r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nval\r\n--abc--"
+        "abc"))
+    "decode-multipart tolerates padding after initial boundary")
+
+  (assert-equal test
+    2
+    (Array.length
+      &(Form.decode-multipart
+        "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc \t\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
+        "abc"))
+    "decode-multipart tolerates padding between parts")
+
+  ; -- decode-multipart-request: case-insensitive boundary param --
+  (assert-equal test
+    "hello"
+    (FormPart.body
+      (Array.unsafe-nth
+        &(Form.decode-multipart-request
+          &(Result.unsafe-from-success
+            (Request.parse
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
+        0))
+    "decode-multipart-request handles uppercase Boundary param")
+
+  ; -- multipart? --
+  (assert-true test
+    (Form.multipart?
+      &(Result.unsafe-from-success
+        (Request.parse
+          "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=abc\r\n\r\n")))
+    "multipart? detects multipart content type")
+
+  (assert-false test
+    (Form.multipart?
+      &(Result.unsafe-from-success
+        (Request.parse
+          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n")))
+    "multipart? false for non-multipart")
+
+  (assert-false test
+    (Form.multipart?
+      &(Result.unsafe-from-success
+        (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n")))
+    "multipart? false when no content-type")
+
+  ; -- decode-multipart-request --
+  (assert-equal test
+    "hello"
+    (FormPart.body
+      (Array.unsafe-nth
+        &(Form.decode-multipart-request
+          &(Result.unsafe-from-success
+            (Request.parse
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
+        0))
+    "decode-multipart-request parses from request")
+
+  (assert-equal test
+    0
+    (Array.length
+      &(Form.decode-multipart-request
+        &(Result.unsafe-from-success
+          (Request.parse
+            "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}"))))
+    "decode-multipart-request empty for non-multipart"))
