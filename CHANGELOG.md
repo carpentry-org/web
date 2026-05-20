@@ -16,6 +16,18 @@
   binary frames (opcode 0x2). `WebSocket.encode-binary` encodes byte arrays
   as binary frames. `WebSocket.send-binary` and `WebSocket.send-binary-now`
   mirror their text counterparts for binary data.
+- **WebSocket message fragmentation reassembly** (RFC 6455 §5.4). The server
+  now checks the FIN bit, accumulates continuation frames (opcode 0) in a
+  per-connection buffer, and dispatches the complete message once the final
+  fragment arrives. Interleaved control frames (ping, pong, close) are
+  processed immediately during fragmentation. Protocol violations (e.g.
+  continuation without a start frame) close the connection.
+
+### Changed
+
+- `WSFrame` gains a `fin` field (`Bool`) for the FIN bit.
+- `ConnState` gains `ws-frag-bufs` and `ws-frag-opcodes` maps for tracking
+  in-progress fragmented messages per connection.
 
 ## 0.4.0 (2026-04-15)
 

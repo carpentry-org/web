@@ -8,20 +8,23 @@
   (let-do [bytes (String.to-bytes msg)
            len (Array.length &bytes)
            frame (the (Array Byte) [])
-           mask [(Byte.from-int 55) (Byte.from-int 250)
-                 (Byte.from-int 33) (Byte.from-int 61)]]
+           mask [(Byte.from-int 55)
+                 (Byte.from-int 250)
+                 (Byte.from-int 33)
+                 (Byte.from-int 61)]]
     ; FIN + text
     (Array.push-back! &frame (Byte.from-int 129))
     ; MASK bit + length (assume < 126)
     (Array.push-back! &frame (Byte.from-int (+ 128 len)))
     ; Mask key
-    (for [i 0 4]
-      (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+    (for [i 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
     ; Masked payload
     (for [i 0 len]
       (Array.push-back! &frame
-        (Byte.from-int (bit-xor (Byte.to-int @(Array.unsafe-nth &bytes i))
-                                (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
+                        (Byte.from-int
+                          (bit-xor
+                            (Byte.to-int @(Array.unsafe-nth &bytes i))
+                            (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
     frame))
 
 ; Build a masked client frame for testing decode-frame with binary opcode.
@@ -29,20 +32,44 @@
 (defn make-masked-binary-frame [data]
   (let-do [len (Array.length data)
            frame (the (Array Byte) [])
-           mask [(Byte.from-int 55) (Byte.from-int 250)
-                 (Byte.from-int 33) (Byte.from-int 61)]]
+           mask [(Byte.from-int 55)
+                 (Byte.from-int 250)
+                 (Byte.from-int 33)
+                 (Byte.from-int 61)]]
     ; FIN + binary
     (Array.push-back! &frame (Byte.from-int 130))
     ; MASK bit + length (assume < 126)
     (Array.push-back! &frame (Byte.from-int (+ 128 len)))
     ; Mask key
-    (for [i 0 4]
-      (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+    (for [i 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
     ; Masked payload
     (for [i 0 len]
       (Array.push-back! &frame
-        (Byte.from-int (bit-xor (Byte.to-int @(Array.unsafe-nth data i))
-                                (Byte.to-int @(Array.unsafe-nth &mask (Int.mod i 4)))))))
+                        (Byte.from-int
+                          (bit-xor (Byte.to-int @(Array.unsafe-nth data i))
+                                   (Byte.to-int @(Array.unsafe-nth &mask
+                                                                   (Int.mod i 4)))))))
+    frame))
+
+; Build a masked client frame with explicit FIN and opcode.
+; Mask key [0x37 0xfa 0x21 0x3d].
+(defn make-masked-frame [fin opcode data]
+  (let-do [len (Array.length data)
+           frame (the (Array Byte) [])
+           mask [(Byte.from-int 55)
+                 (Byte.from-int 250)
+                 (Byte.from-int 33)
+                 (Byte.from-int 61)]
+           b0 (if fin (+ 128 opcode) opcode)]
+    (Array.push-back! &frame (Byte.from-int b0))
+    (Array.push-back! &frame (Byte.from-int (+ 128 len)))
+    (for [i 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+    (for [i 0 len]
+      (Array.push-back! &frame
+                        (Byte.from-int
+                          (bit-xor (Byte.to-int @(Array.unsafe-nth data i))
+                                   (Byte.to-int @(Array.unsafe-nth &mask
+                                                                   (Int.mod i 4)))))))
     frame))
 
 (deftest test
@@ -50,10 +77,7 @@
   ; Base64 encoding
   ; ---------------------------------------------------------------------------
 
-  (assert-equal test
-    ""
-    &(Base64.encode &(String.to-bytes &@""))
-    "Base64 empty")
+  (assert-equal test "" &(Base64.encode &(String.to-bytes &@"")) "Base64 empty")
 
   (assert-equal test
     "Zg=="
@@ -104,29 +128,27 @@
 
   (assert-equal test
     2
-    (let [f (WebSocket.encode-text "")]
-      (Array.length &f))
+    (let [f (WebSocket.encode-text "")] (Array.length &f))
     "encode-text empty is 2 bytes (header only)")
 
   (assert-equal test
-    (Byte.from-int 129) ; 0x81 = FIN + text
-    (let [f (WebSocket.encode-text "hi")]
-      @(Array.unsafe-nth &f 0))
+    (Byte.from-int 129)
+    ; 0x81 = FIN + text
+    (let [f (WebSocket.encode-text "hi")] @(Array.unsafe-nth &f 0))
     "encode-text sets FIN + opcode 1")
 
   (assert-equal test
     (Byte.from-int 2)
-    (let [f (WebSocket.encode-text "hi")]
-      @(Array.unsafe-nth &f 1))
+    (let [f (WebSocket.encode-text "hi")] @(Array.unsafe-nth &f 1))
     "encode-text sets payload length")
 
   (assert-equal test
     "hi"
     &(let-do [f (WebSocket.encode-text "hi")
               payload (the (Array Byte) [])]
-       (for [i 2 (Array.length &f)]
-         (Array.push-back! &payload @(Array.unsafe-nth &f i)))
-       (String.from-bytes &payload))
+      (for [i 2 (Array.length &f)]
+        (Array.push-back! &payload @(Array.unsafe-nth &f i)))
+      (String.from-bytes &payload))
     "encode-text payload matches input")
 
   ; ---------------------------------------------------------------------------
@@ -147,19 +169,21 @@
   (assert-equal test
     "hello"
     &(match (WebSocket.decode-frame &(make-masked-text-frame "hello") 0)
-       (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
-       (Maybe.Nothing) @"FAIL")
+      (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+      (Maybe.Nothing) @"FAIL")
     "decode-frame unmasks payload correctly")
 
   (assert-equal test
-    11  ; 2 header + 4 mask + 5 payload
+    11
+    ; 2 header + 4 mask + 5 payload
     (match (WebSocket.decode-frame &(make-masked-text-frame "hello") 0)
       (Maybe.Just f) @(WSFrame.consumed &f)
       (Maybe.Nothing) -1)
     "decode-frame reports correct consumed bytes")
 
   (assert-true test
-    (Maybe.nothing? &(WebSocket.decode-frame &(the (Array Byte) [(Byte.from-int 129)]) 0))
+    (Maybe.nothing?
+      &(WebSocket.decode-frame &(the (Array Byte) [(Byte.from-int 129)]) 0))
     "decode-frame returns Nothing for incomplete buffer")
 
   ; ---------------------------------------------------------------------------
@@ -169,9 +193,9 @@
   (assert-equal test
     "round-trip"
     &(let [encoded (WebSocket.encode-text "round-trip")]
-       (match (WebSocket.decode-frame &encoded 0)
-         (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
-         (Maybe.Nothing) @"FAIL"))
+      (match (WebSocket.decode-frame &encoded 0)
+        (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+        (Maybe.Nothing) @"FAIL"))
     "server frame round-trips through decode")
 
   ; ---------------------------------------------------------------------------
@@ -199,14 +223,14 @@
     &(let-do [f1 (make-masked-text-frame "hello")
               f2 (make-masked-text-frame "world")
               buf (the (Array Byte) [])]
-       (for [i 0 (Array.length &f1)]
-         (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
-       (for [i 0 (Array.length &f2)]
-         (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
-       (let [off (Array.length &f1)]
-         (match (WebSocket.decode-frame &buf off)
-           (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
-           (Maybe.Nothing) @"FAIL")))
+      (for [i 0 (Array.length &f1)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+      (for [i 0 (Array.length &f2)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
+      (let [off (Array.length &f1)]
+        (match (WebSocket.decode-frame &buf off)
+          (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+          (Maybe.Nothing) @"FAIL")))
     "decode-frame at non-zero offset")
 
   ; ---------------------------------------------------------------------------
@@ -236,15 +260,15 @@
   (assert-equal test
     "/"
     &(let [req (Result.unsafe-from-success
-                 (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
-       (web-routable-path &req))
+             (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (web-routable-path &req))
     "routable-path for root")
 
   (assert-equal test
     "/users/42"
     &(let [req (Result.unsafe-from-success
-                 (Request.parse "GET /users/42 HTTP/1.1\r\nHost: x\r\n\r\n"))]
-       (web-routable-path &req))
+             (Request.parse "GET /users/42 HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (web-routable-path &req))
     "routable-path with segments")
 
   ; ---------------------------------------------------------------------------
@@ -253,13 +277,14 @@
 
   (assert-true test
     (let [req (Result.unsafe-from-success
-                (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
       (web-keep-alive? &req))
     "HTTP/1.1 defaults to keep-alive")
 
   (assert-false test
     (let [req (Result.unsafe-from-success
-                (Request.parse "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))]
+            (Request.parse
+              "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))]
       (web-keep-alive? &req))
     "Connection: close disables keep-alive")
 
@@ -269,13 +294,15 @@
 
   (assert-true test
     (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
-          buf (String.to-bytes &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
       (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
     "upgrade detection matches WS route")
 
   (assert-true test
     (let [app (App.create)
-          buf (String.to-bytes &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: abc\r\n\r\n")]
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: abc\r\n\r\n")]
       (Maybe.nothing? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
     "upgrade detection with no WS routes")
 
@@ -291,9 +318,7 @@
 
   (assert-equal test
     1
-    (let [app (-> (App.create)
-                  (App.WS @"/ws/echo"
-                    (fn [event params ws] ())))]
+    (let [app (-> (App.create) (App.WS @"/ws/echo" (fn [event params ws] ())))]
       (Array.length (App.ws-routes &app)))
     "App.WS adds a WS route")
 
@@ -311,29 +336,31 @@
 
   (assert-equal test
     2
-    (let [f (WebSocket.encode-binary &(the (Array Byte) []))]
-      (Array.length &f))
+    (let [f (WebSocket.encode-binary &(the (Array Byte) []))] (Array.length &f))
     "encode-binary empty is 2 bytes (header only)")
 
   (assert-equal test
-    (Byte.from-int 130) ; 0x82 = FIN + binary
+    (Byte.from-int 130)
+    ; 0x82 = FIN + binary
     (let [f (WebSocket.encode-binary &[(Byte.from-int 1) (Byte.from-int 2)])]
       @(Array.unsafe-nth &f 0))
     "encode-binary sets FIN + opcode 2")
 
   (assert-equal test
     (Byte.from-int 3)
-    (let [f (WebSocket.encode-binary &[(Byte.from-int 10) (Byte.from-int 20) (Byte.from-int 30)])]
+    (let [f (WebSocket.encode-binary
+            &[(Byte.from-int 10) (Byte.from-int 20) (Byte.from-int 30)])]
       @(Array.unsafe-nth &f 1))
     "encode-binary sets payload length")
 
   (assert-equal test
-    &[(Byte.from-int 0xDE) (Byte.from-int 0xAD)]
-    &(let-do [f (WebSocket.encode-binary &[(Byte.from-int 0xDE) (Byte.from-int 0xAD)])
+    &[(Byte.from-int 222) (Byte.from-int 173)]
+    &(let-do [f (WebSocket.encode-binary
+                &[(Byte.from-int 222) (Byte.from-int 173)])
               payload (the (Array Byte) [])]
-       (for [i 2 (Array.length &f)]
-         (Array.push-back! &payload @(Array.unsafe-nth &f i)))
-       @&payload)
+      (for [i 2 (Array.length &f)]
+        (Array.push-back! &payload @(Array.unsafe-nth &f i)))
+      @&payload)
     "encode-binary payload matches input")
 
   ; ---------------------------------------------------------------------------
@@ -341,24 +368,24 @@
   ; ---------------------------------------------------------------------------
 
   (assert-true test
-    (let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
+    (let [data [(Byte.from-int 202) (Byte.from-int 254)]]
       (Maybe.just? &(WebSocket.decode-frame &(make-masked-binary-frame &data) 0)))
     "decode-frame succeeds on binary frame")
 
   (assert-equal test
     2
-    (let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
+    (let [data [(Byte.from-int 202) (Byte.from-int 254)]]
       (match (WebSocket.decode-frame &(make-masked-binary-frame &data) 0)
         (Maybe.Just f) @(WSFrame.opcode &f)
         (Maybe.Nothing) -1))
     "decode-frame returns opcode 2 for binary")
 
   (assert-equal test
-    &[(Byte.from-int 0xCA) (Byte.from-int 0xFE)]
-    &(let [data [(Byte.from-int 0xCA) (Byte.from-int 0xFE)]]
-       (match (WebSocket.decode-frame &(make-masked-binary-frame &data) 0)
-         (Maybe.Just f) @(WSFrame.payload &f)
-         (Maybe.Nothing) (the (Array Byte) [])))
+    &[(Byte.from-int 202) (Byte.from-int 254)]
+    &(let [data [(Byte.from-int 202) (Byte.from-int 254)]]
+      (match (WebSocket.decode-frame &(make-masked-binary-frame &data) 0)
+        (Maybe.Just f) @(WSFrame.payload &f)
+        (Maybe.Nothing) (the (Array Byte) [])))
     "decode-frame unmasks binary payload correctly")
 
   ; ---------------------------------------------------------------------------
@@ -369,9 +396,9 @@
     &[(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
     &(let [data [(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
            encoded (WebSocket.encode-binary &data)]
-       (match (WebSocket.decode-frame &encoded 0)
-         (Maybe.Just f) @(WSFrame.payload &f)
-         (Maybe.Nothing) (the (Array Byte) [])))
+      (match (WebSocket.decode-frame &encoded 0)
+        (Maybe.Just f) @(WSFrame.payload &f)
+        (Maybe.Nothing) (the (Array Byte) [])))
     "binary frame round-trips through decode")
 
   ; ---------------------------------------------------------------------------
@@ -380,13 +407,172 @@
 
   (assert-equal test
     (Byte.from-int 126)
-    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 0xFF)))]
+    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 255)))]
       @(Array.unsafe-nth &f 1))
     "encode-binary uses 16-bit length for >125 bytes")
 
   (assert-equal test
     200
-    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 0xFF)))]
+    (let [f (WebSocket.encode-binary &(Array.replicate 200 &(Byte.from-int 255)))]
       (- (Array.length &f) 4))
     "encode-binary 16-bit payload length correct")
-)
+
+  ; ---------------------------------------------------------------------------
+  ; FIN bit extraction
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
+      (Maybe.Just f) @(WSFrame.fin &f)
+      (Maybe.Nothing) false)
+    "decode-frame FIN=true on normal text frame")
+
+  (assert-false test
+    (let [frame (make-masked-frame false 1 &(String.to-bytes &@"hi"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.fin &f)
+        (Maybe.Nothing) true))
+    "decode-frame FIN=false on non-final text frame")
+
+  (assert-equal test
+    1
+    (let [frame (make-masked-frame false 1 &(String.to-bytes &@"hi"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.opcode &f)
+        (Maybe.Nothing) -1))
+    "non-final text frame has opcode 1")
+
+  ; ---------------------------------------------------------------------------
+  ; Continuation frame codec
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    0
+    (let [frame (make-masked-frame false 0 &(String.to-bytes &@"cont"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.opcode &f)
+        (Maybe.Nothing) -1))
+    "continuation frame has opcode 0")
+
+  (assert-false test
+    (let [frame (make-masked-frame false 0 &(String.to-bytes &@"cont"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.fin &f)
+        (Maybe.Nothing) true))
+    "non-final continuation has FIN=false")
+
+  (assert-true test
+    (let [frame (make-masked-frame true 0 &(String.to-bytes &@"end"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.fin &f)
+        (Maybe.Nothing) false))
+    "final continuation has FIN=true")
+
+  (assert-equal test
+    "end"
+    &(let [frame (make-masked-frame true 0 &(String.to-bytes &@"end"))]
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
+        (Maybe.Nothing) @"FAIL"))
+    "final continuation payload decoded correctly")
+
+  ; ---------------------------------------------------------------------------
+  ; Fragmented frame sequence in a single buffer
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    3
+    (let-do [f1 (make-masked-frame false 1 &(String.to-bytes &@"hel"))
+             f2 (make-masked-frame false 0 &(String.to-bytes &@"lo"))
+             f3 (make-masked-frame true 0 &(String.to-bytes &@"!"))
+             buf (the (Array Byte) [])
+             count 0]
+      (for [i 0 (Array.length &f1)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+      (for [i 0 (Array.length &f2)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
+      (for [i 0 (Array.length &f3)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f3 i)))
+      (let-do [offset 0]
+        (while (< offset (Array.length &buf))
+          (match (WebSocket.decode-frame &buf offset)
+            (Maybe.Nothing) (break)
+            (Maybe.Just frame)
+              (do
+                (set! count (+ count 1))
+                (set! offset (+ offset @(WSFrame.consumed &frame)))))))
+      count)
+    "three fragment frames decode from single buffer")
+
+  (assert-equal test
+    "hello!"
+    &(let-do [f1 (make-masked-frame false 1 &(String.to-bytes &@"hel"))
+              f2 (make-masked-frame false 0 &(String.to-bytes &@"lo"))
+              f3 (make-masked-frame true 0 &(String.to-bytes &@"!"))
+              buf (the (Array Byte) [])
+              assembled (the (Array Byte) [])]
+      (for [i 0 (Array.length &f1)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+      (for [i 0 (Array.length &f2)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
+      (for [i 0 (Array.length &f3)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f3 i)))
+      (let-do [offset 0]
+        (while (< offset (Array.length &buf))
+          (match (WebSocket.decode-frame &buf offset)
+            (Maybe.Nothing) (break)
+            (Maybe.Just frame)
+              (do
+                (for [k 0 (Array.length (WSFrame.payload &frame))]
+                  (Array.push-back! &assembled
+                                    @(Array.unsafe-nth (WSFrame.payload &frame)
+                                                       k)))
+                (set! offset (+ offset @(WSFrame.consumed &frame)))))))
+      (String.from-bytes &assembled))
+    "reassembled fragments produce correct message")
+
+  ; ---------------------------------------------------------------------------
+  ; Interleaved control frame in fragment sequence
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    4
+    (let-do [f1 (make-masked-frame false 1 &(String.to-bytes &@"hel"))
+             ping (make-masked-frame true 9 &(String.to-bytes &@""))
+             f2 (make-masked-frame false 0 &(String.to-bytes &@"lo"))
+             f3 (make-masked-frame true 0 &(String.to-bytes &@"!"))
+             buf (the (Array Byte) [])
+             count 0]
+      (for [i 0 (Array.length &f1)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+      (for [i 0 (Array.length &ping)]
+        (Array.push-back! &buf @(Array.unsafe-nth &ping i)))
+      (for [i 0 (Array.length &f2)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f2 i)))
+      (for [i 0 (Array.length &f3)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f3 i)))
+      (let-do [offset 0]
+        (while (< offset (Array.length &buf))
+          (match (WebSocket.decode-frame &buf offset)
+            (Maybe.Nothing) (break)
+            (Maybe.Just frame)
+              (do
+                (set! count (+ count 1))
+                (set! offset (+ offset @(WSFrame.consumed &frame)))))))
+      count)
+    "interleaved ping parses as separate frame in fragment sequence")
+
+  (assert-equal test
+    9
+    (let-do [f1 (make-masked-frame false 1 &(String.to-bytes &@"hel"))
+             ping (make-masked-frame true 9 &(String.to-bytes &@""))
+             buf (the (Array Byte) [])]
+      (for [i 0 (Array.length &f1)]
+        (Array.push-back! &buf @(Array.unsafe-nth &f1 i)))
+      (for [i 0 (Array.length &ping)]
+        (Array.push-back! &buf @(Array.unsafe-nth &ping i)))
+      (let [off (Array.length &f1)]
+        (match (WebSocket.decode-frame &buf off)
+          (Maybe.Just f) @(WSFrame.opcode &f)
+          (Maybe.Nothing) -1)))
+    "ping after first fragment has correct opcode"))
