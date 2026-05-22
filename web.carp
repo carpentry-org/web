@@ -644,10 +644,13 @@ frames. The event loop drains the outbox after the handler returns.")
                     outbox (Array (Array Byte))])
 
 (hidden WSFrame)
-(deftype WSFrame [fin Bool
-                  opcode Int
-                  payload (Array Byte)
-                  consumed Int])
+(deftype WSFrame
+  [fin Bool
+   opcode Int
+   rsv Int
+   masked Bool
+   payload (Array Byte)
+   consumed Int])
 
 (defmodule WebSocket
   (doc encode-text "encodes a string as a WebSocket text frame (no mask).")
@@ -719,6 +722,16 @@ frames. The event loop drains the outbox after the handler returns.")
     (the (Array Byte) [(Byte.from-int 136) (Byte.from-int 0)]))
   ; 0x88 FIN + close, len 0
 
+  (hidden encode-close-with-code)
+  (defn encode-close-with-code [code]
+    (the (Array Byte)
+         [(Byte.from-int 136)
+          ; 0x88 FIN + close
+          (Byte.from-int 2)
+          ; payload length 2
+          (Byte.from-int (bit-and (bit-shift-right code 8) 255))
+          (Byte.from-int (bit-and code 255))]))
+
   (hidden decode-frame)
   (defn decode-frame [buf offset]
     (let [len (Array.length buf)
@@ -728,6 +741,7 @@ frames. The event loop drains the outbox after the handler returns.")
         (let-do [b0 (Byte.to-int @(Array.unsafe-nth buf offset))
                  b1 (Byte.to-int @(Array.unsafe-nth buf (+ offset 1)))
                  fin (> (bit-and b0 128) 0)
+                 rsv (bit-and (bit-shift-right b0 4) 7)
                  opcode (bit-and b0 15)
                  masked (> (bit-and b1 128) 0)
                  plen0 (bit-and b1 127)
@@ -786,7 +800,7 @@ frames. The event loop drains the outbox after the handler returns.")
                                                                (Int.mod k 4))))))
                             b)]
                       (Array.aset! &payload k unmasked)))
-                  (Maybe.Just (WSFrame.init fin opcode payload total))))))))))
+                  (Maybe.Just (WSFrame.init fin opcode rsv masked payload total))))))))))
 
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
@@ -1015,16 +1029,27 @@ responses.")
                     false))
                 key-vals (Map.get-with-default (Request.headers &req)
                                                "Sec-WebSocket-Key"
-                                               &(the (Array String) []))]
+                                               &(the (Array String) []))
+                ; RFC 6455 §4.2.1: Sec-WebSocket-Version MUST be 13
+                version-vals (Map.get-with-default (Request.headers &req)
+                                                   "Sec-WebSocket-Version"
+                                                   &(the (Array String) []))
+                version-ok (if (> (Array.length &version-vals) 0)
+                  (= (Array.unsafe-first &version-vals) "13")
+                  false)]
             (if (and has-upgrade (> (Array.length &key-vals) 0))
-              (let [path (web-routable-path &req)]
-                (match (web-find-ws-handler ws-routes &path)
-                  (Maybe.Just route-match)
-                    (Maybe.Just
-                      (Pair.init
-                        (ws-accept-key (Array.unsafe-first &key-vals))
-                        @&route-match))
-                  (Maybe.Nothing) (Maybe.Nothing)))
+              (if (not version-ok)
+                ; Bad or missing version — signal with route-idx -1
+                (Maybe.Just
+                  (Pair.init @"" (Pair.init -1 (the (Map String String) {}))))
+                (let [path (web-routable-path &req)]
+                  (match (web-find-ws-handler ws-routes &path)
+                    (Maybe.Just route-match)
+                      (Maybe.Just
+                        (Pair.init
+                          (ws-accept-key (Array.unsafe-first &key-vals))
+                          @&route-match))
+                    (Maybe.Nothing) (Maybe.Nothing))))
               (Maybe.Nothing)))))))
 
 ; Run before-hooks. Each hook can annotate `params` via Map.put! and
@@ -1380,6 +1405,20 @@ fallback.")
                         plen (Array.length (WSFrame.payload &frame))
                         is-control (>= op 8)]
                     (cond
+                      ; RFC 6455 §5.2: RSV bits MUST be 0 (no extensions negotiated)
+                      (> @(WSFrame.rsv &frame) 0)
+                      (do
+                        (Array.push-back! (WebSocket.outbox &ws)
+                                          (WebSocket.encode-close-with-code 1002))
+                        (set! should-close true)
+                        (break))
+                      ; RFC 6455 §5.1: client frames MUST be masked
+                      (not @(WSFrame.masked &frame))
+                      (do
+                        (Array.push-back! (WebSocket.outbox &ws)
+                                          (WebSocket.encode-close-with-code 1002))
+                        (set! should-close true)
+                        (break))
                       ; Control frames: always process immediately (RFC 6455 §5.4)
                       is-control
                       (do
@@ -1580,14 +1619,44 @@ fallback.")
                               accept @(Pair.a &info)
                               ri @(Pair.a (Pair.b &info))
                               ps @(Pair.b (Pair.b &info))]
-                          (handle-ws-upgrade cs
-                                             (App.ws-routes app)
-                                             poll
-                                             fd
-                                             stream2
-                                             &accept
-                                             ri
-                                             &ps))
+                          (if (< ri 0)
+                            ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
+                            (let-do [resp-str @"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                     wbuf (String.to-bytes &resp-str)]
+                              (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+                              (Map.put! (ConnState.write-positions cs) &fd &0)
+                              (Map.put! (ConnState.keep-alives cs) &fd &false)
+                              (Map.update-value! (ConnState.read-bufs cs)
+                                                 &fd
+                                                 &(fn [b]
+                                                   (TcpStream.clear-buf b)))
+                              (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                                       &fd
+                                                       &(fn [b]
+                                                         (match (TcpStream.send-nb &stream2
+                                                                                   b
+                                                                                   0)
+                                                           (Result.Success k) k
+                                                           (Result.Error _) -1))
+                                                       -1)
+                                    buf-len (Array.length &wbuf)]
+                                (cond
+                                  (< n0 0) (queue-close cs fd)
+                                  (if (< n0 buf-len)
+                                    (do
+                                      (Map.put! (ConnState.write-positions cs)
+                                                &fd
+                                                &n0)
+                                      (ignore (Poll.modify poll fd poll-write)))
+                                    (queue-close cs fd)))))
+                            (handle-ws-upgrade cs
+                                               (App.ws-routes app)
+                                               poll
+                                               fd
+                                               stream2
+                                               &accept
+                                               ri
+                                               &ps)))
                         (let [pair (Map.value-ref! (ConnState.read-bufs cs)
                                                    &fd
                                                    &(fn [buf]

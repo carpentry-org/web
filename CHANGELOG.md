@@ -23,8 +23,16 @@
   processed immediately during fragmentation. Protocol violations (e.g.
   continuation without a start frame) close the connection.
 
+- **WebSocket RFC 6455 compliance checks.** The server now validates reserved
+  bits (RSV1-3) on incoming frames and closes the connection with status 1002
+  if any are set (§5.2). Unmasked client frames are rejected with status 1002
+  (§5.1). The upgrade handshake validates `Sec-WebSocket-Version: 13` and
+  responds with 426 Upgrade Required if the version is missing or wrong (§4.2.1).
+
 ### Changed
 
+- `WSFrame` gains `rsv` (`Int`) and `masked` (`Bool`) fields in addition to
+  the existing `fin` field.
 - `WSFrame` gains a `fin` field (`Bool`) for the FIN bit.
 - `ConnState` gains `ws-frag-bufs` and `ws-frag-opcodes` maps for tracking
   in-progress fragmented messages per connection.
