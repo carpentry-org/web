@@ -295,7 +295,7 @@
   (assert-true test
     (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
           buf (String.to-bytes
-            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
       (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
     "upgrade detection matches WS route")
 
@@ -575,4 +575,126 @@
         (match (WebSocket.decode-frame &buf off)
           (Maybe.Just f) @(WSFrame.opcode &f)
           (Maybe.Nothing) -1)))
-    "ping after first fragment has correct opcode"))
+    "ping after first fragment has correct opcode")
+
+  ; ---------------------------------------------------------------------------
+  ; RSV bits extraction (RFC 6455 §5.2)
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    0
+    (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
+      (Maybe.Just f) @(WSFrame.rsv &f)
+      (Maybe.Nothing) -1)
+    "normal frame has RSV=0")
+
+  (assert-equal test
+    4
+    ; RSV1 set: byte 0 = 0xC1 (FIN=1, RSV1=1, opcode=1)
+    (let-do [frame (the (Array Byte) [])
+             mask [(Byte.from-int 55)
+                   (Byte.from-int 250)
+                   (Byte.from-int 33)
+                   (Byte.from-int 61)]]
+      (Array.push-back! &frame (Byte.from-int 193))
+      (Array.push-back! &frame (Byte.from-int (+ 128 2)))
+      (for [i 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+      (Array.push-back! &frame (Byte.from-int (bit-xor (Char.to-int \h) 55)))
+      (Array.push-back! &frame (Byte.from-int (bit-xor (Char.to-int \i) 250)))
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.rsv &f)
+        (Maybe.Nothing) -1))
+    "frame with RSV1 set reports RSV=4")
+
+  (assert-equal test
+    7
+    ; All RSV bits set: byte 0 = 0xF1 (FIN=1, RSV1=1, RSV2=1, RSV3=1, opcode=1)
+    (let-do [frame (the (Array Byte) [])
+             mask [(Byte.from-int 55)
+                   (Byte.from-int 250)
+                   (Byte.from-int 33)
+                   (Byte.from-int 61)]]
+      (Array.push-back! &frame (Byte.from-int 241))
+      (Array.push-back! &frame (Byte.from-int (+ 128 0)))
+      (for [i 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask i)))
+      (match (WebSocket.decode-frame &frame 0)
+        (Maybe.Just f) @(WSFrame.rsv &f)
+        (Maybe.Nothing) -1))
+    "frame with all RSV bits set reports RSV=7")
+
+  ; ---------------------------------------------------------------------------
+  ; Masked flag extraction (RFC 6455 §5.1)
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
+      (Maybe.Just f) @(WSFrame.masked &f)
+      (Maybe.Nothing) false)
+    "masked client frame has masked=true")
+
+  (assert-false test
+    (let [encoded (WebSocket.encode-text "hi")]
+      (match (WebSocket.decode-frame &encoded 0)
+        (Maybe.Just fr) @(WSFrame.masked &fr)
+        (Maybe.Nothing) true))
+    "unmasked server frame has masked=false")
+
+  ; ---------------------------------------------------------------------------
+  ; Close frame with status code encoding
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    8
+    (let [f (WebSocket.encode-close-with-code 1002)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.opcode &frame)
+        (Maybe.Nothing) -1))
+    "close-with-code has opcode 8")
+
+  (assert-equal test
+    2
+    (let [f (WebSocket.encode-close-with-code 1002)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) (Array.length (WSFrame.payload &frame))
+        (Maybe.Nothing) -1))
+    "close-with-code has 2-byte payload")
+
+  (assert-equal test
+    &[(Byte.from-int 3) (Byte.from-int 234)]
+    ; 1002 = 0x03EA
+    &(let [f (WebSocket.encode-close-with-code 1002)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.payload &frame)
+        (Maybe.Nothing) (the (Array Byte) [])))
+    "close-with-code 1002 encodes correct status bytes")
+
+  ; ---------------------------------------------------------------------------
+  ; Sec-WebSocket-Version validation (RFC 6455 §4.2.1)
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (match (web-try-ws-upgrade &buf (App.ws-routes &app))
+        (Maybe.Just info) (>= @(Pair.a (Pair.b &info)) 0)
+        (Maybe.Nothing) false))
+    "upgrade with version 13 returns valid route index")
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 8\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (match (web-try-ws-upgrade &buf (App.ws-routes &app))
+        (Maybe.Just info) (< @(Pair.a (Pair.b &info)) 0)
+        (Maybe.Nothing) false))
+    "upgrade with wrong version returns sentinel (ri < 0)")
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (match (web-try-ws-upgrade &buf (App.ws-routes &app))
+        (Maybe.Just info) (< @(Pair.a (Pair.b &info)) 0)
+        (Maybe.Nothing) false))
+    "upgrade with missing version returns sentinel (ri < 0)"))
