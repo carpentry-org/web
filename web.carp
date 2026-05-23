@@ -939,14 +939,15 @@ responses.")
 
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
-        cl-k @"Content-Length"
-        cl-v [(Int.str body-len)]
+        has-te (Map.contains? (Response.headers &resp) "Transfer-Encoding")
         conn-k @"Connection"
         conn-v [(if keep-alive @"keep-alive" @"close")]
-        h (Map.put
-          (Map.put @(Response.headers &resp) &cl-k &cl-v)
-          &conn-k
-          &conn-v)]
+        h (let [base (Map.put @(Response.headers &resp) &conn-k &conn-v)]
+          (if has-te
+            base
+            (let [cl-k @"Content-Length"
+                  cl-v [(Int.str body-len)]]
+              (Map.put base &cl-k &cl-v))))]
     (Response.set-headers resp h)))
 
 (defn read-request-buf [client buf]
@@ -1675,17 +1676,19 @@ fallback.")
                                     (if (< ffd 0)
                                       -1l
                                       (let [sz (IO.Raw.fstat-size ffd)]
-                                        (do
-                                          (Map.put! (ConnState.sf-fds cs)
-                                                    &fd
-                                                    &ffd)
-                                          (Map.put! (ConnState.sf-offsets cs)
-                                                    &fd
-                                                    &0l)
-                                          (Map.put! (ConnState.sf-sizes cs)
-                                                    &fd
-                                                    &sz)
-                                          sz))))
+                                        (if (< sz 0l)
+                                          (do (ignore (IO.Raw.close-fd ffd)) -1l)
+                                          (do
+                                            (Map.put! (ConnState.sf-fds cs)
+                                                      &fd
+                                                      &ffd)
+                                            (Map.put! (ConnState.sf-offsets cs)
+                                                      &fd
+                                                      &0l)
+                                            (Map.put! (ConnState.sf-sizes cs)
+                                                      &fd
+                                                      &sz)
+                                            sz)))))
                                 (Maybe.Nothing) -1l)
                               actual-resp (if (and (Maybe.just? &sf-path)
                                                    (< sf-result 0l))
@@ -1925,16 +1928,17 @@ stdout. Reads the start time from `_start` in params, set by
   (GET \"/\" hello))
 ```")
 (defn log-after [req params resp]
-  (let [start (Maybe.unsafe-from (Long.from-string &(Map.get params "_start")))
-        now (Uint64.to-long (System.nanotime))
-        elapsed (/ (- now start) 1000000l)]
-    (do
-      (Log.info "%s /%s %d %ldms"
-                (Request.verb req)
-                &(web-request-path req)
-                (Response.code &resp)
-                elapsed)
-      resp)))
+  (let-do [start (match (Long.from-string &(Map.get params "_start"))
+             (Maybe.Just v) v
+             (Maybe.Nothing) 0l)
+           now (Uint64.to-long (System.nanotime))
+           elapsed (/ (- now start) 1000000l)]
+    (Log.info "%s /%s %d %ldms"
+              (Request.verb req)
+              &(web-request-path req)
+              (Response.code &resp)
+              elapsed)
+    resp))
 
 ; ---------------------------------------------------------------------------
 ; defserver: generate a main that builds an App and starts serving

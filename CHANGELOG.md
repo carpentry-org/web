@@ -29,6 +29,18 @@
   (§5.1). The upgrade handshake validates `Sec-WebSocket-Version: 13` and
   responds with 426 Upgrade Required if the version is missing or wrong (§4.2.1).
 
+### Fixed
+
+- **Content-Length no longer sent with chunked encoding.** `web-finalize-response`
+  now skips the `Content-Length` header when `Transfer-Encoding` is already set,
+  fixing an RFC 7230 §3.3.2 violation.
+- **`log-after` no longer crashes when `_start` is missing.** The after-hook used
+  `Maybe.unsafe-from` on the parsed start time, which panicked if `log-before`
+  was not registered. Now falls back to `0l`.
+- **File descriptor leak on `fstat` failure.** When `sendfile` opened a file but
+  `fstat` failed, the fd was stored in `ConnState` but never closed. The fd is
+  now closed immediately on `fstat` failure.
+
 ### Changed
 
 - `WSFrame` gains `rsv` (`Int`) and `masked` (`Bool`) fields in addition to

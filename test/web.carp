@@ -461,4 +461,38 @@
         &(Result.unsafe-from-success
           (Request.parse
             "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}"))))
-    "decode-multipart-request empty for non-multipart"))
+    "decode-multipart-request empty for non-multipart")
+
+  ; ---------------------------------------------------------------------------
+  ; Response finalization tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- finalize omits Content-Length for chunked responses --
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(web-finalize-response
+          (Response.chunked 200 @"text/plain" &[@"hello"])
+          true))
+      "Content-Length")
+    "finalize omits Content-Length when Transfer-Encoding is set")
+
+  ; -- finalize adds Content-Length for normal responses --
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(web-finalize-response (Response.text @"hi") true))
+      "Content-Length")
+    "finalize adds Content-Length for normal responses")
+
+  ; ---------------------------------------------------------------------------
+  ; log-after safety tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- log-after does not crash when _start is missing --
+  (assert-equal test
+    200
+    (let [req (Result.unsafe-from-success
+            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+          params (the (Map String String) {})]
+      @(Response.code &(log-after &req &params (Response.text @"ok"))))
+    "log-after does not crash without _start param"))
