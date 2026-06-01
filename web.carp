@@ -653,13 +653,12 @@ frames. The event loop drains the outbox after the handler returns.")
    consumed Int])
 
 (defmodule WebSocket
-  (doc encode-text "encodes a string as a WebSocket text frame (no mask).")
-  (defn encode-text [msg]
-    (let-do [bytes (String.to-bytes msg)
-             len (Array.length &bytes)
+  (hidden encode-ws-frame)
+  (defn encode-ws-frame [opcode payload]
+    (let-do [len (Array.length payload)
              frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 129))
-      ; 0x81 FIN + text
+      (Array.push-back! &frame (Byte.from-int (+ 128 opcode)))
+      ; FIN + opcode
       (cond
         (< len 126) (Array.push-back! &frame (Byte.from-int len))
         (< len 65536)
@@ -677,45 +676,19 @@ frames. The event loop drains the outbox after the handler returns.")
           (Array.push-back! &frame
                             (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
           (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
-      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth &bytes k)))
+      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth payload k)))
       frame))
+
+  (doc encode-text "encodes a string as a WebSocket text frame (no mask).")
+  (defn encode-text [msg]
+    (let [bytes (String.to-bytes msg)] (encode-ws-frame 1 &bytes)))
 
   (doc encode-binary
     "encodes a byte array as a WebSocket binary frame (no mask).")
-  (defn encode-binary [data]
-    (let-do [len (Array.length data)
-             frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 130))
-      ; 0x82 FIN + binary
-      (cond
-        (< len 126) (Array.push-back! &frame (Byte.from-int len))
-        (< len 65536)
-          (do
-            (Array.push-back! &frame (Byte.from-int 126))
-            (Array.push-back! &frame (Byte.from-int (/ len 256)))
-            (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
-        (do
-          (Array.push-back! &frame (Byte.from-int 127))
-          (for [k 0 4] (Array.push-back! &frame (Byte.from-int 0)))
-          (Array.push-back! &frame
-                            (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
-          (Array.push-back! &frame
-                            (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
-          (Array.push-back! &frame
-                            (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
-          (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
-      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth data k)))
-      frame))
+  (defn encode-binary [data] (encode-ws-frame 2 data))
 
   (hidden encode-pong)
-  (defn encode-pong [payload]
-    (let-do [len (Array.length payload)
-             frame (the (Array Byte) [])]
-      (Array.push-back! &frame (Byte.from-int 138))
-      ; 0x8A FIN + pong
-      (Array.push-back! &frame (Byte.from-int len))
-      (for [k 0 len] (Array.push-back! &frame @(Array.unsafe-nth payload k)))
-      frame))
+  (defn encode-pong [payload] (encode-ws-frame 10 payload))
 
   (hidden encode-close)
   (defn encode-close []
