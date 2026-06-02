@@ -697,4 +697,175 @@
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
         (Maybe.Just info) (< @(Pair.a (Pair.b &info)) 0)
         (Maybe.Nothing) false))
-    "upgrade with missing version returns sentinel (ri < 0)"))
+    "upgrade with missing version returns sentinel (ri < 0)")
+
+  ; ---------------------------------------------------------------------------
+  ; Ping frame encoding
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    9
+    (let [f (WebSocket.encode-ping &(the (Array Byte) []))]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.opcode &frame)
+        (Maybe.Nothing) -1))
+    "encode-ping empty has opcode 9")
+
+  (assert-equal test
+    0
+    (let [f (WebSocket.encode-ping &(the (Array Byte) []))]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) (Array.length (WSFrame.payload &frame))
+        (Maybe.Nothing) -1))
+    "encode-ping empty has 0-byte payload")
+
+  (assert-equal test
+    (Byte.from-int 137)
+    ; 0x89 = FIN + ping
+    (let [f (WebSocket.encode-ping &(the (Array Byte) []))]
+      @(Array.unsafe-nth &f 0))
+    "encode-ping sets FIN + opcode 9")
+
+  (assert-equal test
+    &[(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
+    &(let [data [(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
+           f (WebSocket.encode-ping &data)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.payload &frame)
+        (Maybe.Nothing) (the (Array Byte) [])))
+    "encode-ping with payload round-trips through decode")
+
+  (assert-equal test
+    2
+    (let [f (WebSocket.encode-ping &(the (Array Byte) []))] (Array.length &f))
+    "encode-ping empty is 2 bytes (header only)")
+
+  ; ---------------------------------------------------------------------------
+  ; Ping/pong symmetry: ping and pong with same payload
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    true
+    (let [payload [(Byte.from-int 42)]
+          ping (WebSocket.encode-ping &payload)
+          pong (WebSocket.encode-pong &payload)
+          ping-pl (match (WebSocket.decode-frame &ping 0)
+            (Maybe.Just f) @(WSFrame.payload &f)
+            (Maybe.Nothing) (the (Array Byte) []))
+          pong-pl (match (WebSocket.decode-frame &pong 0)
+            (Maybe.Just f) @(WSFrame.payload &f)
+            (Maybe.Nothing) (the (Array Byte) []))]
+      (= &ping-pl &pong-pl))
+    "ping and pong with same payload have identical payloads")
+
+  ; ---------------------------------------------------------------------------
+  ; WebSocket ping state machine (App.ws-ping-action)
+  ; Returns: 0 = nothing, 1 = send ping, 2 = close as dead
+  ; Params: ping-interval max-missed idle pcount since-ping write-pending
+  ; ---------------------------------------------------------------------------
+
+  ; -- Disabled pinging (interval <= 0) --
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 0 3 100 0 0 false)
+    "ws-ping-action: interval=0 disables pinging")
+
+  (assert-equal test
+    0
+    (App.ws-ping-action -5 3 100 0 0 false)
+    "ws-ping-action: negative interval disables pinging")
+
+  ; -- Not yet idle enough --
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 30 3 10 0 0 false)
+    "ws-ping-action: idle < interval — nothing")
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 30 3 29 0 0 false)
+    "ws-ping-action: idle just under interval — nothing")
+
+  ; -- First ping --
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 30 0 0 false)
+    "ws-ping-action: first ping at exactly interval")
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 45 0 0 false)
+    "ws-ping-action: first ping well past interval")
+
+  ; -- Subsequent pings --
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 65 1 35 false)
+    "ws-ping-action: second ping when since-ping >= interval")
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 30 3 65 1 10 false)
+    "ws-ping-action: too soon since last ping — nothing")
+
+  ; -- Dead client detection --
+
+  (assert-equal test
+    2
+    (App.ws-ping-action 30 3 120 3 35 false)
+    "ws-ping-action: close after max missed pongs")
+
+  (assert-equal test
+    2
+    (App.ws-ping-action 30 3 200 5 35 false)
+    "ws-ping-action: close even with pcount > max")
+
+  ; -- Write-pending guard --
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 30 3 35 0 0 true)
+    "ws-ping-action: skip first ping when write pending")
+
+  (assert-equal test
+    0
+    (App.ws-ping-action 30 3 65 1 35 true)
+    "ws-ping-action: skip subsequent ping when write pending")
+
+  (assert-equal test
+    2
+    (App.ws-ping-action 30 3 120 3 35 true)
+    "ws-ping-action: close dead client even with write pending")
+
+  ; -- Full lifecycle: fresh → ping → ping → ping → dead --
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 30 0 0 false)
+    "lifecycle step 1: first ping (idle=30, pcount=0)")
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 60 1 30 false)
+    "lifecycle step 2: second ping (idle=60, pcount=1, since-ping=30)")
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 90 2 30 false)
+    "lifecycle step 3: third ping (idle=90, pcount=2, since-ping=30)")
+
+  (assert-equal test
+    2
+    (App.ws-ping-action 30 3 120 3 30 false)
+    "lifecycle step 4: dead (idle=120, pcount=3)")
+
+  ; -- Pong resets the cycle --
+
+  (assert-equal test
+    1
+    (App.ws-ping-action 30 3 60 0 0 false)
+    "after pong resets pcount to 0: resumes pinging"))
