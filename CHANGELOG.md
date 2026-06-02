@@ -4,6 +4,13 @@
 
 ### Added
 
+- **WebSocket subprotocol negotiation** (RFC 6455 §4.2.2). `App.WSP` registers
+  a WebSocket route with a list of supported subprotocols. During the upgrade
+  handshake, the server selects the first client-requested protocol that appears
+  in the route's list and includes `Sec-WebSocket-Protocol` in the 101 response.
+  The negotiated protocol is available to handlers via `(WebSocket.protocol ws)`.
+  `App.WS` is unchanged and does not negotiate subprotocols.
+
 - **WebSocket server-initiated ping with dead client detection.**
   `WebSocket.encode-ping` encodes a ping frame. The server automatically sends
   ping frames to idle WebSocket connections (after `App.ws-ping-interval`
@@ -52,6 +59,16 @@
 
 ### Changed
 
+- `WSRoute` gains a `protocols` field (`(Array String)`) listing supported
+  subprotocols. Existing `App.WS` calls pass an empty array for backward
+  compatibility.
+- `WebSocket` gains a `protocol` field (`(Maybe String)`) holding the
+  negotiated subprotocol, or `Nothing` if none was negotiated.
+- `ConnState` gains a `ws-protocol` map for tracking the negotiated
+  subprotocol per WebSocket connection.
+- `web-try-ws-upgrade` return type gains a `(Maybe String)` for the
+  negotiated protocol. `handle-ws-upgrade` includes `Sec-WebSocket-Protocol`
+  in the 101 response when a protocol was negotiated.
 - `ConnState` gains `ws-ping-count` and `ws-last-ping` maps for tracking
   server-initiated ping state per WebSocket connection.
 - `sweep-idle` now takes a `poll` parameter and sends ping frames to idle
