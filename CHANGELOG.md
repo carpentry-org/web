@@ -4,6 +4,13 @@
 
 ### Added
 
+- **WebSocket server-initiated ping with dead client detection.**
+  `WebSocket.encode-ping` encodes a ping frame. The server automatically sends
+  ping frames to idle WebSocket connections (after `App.ws-ping-interval`
+  seconds, default 30) and closes connections that miss
+  `App.ws-max-missed-pongs` consecutive pongs (default 3). Pong responses from
+  clients reset the counter. HTTP connections still use the simple idle timeout.
+
 - **Multipart form-data parsing.** `FormPart` type represents a single part
   from a `multipart/form-data` request, with `name`, optional `filename`,
   `content-type`, and `body` fields. `Form.decode-multipart` parses a
@@ -43,6 +50,10 @@
 
 ### Changed
 
+- `ConnState` gains `ws-ping-count` and `ws-last-ping` maps for tracking
+  server-initiated ping state per WebSocket connection.
+- `sweep-idle` now takes a `poll` parameter and sends ping frames to idle
+  WebSocket connections instead of closing them immediately.
 - `WSFrame` gains `rsv` (`Int`) and `masked` (`Bool`) fields in addition to
   the existing `fin` field.
 - `WSFrame` gains a `fin` field (`Bool`) for the FIN bit.

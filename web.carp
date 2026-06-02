@@ -690,6 +690,10 @@ frames. The event loop drains the outbox after the handler returns.")
   (hidden encode-pong)
   (defn encode-pong [payload] (encode-ws-frame 10 payload))
 
+  (doc encode-ping
+    "encodes a WebSocket ping frame with the given payload (may be empty).")
+  (defn encode-ping [payload] (encode-ws-frame 9 payload))
+
   (hidden encode-close)
   (defn encode-close []
     (the (Array Byte) [(Byte.from-int 136) (Byte.from-int 0)]))
@@ -1114,7 +1118,9 @@ responses.")
    ws-route-idx (Map Int Int)
    ws-params (Map Int (Map String String))
    ws-frag-bufs (Map Int (Array Byte))
-   ws-frag-opcodes (Map Int Int)])
+   ws-frag-opcodes (Map Int Int)
+   ws-ping-count (Map Int Int)
+   ws-last-ping (Map Int Int)])
 
 (defmodule App
   (doc create "creates an empty App with no routes and a default error handler.")
@@ -1180,6 +1186,8 @@ fallback.")
 
   (def max-request-size 1048576)
   (def idle-timeout 60)
+  (def ws-ping-interval 30)
+  (def ws-max-missed-pongs 3)
   (def running true)
 
   ; -----------------------------------------------------------------------
@@ -1236,7 +1244,9 @@ fallback.")
       (Map.remove! (ConnState.ws-route-idx cs) &fd)
       (Map.remove! (ConnState.ws-params cs) &fd)
       (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
-      (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)))
+      (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+      (Map.remove! (ConnState.ws-ping-count cs) &fd)
+      (Map.remove! (ConnState.ws-last-ping cs) &fd)))
 
   ; -----------------------------------------------------------------------
   ; Event handlers
@@ -1401,6 +1411,9 @@ fallback.")
                           ; ping -> pong
                           (Array.push-back! (WebSocket.outbox &ws)
                                             (WebSocket.encode-pong (WSFrame.payload &frame)))
+                          (= op 10)
+                          ; pong — reset server-initiated ping counter
+                          (Map.put! (ConnState.ws-ping-count cs) &fd &0)
                           (= op 8)
                           ; close
                           (do
@@ -1413,7 +1426,6 @@ fallback.")
                             (set! should-close true)
                             (break))
                           ())
-                        ; pong (10) — ignore
                         (set! offset (+ offset consumed)))
                       ; Single data frame too large
                       (> plen App.max-request-size)
@@ -1696,13 +1708,44 @@ fallback.")
                                   (conn-done-writing cs poll fd)))))))))))))))))
 
   (hidden sweep-idle)
-  (defn sweep-idle [cs]
+  (defn sweep-idle [cs poll]
     (let [now (System.time)
           keys (Map.keys (ConnState.last-active cs))]
       (for [j 0 (Array.length &keys)]
         (let [rfd @(Array.unsafe-nth &keys j)
-              ts (Map.get (ConnState.last-active cs) &rfd)]
-          (when (> (- now ts) App.idle-timeout) (queue-close cs rfd))))))
+              ts (Map.get (ConnState.last-active cs) &rfd)
+              idle (- now ts)
+              is-ws (Map.contains? (ConnState.ws-route-idx cs) &rfd)]
+          (if is-ws
+            ; WebSocket: ping/pong dead client detection
+            (when (>= idle App.ws-ping-interval)
+              (let [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
+                      (Map.get (ConnState.ws-ping-count cs) &rfd)
+                      0)
+                    last-ping (if (Map.contains? (ConnState.ws-last-ping cs)
+                                                 &rfd)
+                      (Map.get (ConnState.ws-last-ping cs) &rfd)
+                      0)
+                    since-ping (- now last-ping)]
+                (cond
+                  ; Too many missed pongs — dead client
+                  (>= pcount App.ws-max-missed-pongs)
+                  (queue-close cs rfd)
+                  ; Time to send a ping
+                  (or (= pcount 0) (>= since-ping App.ws-ping-interval))
+                  ; Only if no pending write data
+                  (unless (Map.contains? (ConnState.write-bufs cs) &rfd)
+                    (let-do [ping-frame (WebSocket.encode-ping &(the (Array Byte)
+                                                                     []))]
+                      (Map.put! (ConnState.write-bufs cs) &rfd &ping-frame)
+                      (Map.put! (ConnState.write-positions cs) &rfd &0)
+                      (Map.put! (ConnState.keep-alives cs) &rfd &true)
+                      (Map.put! (ConnState.ws-ping-count cs) &rfd &(+ pcount 1))
+                      (Map.put! (ConnState.ws-last-ping cs) &rfd &now)
+                      (ignore (Poll.modify poll rfd poll-write))))
+                  ())))
+            ; HTTP: simple idle timeout
+            (when (> idle App.idle-timeout) (queue-close cs rfd)))))))
 
   (hidden flush-closed)
   (defn flush-closed [cs poll]
@@ -1781,6 +1824,8 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                                         {}
                                         {}
                                         {}
+                                        {}
+                                        {}
                                         {})]
               (IO.println &(fmt "Listening on %s:%d" host port))
               (set! App.running true)
@@ -1810,7 +1855,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                                                &poll
                                                fd)
                             ())))
-                      (sweep-idle &cs)
+                      (sweep-idle &cs &poll)
                       (flush-closed &cs &poll))))
               (Poll.close poll)
               (TcpListener.close listener))))))
