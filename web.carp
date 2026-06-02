@@ -1707,6 +1707,23 @@ fallback.")
                                     (ignore (Poll.modify poll fd poll-write)))
                                   (conn-done-writing cs poll fd)))))))))))))))))
 
+  (doc ws-ping-action "Decides what to do for a WebSocket connection's ping
+    state. Returns 0 (nothing), 1 (send ping), or 2 (close as dead).
+    Setting ping-interval to 0 or negative disables pinging.")
+  (defn ws-ping-action [ping-interval
+                        max-missed
+                        idle
+                        pcount
+                        since-ping
+                        write-pending]
+    (cond
+      (<= ping-interval 0) 0
+      (< idle ping-interval) 0
+      (>= pcount max-missed) 2
+      (and (or (= pcount 0) (>= since-ping ping-interval)) (not write-pending))
+        1
+      0))
+
   (hidden sweep-idle)
   (defn sweep-idle [cs poll]
     (let [now (System.time)
@@ -1718,32 +1735,32 @@ fallback.")
               is-ws (Map.contains? (ConnState.ws-route-idx cs) &rfd)]
           (if is-ws
             ; WebSocket: ping/pong dead client detection
-            (when (>= idle App.ws-ping-interval)
-              (let [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
-                      (Map.get (ConnState.ws-ping-count cs) &rfd)
-                      0)
-                    last-ping (if (Map.contains? (ConnState.ws-last-ping cs)
-                                                 &rfd)
-                      (Map.get (ConnState.ws-last-ping cs) &rfd)
-                      0)
-                    since-ping (- now last-ping)]
-                (cond
-                  ; Too many missed pongs — dead client
-                  (>= pcount App.ws-max-missed-pongs)
-                  (queue-close cs rfd)
-                  ; Time to send a ping
-                  (or (= pcount 0) (>= since-ping App.ws-ping-interval))
-                  ; Only if no pending write data
-                  (unless (Map.contains? (ConnState.write-bufs cs) &rfd)
-                    (let-do [ping-frame (WebSocket.encode-ping &(the (Array Byte)
-                                                                     []))]
-                      (Map.put! (ConnState.write-bufs cs) &rfd &ping-frame)
-                      (Map.put! (ConnState.write-positions cs) &rfd &0)
-                      (Map.put! (ConnState.keep-alives cs) &rfd &true)
-                      (Map.put! (ConnState.ws-ping-count cs) &rfd &(+ pcount 1))
-                      (Map.put! (ConnState.ws-last-ping cs) &rfd &now)
-                      (ignore (Poll.modify poll rfd poll-write))))
-                  ())))
+            (let [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
+                    (Map.get (ConnState.ws-ping-count cs) &rfd)
+                    0)
+                  last-ping (if (Map.contains? (ConnState.ws-last-ping cs) &rfd)
+                    (Map.get (ConnState.ws-last-ping cs) &rfd)
+                    0)
+                  since-ping (- now last-ping)
+                  write-pending (Map.contains? (ConnState.write-bufs cs) &rfd)
+                  action (ws-ping-action App.ws-ping-interval
+                                         App.ws-max-missed-pongs
+                                         idle
+                                         pcount
+                                         since-ping
+                                         write-pending)]
+              (cond
+                (= action 2) (queue-close cs rfd)
+                (= action 1)
+                  (let-do [ping-frame (WebSocket.encode-ping &(the (Array Byte)
+                                                                   []))]
+                    (Map.put! (ConnState.write-bufs cs) &rfd &ping-frame)
+                    (Map.put! (ConnState.write-positions cs) &rfd &0)
+                    (Map.put! (ConnState.keep-alives cs) &rfd &true)
+                    (Map.put! (ConnState.ws-ping-count cs) &rfd &(+ pcount 1))
+                    (Map.put! (ConnState.ws-last-ping cs) &rfd &now)
+                    (ignore (Poll.modify poll rfd poll-write)))
+                ()))
             ; HTTP: simple idle timeout
             (when (> idle App.idle-timeout) (queue-close cs rfd)))))))
 

@@ -10,6 +10,8 @@
   seconds, default 30) and closes connections that miss
   `App.ws-max-missed-pongs` consecutive pongs (default 3). Pong responses from
   clients reset the counter. HTTP connections still use the simple idle timeout.
+  Setting `ws-ping-interval` to 0 or negative disables pinging.
+  `App.ws-ping-action` exposes the pure decision function for testing.
 
 - **Multipart form-data parsing.** `FormPart` type represents a single part
   from a `multipart/form-data` request, with `name`, optional `filename`,
