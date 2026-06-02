@@ -148,6 +148,26 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#fin">
+                        <h3 id="fin">
+                            fin
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a)] (Ref Bool a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>fin</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#init">
                         <h3 id="init">
                             init
@@ -157,13 +177,33 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Int, (Array Byte), Int] WSFrame)
+                        (Fn [Bool, Int, Int, Bool, (Array Byte), Int] WSFrame)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
                         <p>creates a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#masked">
+                        <h3 id="masked">
+                            masked
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a)] (Ref Bool a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>masked</code> property of a <code>WSFrame</code>.</p>
 
                     </p>
                 </div>
@@ -228,6 +268,26 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#rsv">
+                        <h3 id="rsv">
+                            rsv
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a)] (Ref Int a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>rsv</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-consumed">
                         <h3 id="set-consumed">
                             set-consumed
@@ -264,6 +324,86 @@
                     </span>
                     <p class="doc">
                         <p>sets the <code>consumed</code> property of a <code>WSFrame</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-fin">
+                        <h3 id="set-fin">
+                            set-fin
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, Bool] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>fin</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-fin!">
+                        <h3 id="set-fin!">
+                            set-fin!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a), Bool] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>fin</code> property of a <code>WSFrame</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-masked">
+                        <h3 id="set-masked">
+                            set-masked
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, Bool] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>masked</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-masked!">
+                        <h3 id="set-masked!">
+                            set-masked!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a), Bool] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>masked</code> property of a <code>WSFrame</code> in place.</p>
 
                     </p>
                 </div>
@@ -348,6 +488,46 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-rsv">
+                        <h3 id="set-rsv">
+                            set-rsv
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, Int] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>rsv</code> property of a <code>WSFrame</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-rsv!">
+                        <h3 id="set-rsv!">
+                            set-rsv!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSFrame a), Int] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>rsv</code> property of a <code>WSFrame</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -388,6 +568,46 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#update-fin">
+                        <h3 id="update-fin">
+                            update-fin
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, (Ref (Fn [Bool] Bool a) b)] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>fin</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-masked">
+                        <h3 id="update-masked">
+                            update-masked
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, (Ref (Fn [Bool] Bool a) b)] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>masked</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-opcode">
                         <h3 id="update-opcode">
                             update-opcode
@@ -424,6 +644,26 @@
                     </span>
                     <p class="doc">
                         <p>updates the <code>payload</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-rsv">
+                        <h3 id="update-rsv">
+                            update-rsv
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>rsv</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

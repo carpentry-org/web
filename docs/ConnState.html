@@ -137,7 +137,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String))] ConnState)
+                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Array Byte)), (Map Int Int), (Map Int Int), (Map Int Int)] ConnState)
                     </p>
                     <span>
                         
@@ -628,6 +628,126 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-ws-frag-bufs">
+                        <h3 id="set-ws-frag-bufs">
+                            set-ws-frag-bufs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int (Array Byte))] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-frag-bufs</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-frag-bufs!">
+                        <h3 id="set-ws-frag-bufs!">
+                            set-ws-frag-bufs!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int (Array Byte))] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-frag-bufs</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-frag-opcodes">
+                        <h3 id="set-ws-frag-opcodes">
+                            set-ws-frag-opcodes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-frag-opcodes</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-frag-opcodes!">
+                        <h3 id="set-ws-frag-opcodes!">
+                            set-ws-frag-opcodes!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-frag-opcodes</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-last-ping">
+                        <h3 id="set-ws-last-ping">
+                            set-ws-last-ping
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-last-ping</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-last-ping!">
+                        <h3 id="set-ws-last-ping!">
+                            set-ws-last-ping!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-last-ping</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-ws-params">
                         <h3 id="set-ws-params">
                             set-ws-params
@@ -664,6 +784,46 @@
                     </span>
                     <p class="doc">
                         <p>sets the <code>ws-params</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-ping-count">
+                        <h3 id="set-ws-ping-count">
+                            set-ws-ping-count
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-ping-count</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-ws-ping-count!">
+                        <h3 id="set-ws-ping-count!">
+                            set-ws-ping-count!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>ws-ping-count</code> property of a <code>ConnState</code> in place.</p>
 
                     </p>
                 </div>
@@ -1028,6 +1188,66 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#update-ws-frag-bufs">
+                        <h3 id="update-ws-frag-bufs">
+                            update-ws-frag-bufs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int (Array Byte))] (Map Int (Array Byte)) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-frag-bufs</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-ws-frag-opcodes">
+                        <h3 id="update-ws-frag-opcodes">
+                            update-ws-frag-opcodes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-frag-opcodes</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-ws-last-ping">
+                        <h3 id="update-ws-last-ping">
+                            update-ws-last-ping
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-last-ping</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#update-ws-params">
                         <h3 id="update-ws-params">
                             update-ws-params
@@ -1044,6 +1264,26 @@
                     </span>
                     <p class="doc">
                         <p>updates the <code>ws-params</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-ws-ping-count">
+                        <h3 id="update-ws-ping-count">
+                            update-ws-ping-count
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>ws-ping-count</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
@@ -1108,6 +1348,66 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#ws-frag-bufs">
+                        <h3 id="ws-frag-bufs">
+                            ws-frag-bufs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int (Array Byte)) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-frag-bufs</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-frag-opcodes">
+                        <h3 id="ws-frag-opcodes">
+                            ws-frag-opcodes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-frag-opcodes</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-last-ping">
+                        <h3 id="ws-last-ping">
+                            ws-last-ping
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-last-ping</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#ws-params">
                         <h3 id="ws-params">
                             ws-params
@@ -1124,6 +1424,26 @@
                     </span>
                     <p class="doc">
                         <p>gets the <code>ws-params</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-ping-count">
+                        <h3 id="ws-ping-count">
+                            ws-ping-count
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>ws-ping-count</code> property of a <code>ConnState</code>.</p>
 
                     </p>
                 </div>

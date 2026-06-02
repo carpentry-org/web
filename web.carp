@@ -3,13 +3,13 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.4.0\")
+(load \"git@github.com:carpentry-org/web@0.5.0\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.4.0\")
+(load \"git@github.com:carpentry-org/web@0.5.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))

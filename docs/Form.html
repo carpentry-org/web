@@ -86,7 +86,7 @@
                 </h1>
                 <div class="module-description">
                     <p>provides helpers for parsing <code>application/x-www-form-urlencoded</code>
-request bodies.</p>
+and <code>multipart/form-data</code> request bodies.</p>
 
                 </div>
                 <div class="binder">
@@ -109,6 +109,62 @@ request bodies.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#decode-multipart">
+                        <h3 id="decode-multipart">
+                            decode-multipart
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a), (Ref String b)] (Array FormPart))
+                    </p>
+                    <pre class="args">
+                        (decode-multipart body boundary)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a <code>multipart/form-data</code> body given the
+boundary string. Returns an array of <a href="#FormPart"><code>FormPart</code></a> values.</p>
+<pre><code>(let [parts (Form.decode-multipart body &quot;boundary123&quot;)]
+  (Array.nth &amp;parts 0))
+</code></pre>
+<p>Each part’s <code>name</code>, optional <code>filename</code>, and <code>content-type</code> are extracted
+from its MIME headers. The <code>body</code> field is the raw content between the
+part headers and the next boundary delimiter.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#decode-multipart-request">
+                        <h3 id="decode-multipart-request">
+                            decode-multipart-request
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Request a)] (Array FormPart))
+                    </p>
+                    <pre class="args">
+                        (decode-multipart-request req)
+                    </pre>
+                    <p class="doc">
+                        <p>parses the multipart form body from a
+request. Returns an array of <a href="#FormPart"><code>FormPart</code></a> values, or an empty
+array if the content type is not <code>multipart/form-data</code> or the boundary
+is missing.</p>
+<pre><code>(defn upload [req params]
+  (let [parts (Form.decode-multipart-request req)]
+    (if (&gt; (Array.length &amp;parts) 0)
+      (Response.text (fmt &quot;got %d parts&quot; (Array.length &amp;parts)))
+      (Response.bad-request))))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#decode-request">
                         <h3 id="decode-request">
                             decode-request
@@ -125,6 +181,27 @@ request bodies.</p>
                     </pre>
                     <p class="doc">
                         
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#multipart?">
+                        <h3 id="multipart?">
+                            multipart?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Request a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (multipart? req)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether a request has a <code>multipart/form-data</code>
+content type.</p>
+
                     </p>
                 </div>
                 <div class="binder">

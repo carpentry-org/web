@@ -1,0 +1,9 @@
+(load "../web.carp")
+
+(defn echo [event params ws]
+  (match-ref event
+    (WSEvent.Message msg) (WebSocket.send ws msg)
+    _ ()))
+
+(defserver "0.0.0.0" 3001
+  (WS "/ws" echo))

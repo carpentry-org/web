@@ -204,11 +204,12 @@
                     </pre>
                     <p class="doc">
                         <p>adds a WebSocket route. The handler is called for each lifecycle
-event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code>Message</code>, and <code>Close</code>.</p>
+event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code>Message</code>, <code>Binary</code>, and <code>Close</code>.</p>
 <pre><code>(defn echo [event params ws]
   (match-ref event
     (WSEvent.Connect) (WebSocket.send ws @&quot;connected&quot;)
     (WSEvent.Message msg) (WebSocket.send ws (fmt &quot;echo: %s&quot; msg))
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
 (defserver &quot;0.0.0.0&quot; 3000
@@ -699,6 +700,66 @@ fallback.</p>
                     <p class="doc">
                         <p>updates the <code>ws-routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-max-missed-pongs">
+                        <h3 id="ws-max-missed-pongs">
+                            ws-max-missed-pongs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-ping-action">
+                        <h3 id="ws-ping-action">
+                            ws-ping-action
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Int, Int, Int, Int, Int, Bool] Int)
+                    </p>
+                    <pre class="args">
+                        (ws-ping-action ping-interval max-missed idle pcount since-ping write-pending)
+                    </pre>
+                    <p class="doc">
+                        <p>Decides what to do for a WebSocket connection's ping
+state. Returns 0 (nothing), 1 (send ping), or 2 (close as dead).
+Setting ping-interval to 0 or negative disables pinging.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-ping-interval">
+                        <h3 id="ws-ping-interval">
+                            ws-ping-interval
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">

@@ -86,9 +86,9 @@
                 </h1>
                 <div class="module-description">
                     <p>represents an active WebSocket connection.</p>
-<p>Handlers receive a reference to this and call <a href="#send"><code>WebSocket.send</code></a> to
-queue outgoing text frames. The event loop drains the outbox after the handler
-returns.</p>
+<p>Handlers receive a reference to this and call <a href="#send"><code>WebSocket.send</code></a> or
+<a href="#send-binary"><code>WebSocket.send-binary</code></a> to queue outgoing text or binary
+frames. The event loop drains the outbox after the handler returns.</p>
 
                 </div>
                 <div class="binder">
@@ -128,6 +128,46 @@ returns.</p>
                     </span>
                     <p class="doc">
                         <p>deletes a <code>WebSocket</code>. Should usually not be called manually.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-binary">
+                        <h3 id="encode-binary">
+                            encode-binary
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Array Byte) a)] (Array Byte))
+                    </p>
+                    <pre class="args">
+                        (encode-binary data)
+                    </pre>
+                    <p class="doc">
+                        <p>encodes a byte array as a WebSocket binary frame (no mask).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-ping">
+                        <h3 id="encode-ping">
+                            encode-ping
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Array Byte) a)] (Array Byte))
+                    </p>
+                    <pre class="args">
+                        (encode-ping payload)
+                    </pre>
+                    <p class="doc">
+                        <p>encodes a WebSocket ping frame with the given payload (may be empty).</p>
 
                     </p>
                 </div>
@@ -248,6 +288,70 @@ returns.</p>
                     </pre>
                     <p class="doc">
                         <p>queues a text message for sending on the WebSocket connection.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#send-binary">
+                        <h3 id="send-binary">
+                            send-binary
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a), (Ref (Array Byte) b)] ())
+                    </p>
+                    <pre class="args">
+                        (send-binary ws data)
+                    </pre>
+                    <p class="doc">
+                        <p>queues a binary message for sending on the WebSocket connection.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#send-binary-now">
+                        <h3 id="send-binary-now">
+                            send-binary-now
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a), (Ref (Array Byte) b)] ())
+                    </p>
+                    <pre class="args">
+                        (send-binary-now ws data)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a binary message immediately, bypassing the outbox.
+Like <a href="#send-now"><code>send-now</code></a> but for binary data.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#send-now">
+                        <h3 id="send-now">
+                            send-now
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a), (Ref String b)] ())
+                    </p>
+                    <pre class="args">
+                        (send-now ws msg)
+                    </pre>
+                    <p class="doc">
+                        <p>sends a text message immediately, bypassing the outbox.
+Writes the WebSocket frame directly to the socket. Use this inside handlers
+that block for a long time (e.g. LLM streaming) so that each message reaches
+the client without waiting for the handler to return.</p>
 
                     </p>
                 </div>
