@@ -639,8 +639,12 @@ Handlers receive one of these for each lifecycle event:
 
 Handlers receive a reference to this and call [`WebSocket.send`](#send) or
 [`WebSocket.send-binary`](#send-binary) to queue outgoing text or binary
-frames. The event loop drains the outbox after the handler returns.")
+frames. The event loop drains the outbox after the handler returns.
+
+The `protocol` field holds the negotiated subprotocol (RFC 6455 §4.2.2),
+or `Nothing` if no subprotocol was negotiated.")
 (deftype WebSocket [fd Int
+                    protocol (Maybe String)
                     outbox (Array (Array Byte))])
 
 (hidden WSFrame)
@@ -875,9 +879,11 @@ Examples: `/api/*` matches `/api/foo/bar` with `* = foo/bar`.
 (doc WSRoute
   "a WebSocket route entry. The handler receives a [`WSEvent`](#WSEvent),
 the captured path parameters, and a [`WebSocket`](#WebSocket) handle for sending
-responses.")
+responses. The `protocols` field lists the subprotocols that this route supports
+(RFC 6455 §4.2.2). An empty list means no subprotocol negotiation.")
 (deftype WSRoute
   [pattern String
+   protocols (Array String)
    handler (Fn [&WSEvent &(Map String String) &WebSocket] ())])
 
 ; ---------------------------------------------------------------------------
@@ -987,13 +993,44 @@ responses.")
           (Maybe.Nothing) ())))
     result))
 
+; Parse a comma-separated Sec-WebSocket-Protocol header value into a list
+; of trimmed, non-empty protocol tokens (RFC 6455 §4.2.1).
+(hidden ws-parse-protocols)
+(defn ws-parse-protocols [header-val]
+  (let-do [parts &(String.split-by header-val &[\,])
+           result (the (Array String) [])]
+    (for [i 0 (Array.length parts)]
+      (let [trimmed (String.trim (Array.unsafe-nth parts i))]
+        (when (> (String.length &trimmed) 0)
+          (Array.push-back! &result trimmed))))
+    result))
+
+; Select the first client-requested protocol that appears in the server's
+; supported list (RFC 6455 §4.2.2). Returns Nothing if no match or either
+; list is empty.
+(hidden ws-negotiate-protocol)
+(defn ws-negotiate-protocol [client-protos server-protos]
+  (let-do [result (the (Maybe String) (Maybe.Nothing))]
+    (for [i 0 (Array.length client-protos)]
+      (let-do [found false]
+        (for [j 0 (Array.length server-protos)]
+          (when (= (Array.unsafe-nth client-protos i)
+                   (Array.unsafe-nth server-protos j))
+            (do (set! result (Maybe.Just @(Array.unsafe-nth client-protos i)))
+                (set! found true)
+                (break))))
+        (when found (break))))
+    result))
+
 ; Try to parse a WebSocket upgrade from a raw HTTP buffer. Returns
-; (Maybe (Pair String (Pair Int (Map String String)))) — the accept key,
-; route index, and params — or Nothing if it is not an upgrade.
+; (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
+; — the accept key, route index, negotiated protocol, and params — or
+; Nothing if it is not an upgrade.
 (hidden web-try-ws-upgrade)
 (defn web-try-ws-upgrade [buf ws-routes]
   (if (= 0 (Array.length ws-routes))
-    (the (Maybe (Pair String (Pair Int (Map String String)))) (Maybe.Nothing))
+    (the (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
+         (Maybe.Nothing))
     (let [raw &(String.from-bytes buf)]
       (match (Request.parse raw)
         (Result.Error _) (Maybe.Nothing)
@@ -1014,19 +1051,37 @@ responses.")
                                                    &(the (Array String) []))
                 version-ok (if (> (Array.length &version-vals) 0)
                   (= (Array.unsafe-first &version-vals) "13")
-                  false)]
+                  false)
+                ; RFC 6455 §4.2.1: Sec-WebSocket-Protocol (optional)
+                proto-vals (Map.get-with-default (Request.headers &req)
+                                                  "Sec-WebSocket-Protocol"
+                                                  &(the (Array String) []))
+                client-protos (if (> (Array.length &proto-vals) 0)
+                  (ws-parse-protocols (Array.unsafe-first &proto-vals))
+                  (the (Array String) []))]
             (if (and has-upgrade (> (Array.length &key-vals) 0))
               (if (not version-ok)
                 ; Bad or missing version — signal with route-idx -1
                 (Maybe.Just
-                  (Pair.init @"" (Pair.init -1 (the (Map String String) {}))))
+                  (Pair.init @""
+                    (Pair.init -1
+                      (Pair.init (the (Maybe String) (Maybe.Nothing))
+                                 (the (Map String String) {})))))
                 (let [path (web-routable-path &req)]
                   (match (web-find-ws-handler ws-routes &path)
                     (Maybe.Just route-match)
-                      (Maybe.Just
-                        (Pair.init
-                          (ws-accept-key (Array.unsafe-first &key-vals))
-                          @&route-match))
+                      (let [ri @(Pair.a &route-match)
+                            params @(Pair.b &route-match)
+                            server-protos (WSRoute.protocols
+                                            (Array.unsafe-nth ws-routes ri))
+                            negotiated (if (> (Array.length &client-protos) 0)
+                              (ws-negotiate-protocol &client-protos server-protos)
+                              (the (Maybe String) (Maybe.Nothing)))]
+                        (Maybe.Just
+                          (Pair.init
+                            (ws-accept-key (Array.unsafe-first &key-vals))
+                            (Pair.init ri
+                              (Pair.init negotiated params)))))
                     (Maybe.Nothing) (Maybe.Nothing))))
               (Maybe.Nothing)))))))
 
@@ -1117,6 +1172,7 @@ responses.")
    to-close (Array Int)
    ws-route-idx (Map Int Int)
    ws-params (Map Int (Map String String))
+   ws-protocol (Map Int (Maybe String))
    ws-frag-bufs (Map Int (Array Byte))
    ws-frag-opcodes (Map Int Int)
    ws-ping-count (Map Int Int)
@@ -1167,7 +1223,32 @@ event ([`WSEvent`](#WSEvent)): `Connect`, `Message`, `Binary`, and `Close`.
   (defn WS [app pattern handler]
     (set-ws-routes app
                    (Array.push-back @(ws-routes &app)
-                                    (WSRoute.init pattern handler))))
+                                    (WSRoute.init pattern [] handler))))
+
+  (doc WSP "adds a WebSocket route with subprotocol negotiation.
+
+The `protocols` array lists the subprotocols this route supports
+(RFC 6455 §4.2.2). During the upgrade handshake, the server selects
+the first client-requested protocol that appears in this list and
+includes it in the `Sec-WebSocket-Protocol` response header. The
+negotiated protocol is available via `(WebSocket.protocol ws)`.
+
+```
+(defn chat [event params ws]
+  (match-ref event
+    (WSEvent.Connect)
+      (match-ref (WebSocket.protocol ws)
+        (Maybe.Just p) (WebSocket.send ws (fmt \"using protocol %s\" p))
+        (Maybe.Nothing) (WebSocket.send ws @\"no subprotocol\"))
+    _ ()))
+
+(defserver \"0.0.0.0\" 3000
+  (WSP \"/ws/chat\" [@\"chat-v2\" @\"chat-v1\"] chat))
+```")
+  (defn WSP [app pattern protocols handler]
+    (set-ws-routes app
+                   (Array.push-back @(ws-routes &app)
+                                    (WSRoute.init pattern protocols handler))))
 
   (doc static-dir "registers a wildcard GET route that serves files from
 `dir` on disk via sendfile. Register after API routes so it acts as a
@@ -1243,6 +1324,7 @@ fallback.")
           (Map.remove! (ConnState.sf-sizes cs) &fd)))
       (Map.remove! (ConnState.ws-route-idx cs) &fd)
       (Map.remove! (ConnState.ws-params cs) &fd)
+      (Map.remove! (ConnState.ws-protocol cs) &fd)
       (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
       (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
       (Map.remove! (ConnState.ws-ping-count cs) &fd)
@@ -1317,12 +1399,16 @@ fallback.")
           (Array.push-back! wbuf @(Array.unsafe-nth frame j))))))
 
   (hidden handle-ws-upgrade)
-  (defn handle-ws-upgrade [cs ws-routes poll fd stream accept route-idx params]
-    (let-do [resp-str (fmt
-               "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
-               accept)
+  (defn handle-ws-upgrade [cs ws-routes poll fd stream accept route-idx proto params]
+    (let-do [resp-str (match-ref proto
+               (Maybe.Just p)
+                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: %s\r\n\r\n"
+                      accept p)
+               (Maybe.Nothing)
+                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
+                      accept))
              wbuf (String.to-bytes &resp-str)
-             ws (WebSocket.init fd [])]
+             ws (WebSocket.init fd @proto [])]
       (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx)) &(WSEvent.Connect)
                                                                  params
                                                                  &ws)
@@ -1332,6 +1418,7 @@ fallback.")
       (Map.put! (ConnState.keep-alives cs) &fd &true)
       (Map.put! (ConnState.ws-route-idx cs) &fd &route-idx)
       (Map.put! (ConnState.ws-params cs) &fd params)
+      (Map.put! (ConnState.ws-protocol cs) &fd proto)
       (Map.update-value! (ConnState.read-bufs cs)
                          &fd
                          &(fn [b] (TcpStream.clear-buf b)))
@@ -1376,7 +1463,11 @@ fallback.")
                                           &fd
                                           &(fn [p] @p)
                                           (the (Map String String) {}))
-                   ws (WebSocket.init fd [])
+                   proto (Map.value-ref! (ConnState.ws-protocol cs)
+                                         &fd
+                                         &(fn [p] @p)
+                                         (the (Maybe String) (Maybe.Nothing)))
+                   ws (WebSocket.init fd proto [])
                    offset 0
                    should-close false]
             (while (< offset (Array.length &buf))
@@ -1597,14 +1688,16 @@ fallback.")
                                                     (Maybe
                                                       (Pair String
                                                             (Pair Int
-                                                                  (Map String
-                                                                       String))))
+                                                                  (Pair (Maybe String)
+                                                                        (Map String
+                                                                             String)))))
                                                     (Maybe.Nothing)))]
                       (if (Maybe.just? &ws-info)
                         (let [info (Maybe.unsafe-from ws-info)
                               accept @(Pair.a &info)
                               ri @(Pair.a (Pair.b &info))
-                              ps @(Pair.b (Pair.b &info))]
+                              proto @(Pair.a (Pair.b (Pair.b &info)))
+                              ps @(Pair.b (Pair.b (Pair.b &info)))]
                           (if (< ri 0)
                             ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
                             (let-do [resp-str @"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -1642,6 +1735,7 @@ fallback.")
                                                stream2
                                                &accept
                                                ri
+                                               &proto
                                                &ps)))
                         (let [pair (Map.value-ref! (ConnState.read-bufs cs)
                                                    &fd
@@ -1785,6 +1879,9 @@ fallback.")
   (hidden errors-form?)
   (defndynamic errors-form? [f] (and (list? f) (= 'errors (car f))))
 
+  (hidden wsp-form?)
+  (defndynamic wsp-form? [f] (and (list? f) (= 'WSP (car f))))
+
   (hidden route-form?)
   (defndynamic route-form? [f]
     (and (list? f)
@@ -1794,6 +1891,7 @@ fallback.")
              (= 'DELETE (car f))
              (= 'PATCH (car f))
              (= 'WS (car f))
+             (= 'WSP (car f))
              (= 'static (car f))
              (= 'before (car f))
              (= 'after (car f))
@@ -1806,6 +1904,8 @@ fallback.")
       (App.before-form? r) (list 'App.use-before (cadr r))
       (App.after-form? r) (list 'App.use-after (cadr r))
       (App.errors-form? r) (list 'App.set-error (cadr r))
+      (App.wsp-form? r) (list 'App.WSP (list 'copy (cadr r)) (caddr r)
+                               (car (cdr (cdr (cdr r)))))
       (list (Symbol.prefix 'App (car r)) (list 'copy (cadr r)) (caddr r))))
 
   ; -----------------------------------------------------------------------
@@ -1838,6 +1938,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                                         {}
                                         {}
                                         []
+                                        {}
                                         {}
                                         {}
                                         {}
