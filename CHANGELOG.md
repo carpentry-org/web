@@ -4,6 +4,15 @@
 
 ### Added
 
+- **WebSocket client module** (`WSClient`) for outbound WebSocket connections
+  with RFC 6455 client-side masking. `WSClient.connect` performs the opening
+  handshake including `Sec-WebSocket-Accept` validation. `WSClient.send` and
+  `WSClient.send-binary` transmit masked text and binary frames.
+  `WSClient.recv` blocks until a message arrives, handling control frames
+  (ping/pong/close) and fragmentation reassembly transparently.
+  `WSClient.connect-with-protocols` supports subprotocol negotiation.
+  `WSClient.encode-masked-frame` is public for building custom client frames.
+
 - **WebSocket subprotocol negotiation** (RFC 6455 §4.2.2). `App.WSP` registers
   a WebSocket route with a list of supported subprotocols. During the upgrade
   handshake, the server selects the first client-requested protocol that appears

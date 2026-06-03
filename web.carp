@@ -822,6 +822,311 @@ Like [`send-now`](#send-now) but for binary data.")
     (Base64.encode &hash)))
 
 ; ---------------------------------------------------------------------------
+; WebSocket client (RFC 6455 client-side)
+; ---------------------------------------------------------------------------
+
+(doc WSClient "represents an outbound WebSocket client connection (RFC 6455).
+
+Use [`WSClient.connect`](#connect) to establish a connection, then
+[`WSClient.send`](#send) / [`WSClient.send-binary`](#send-binary) to transmit
+messages and [`WSClient.recv`](#recv) to receive them.
+
+```
+(match (WSClient.connect \"127.0.0.1\" 8080 \"/ws\")
+  (Result.Success client)
+    (do
+      (ignore (WSClient.send &client \"hello\"))
+      (match (WSClient.recv &client)
+        (Result.Success event)
+          (match-ref &event
+            (WSEvent.Message msg) (println* msg)
+            _ ())
+        (Result.Error e) (IO.errorln &e))
+      (WSClient.close &client))
+  (Result.Error e) (IO.errorln &e))
+```")
+(deftype WSClient [stream TcpStream
+                   protocol (Maybe String)
+                   buf (Array Byte)])
+
+(defmodule WSClient
+  (hidden random-key)
+  (private random-key)
+  (defn random-key [] (Base64.encode &(Array.repeat 16 &Byte.random)))
+
+  (doc encode-masked-frame "encodes a WebSocket frame with client-side masking
+(RFC 6455 §5.3). Clients MUST mask all frames sent to the server.")
+  (defn encode-masked-frame [opcode payload]
+    (let-do [len (Array.length payload)
+             frame (the (Array Byte) [])
+             mask [(Byte.from-int (Int.random-between 0 256))
+                   (Byte.from-int (Int.random-between 0 256))
+                   (Byte.from-int (Int.random-between 0 256))
+                   (Byte.from-int (Int.random-between 0 256))]]
+      ; FIN + opcode
+      (Array.push-back! &frame (Byte.from-int (+ 128 opcode)))
+      ; MASK bit + payload length
+      (cond
+        (< len 126) (Array.push-back! &frame (Byte.from-int (+ 128 len)))
+        (< len 65536)
+          (do
+            (Array.push-back! &frame (Byte.from-int (+ 128 126)))
+            (Array.push-back! &frame (Byte.from-int (/ len 256)))
+            (Array.push-back! &frame (Byte.from-int (Int.mod len 256))))
+        (do
+          (Array.push-back! &frame (Byte.from-int (+ 128 127)))
+          (for [k 0 4] (Array.push-back! &frame (Byte.from-int 0)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 24) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 16) 255)))
+          (Array.push-back! &frame
+                            (Byte.from-int (bit-and (bit-shift-right len 8) 255)))
+          (Array.push-back! &frame (Byte.from-int (bit-and len 255)))))
+      ; Mask key
+      (for [k 0 4] (Array.push-back! &frame @(Array.unsafe-nth &mask k)))
+      ; Masked payload
+      (for [k 0 len]
+        (Array.push-back! &frame
+                          (Byte.from-int
+                            (bit-xor
+                              (Byte.to-int @(Array.unsafe-nth payload k))
+                              (Byte.to-int @(Array.unsafe-nth &mask
+                                                              (Int.mod k 4)))))))
+      frame))
+
+  (hidden do-handshake)
+  (private do-handshake)
+  (defn do-handshake [addr port path protocols]
+    (match (TcpStream.connect addr port)
+      (Result.Error e) (the (Result WSClient String) (Result.Error e))
+      (Result.Success stream)
+        (let-do [key (random-key)
+                 host (if (= port 80) @addr (fmt "%s:%d" addr port))
+                 proto-hdr (if (> (Array.length protocols) 0)
+                   (fmt "Sec-WebSocket-Protocol: %s\r\n"
+                        &(String.join ", " protocols))
+                   @"")
+                 req (fmt
+                   "GET %s HTTP/1.1\r\nHost: %s\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: %s\r\nSec-WebSocket-Version: 13\r\n%s\r\n"
+                   path
+                   &host
+                   &key
+                   &proto-hdr)]
+          (match (TcpStream.send &stream &req)
+            (Result.Error e) (do (TcpStream.close stream) (Result.Error e))
+            (Result.Success _)
+              (let-do [resp-buf (the (Array Byte) [])
+                       ok false]
+                (TcpStream.set-read-timeout &stream 10)
+                (while true
+                  (match (TcpStream.read-append &stream &resp-buf)
+                    (Result.Error _) (break)
+                    (Result.Success n)
+                      (cond
+                        (<= n 0) (break)
+                        (web-has-header-end &resp-buf)
+                          (do (set! ok true) (break))
+                        ())))
+                (if (not ok)
+                  (do
+                    (TcpStream.close stream)
+                    (Result.Error @"handshake failed: incomplete response"))
+                  (let [resp (String.from-bytes &resp-buf)
+                        expected (ws-accept-key &key)
+                        accept-hdr @"Sec-WebSocket-Accept: "
+                        accept-idx (String.index-of-string &resp &accept-hdr)]
+                    (cond
+                      (not (String.contains-string? &resp "101"))
+                        (do
+                          (TcpStream.close stream)
+                          (Result.Error
+                            @"handshake failed: server rejected upgrade"))
+                      (= accept-idx -1)
+                        (do
+                          (TcpStream.close stream)
+                          (Result.Error
+                            @"handshake failed: missing accept header"))
+                      (let-do [start (+ accept-idx (String.length &accept-hdr))
+                               end start]
+                        (while (and (< end (String.length &resp))
+                                    (/= (String.char-at &resp end) \return))
+                          (set! end (+ end 1)))
+                        (let [server-accept (String.trim &(String.byte-slice &resp
+                                                                             start
+                                                                             end))]
+                          (if (/= &server-accept &expected)
+                            (do
+                              (TcpStream.close stream)
+                              (Result.Error @"handshake failed: accept key mismatch"))
+                            (let-do [proto (the (Maybe String) (Maybe.Nothing))
+                                     proto-hdr2 @"Sec-WebSocket-Protocol: "
+                                     pidx (String.index-of-string &resp
+                                                                  &proto-hdr2)]
+                              (when (/= pidx -1)
+                                (let-do [ps (+ pidx (String.length &proto-hdr2))
+                                         pe ps]
+                                  (while (and (< pe (String.length &resp))
+                                              (/= (String.char-at &resp pe)
+                                                  \return))
+                                    (set! pe (+ pe 1)))
+                                  (set! proto
+                                        (Maybe.Just
+                                          (String.trim &(String.byte-slice &resp
+                                                                           ps
+                                                                           pe))))))
+                              (TcpStream.set-read-timeout &stream 0)
+                              (Result.Success (WSClient.init stream proto []))))))))))))))
+
+  (doc connect "connects to a WebSocket server and performs the RFC 6455
+opening handshake. Returns `(Result WSClient String)`.
+
+```
+(match (WSClient.connect \"127.0.0.1\" 8080 \"/ws\")
+  (Result.Success client)
+    (do
+      (ignore (WSClient.send &client \"hello\"))
+      (WSClient.close &client))
+  (Result.Error e) (IO.errorln &e))
+```")
+  (defn connect [addr port path]
+    (do-handshake addr port path &(the (Array String) [])))
+
+  (doc connect-with-protocols "connects with subprotocol negotiation
+(RFC 6455 §4.2.1). The `protocols` array lists the subprotocols the client
+supports, in preference order. The server selects one, accessible via
+`(WSClient.protocol &client)`.")
+  (defn connect-with-protocols [addr port path protocols]
+    (do-handshake addr port path protocols))
+
+  (doc send "sends a text message with RFC 6455 client-side masking.")
+  (defn send [client msg]
+    (let [bytes (String.to-bytes msg)
+          frame (encode-masked-frame 1 &bytes)]
+      (TcpStream.send-bytes (WSClient.stream client) &frame)))
+
+  (doc send-binary "sends binary data with RFC 6455 client-side masking.")
+  (defn send-binary [client data]
+    (let [frame (encode-masked-frame 2 data)]
+      (TcpStream.send-bytes (WSClient.stream client) &frame)))
+
+  (doc ping "sends a ping frame with the given payload.")
+  (defn ping [client payload]
+    (let [frame (encode-masked-frame 9 payload)]
+      (TcpStream.send-bytes (WSClient.stream client) &frame)))
+
+  (hidden compact-buf)
+  (private compact-buf)
+  (defn compact-buf [buf offset]
+    (let-do [remaining (the (Array Byte) [])]
+      (for [i offset (Array.length buf)]
+        (Array.push-back! &remaining @(Array.unsafe-nth buf i)))
+      (TcpStream.clear-buf buf)
+      (for [i 0 (Array.length &remaining)]
+        (Array.push-back! buf @(Array.unsafe-nth &remaining i)))))
+
+  (doc recv "receives the next WebSocket message, blocking until data arrives.
+Returns `(Result WSEvent String)`. Control frames are handled automatically:
+ping frames are answered with pong, pong frames are ignored, and close frames
+cause a close reply and return `WSEvent.Close`. Fragmented messages are
+reassembled transparently.")
+  (defn recv [client]
+    (let-do [buf (WSClient.buf client)
+             result (the (Result WSEvent String) (Result.Error @""))
+             done false
+             frag-buf (the (Array Byte) [])
+             frag-opcode 0]
+      (while (not done)
+        (let-do [offset 0
+                 need-read true]
+          (while (< offset (Array.length buf))
+            (match (WebSocket.decode-frame buf offset)
+              (Maybe.Nothing) (break)
+              (Maybe.Just frame)
+                (let [op @(WSFrame.opcode &frame)
+                      fin @(WSFrame.fin &frame)
+                      consumed @(WSFrame.consumed &frame)]
+                  (cond
+                    ; Ping → auto-pong
+                    (= op 9)
+                    (do
+                      (let [pong (encode-masked-frame 10
+                                                      (WSFrame.payload &frame))]
+                        (ignore
+                          (TcpStream.send-bytes (WSClient.stream client) &pong)))
+                      (set! offset (+ offset consumed)))
+                    ; Pong → ignore
+                    (= op 10)
+                    (set! offset (+ offset consumed))
+                    ; Close → echo close and return
+                    (= op 8)
+                    (do
+                      (let [cf (encode-masked-frame 8 &(the (Array Byte) []))]
+                        (ignore
+                          (TcpStream.send-bytes (WSClient.stream client) &cf)))
+                      (set! offset (+ offset consumed))
+                      (set! result (Result.Success (WSEvent.Close)))
+                      (set! done true)
+                      (set! need-read false)
+                      (break))
+                    ; First fragment (FIN=0, opcode 1 or 2)
+                    (and (not fin) (or (= op 1) (= op 2)))
+                    (do
+                      (set! frag-opcode op)
+                      (set! frag-buf @(WSFrame.payload &frame))
+                      (set! offset (+ offset consumed)))
+                    ; Continuation frame (opcode 0)
+                    (= op 0)
+                    (do
+                      (for [k 0 (Array.length (WSFrame.payload &frame))]
+                        (Array.push-back! &frag-buf
+                                          @(Array.unsafe-nth (WSFrame.payload &frame)
+                                                             k)))
+                      (set! offset (+ offset consumed))
+                      (when-do fin
+                        (set! result
+                              (if (= frag-opcode 1)
+                                (Result.Success
+                                  (WSEvent.Message (String.from-bytes &frag-buf)))
+                                (Result.Success (WSEvent.Binary @&frag-buf))))
+                        (set! done true)
+                        (set! need-read false)
+                        (break)))
+                    ; Complete message (FIN=1, opcode 1 or 2)
+                    (and fin (or (= op 1) (= op 2)))
+                    (do
+                      (set! offset (+ offset consumed))
+                      (set! result
+                            (if (= op 1)
+                              (Result.Success
+                                (WSEvent.Message
+                                  (String.from-bytes (WSFrame.payload &frame))))
+                              (Result.Success
+                                (WSEvent.Binary @(WSFrame.payload &frame)))))
+                      (set! done true)
+                      (set! need-read false)
+                      (break))
+                    ; Unknown opcode — skip
+                    (set! offset (+ offset consumed))))))
+          (when (> offset 0) (compact-buf buf offset))
+          (when (and need-read (not done))
+            (match (TcpStream.read-append (WSClient.stream client) buf)
+              (Result.Error e)
+                (do (set! result (Result.Error e)) (set! done true))
+              (Result.Success n)
+                (when-do (<= n 0)
+                  (set! result (Result.Error @"connection closed"))
+                  (set! done true))))))
+      result))
+
+  (doc close "sends a close frame and shuts down the connection.
+The WSClient should not be used after calling close.")
+  (defn close [client]
+    (let [frame (encode-masked-frame 8 &(the (Array Byte) []))]
+      (ignore (TcpStream.send-bytes (WSClient.stream client) &frame))
+      (TcpStream.close! (WSClient.stream client)))))
+
+; ---------------------------------------------------------------------------
 ; Routing
 ; ---------------------------------------------------------------------------
 
@@ -1001,8 +1306,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
            result (the (Array String) [])]
     (for [i 0 (Array.length parts)]
       (let [trimmed (String.trim (Array.unsafe-nth parts i))]
-        (when (> (String.length &trimmed) 0)
-          (Array.push-back! &result trimmed))))
+        (when (> (String.length &trimmed) 0) (Array.push-back! &result trimmed))))
     result))
 
 ; Select the first client-requested protocol that appears in the server's
@@ -1016,9 +1320,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
         (for [j 0 (Array.length server-protos)]
           (when (= (Array.unsafe-nth client-protos i)
                    (Array.unsafe-nth server-protos j))
-            (do (set! result (Maybe.Just @(Array.unsafe-nth client-protos i)))
-                (set! found true)
-                (break))))
+            (do
+              (set! result (Maybe.Just @(Array.unsafe-nth client-protos i)))
+              (set! found true)
+              (break))))
         (when found (break))))
     result))
 
@@ -1029,8 +1334,9 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-try-ws-upgrade)
 (defn web-try-ws-upgrade [buf ws-routes]
   (if (= 0 (Array.length ws-routes))
-    (the (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
-         (Maybe.Nothing))
+    (the
+      (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
+      (Maybe.Nothing))
     (let [raw &(String.from-bytes buf)]
       (match (Request.parse raw)
         (Result.Error _) (Maybe.Nothing)
@@ -1054,8 +1360,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
                   false)
                 ; RFC 6455 §4.2.1: Sec-WebSocket-Protocol (optional)
                 proto-vals (Map.get-with-default (Request.headers &req)
-                                                  "Sec-WebSocket-Protocol"
-                                                  &(the (Array String) []))
+                                                 "Sec-WebSocket-Protocol"
+                                                 &(the (Array String) []))
                 client-protos (if (> (Array.length &proto-vals) 0)
                   (ws-parse-protocols (Array.unsafe-first &proto-vals))
                   (the (Array String) []))]
@@ -1064,24 +1370,25 @@ responses. The `protocols` field lists the subprotocols that this route supports
                 ; Bad or missing version — signal with route-idx -1
                 (Maybe.Just
                   (Pair.init @""
-                    (Pair.init -1
-                      (Pair.init (the (Maybe String) (Maybe.Nothing))
-                                 (the (Map String String) {})))))
+                             (Pair.init -1
+                                        (Pair.init (the (Maybe String)
+                                                        (Maybe.Nothing))
+                                                   (the (Map String String) {})))))
                 (let [path (web-routable-path &req)]
                   (match (web-find-ws-handler ws-routes &path)
                     (Maybe.Just route-match)
                       (let [ri @(Pair.a &route-match)
                             params @(Pair.b &route-match)
-                            server-protos (WSRoute.protocols
-                                            (Array.unsafe-nth ws-routes ri))
+                            server-protos (WSRoute.protocols (Array.unsafe-nth ws-routes
+                                                                               ri))
                             negotiated (if (> (Array.length &client-protos) 0)
-                              (ws-negotiate-protocol &client-protos server-protos)
+                              (ws-negotiate-protocol &client-protos
+                                                     server-protos)
                               (the (Maybe String) (Maybe.Nothing)))]
                         (Maybe.Just
                           (Pair.init
                             (ws-accept-key (Array.unsafe-first &key-vals))
-                            (Pair.init ri
-                              (Pair.init negotiated params)))))
+                            (Pair.init ri (Pair.init negotiated params)))))
                     (Maybe.Nothing) (Maybe.Nothing))))
               (Maybe.Nothing)))))))
 
@@ -1399,14 +1706,25 @@ fallback.")
           (Array.push-back! wbuf @(Array.unsafe-nth frame j))))))
 
   (hidden handle-ws-upgrade)
-  (defn handle-ws-upgrade [cs ws-routes poll fd stream accept route-idx proto params]
+  (defn handle-ws-upgrade [cs
+                           ws-routes
+                           poll
+                           fd
+                           stream
+                           accept
+                           route-idx
+                           proto
+                           params]
     (let-do [resp-str (match-ref proto
                (Maybe.Just p)
-                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: %s\r\n\r\n"
-                      accept p)
+                 (fmt
+                   "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: %s\r\n\r\n"
+                   accept
+                   p)
                (Maybe.Nothing)
-                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
-                      accept))
+                 (fmt
+                   "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
+                   accept))
              wbuf (String.to-bytes &resp-str)
              ws (WebSocket.init fd @proto [])]
       (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx)) &(WSEvent.Connect)
@@ -1904,8 +2222,8 @@ fallback.")
       (App.before-form? r) (list 'App.use-before (cadr r))
       (App.after-form? r) (list 'App.use-after (cadr r))
       (App.errors-form? r) (list 'App.set-error (cadr r))
-      (App.wsp-form? r) (list 'App.WSP (list 'copy (cadr r)) (caddr r)
-                               (car (cdr (cdr (cdr r)))))
+      (App.wsp-form? r)
+        (list 'App.WSP (list 'copy (cadr r)) (caddr r) (car (cdr (cdr (cdr r)))))
       (list (Symbol.prefix 'App (car r)) (list 'copy (cadr r)) (caddr r))))
 
   ; -----------------------------------------------------------------------
