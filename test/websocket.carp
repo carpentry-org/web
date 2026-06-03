@@ -933,48 +933,52 @@
   ; ---------------------------------------------------------------------------
 
   (assert-true test
-    (let [app (App.WSP (App.create) @"/ws" [@"chat-v2" @"chat-v1"]
-                        (fn [e p w] ()))
+    (let [app (App.WSP (App.create)
+                       @"/ws"
+                       [@"chat-v2" @"chat-v1"]
+                       (fn [e p w] ()))
           buf (String.to-bytes
             &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: chat-v1, chat-v2\r\n\r\n")]
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
         (Maybe.Just info)
-          (= &(Maybe.Just @"chat-v1")
-             (Pair.a (Pair.b (Pair.b &info))))
+          (= &(Maybe.Just @"chat-v1") (Pair.a (Pair.b (Pair.b &info))))
         (Maybe.Nothing) false))
     "upgrade negotiates first matching client protocol")
 
   (assert-true test
-    (let [app (App.WSP (App.create) @"/ws" [@"chat-v2" @"chat-v1"]
-                        (fn [e p w] ()))
+    (let [app (App.WSP (App.create)
+                       @"/ws"
+                       [@"chat-v2" @"chat-v1"]
+                       (fn [e p w] ()))
           buf (String.to-bytes
             &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: chat-v2\r\n\r\n")]
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
         (Maybe.Just info)
-          (= &(Maybe.Just @"chat-v2")
-             (Pair.a (Pair.b (Pair.b &info))))
+          (= &(Maybe.Just @"chat-v2") (Pair.a (Pair.b (Pair.b &info))))
         (Maybe.Nothing) false))
     "upgrade negotiates single matching protocol")
 
   (assert-true test
-    (let [app (App.WSP (App.create) @"/ws" [@"chat-v2" @"chat-v1"]
-                        (fn [e p w] ()))
+    (let [app (App.WSP (App.create)
+                       @"/ws"
+                       [@"chat-v2" @"chat-v1"]
+                       (fn [e p w] ()))
           buf (String.to-bytes
             &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: unknown-proto\r\n\r\n")]
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
-        (Maybe.Just info)
-          (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
+        (Maybe.Just info) (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
         (Maybe.Nothing) false))
     "upgrade with no matching protocol returns Nothing protocol")
 
   (assert-true test
-    (let [app (App.WSP (App.create) @"/ws" [@"chat-v2" @"chat-v1"]
-                        (fn [e p w] ()))
+    (let [app (App.WSP (App.create)
+                       @"/ws"
+                       [@"chat-v2" @"chat-v1"]
+                       (fn [e p w] ()))
           buf (String.to-bytes
             &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
-        (Maybe.Just info)
-          (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
+        (Maybe.Just info) (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
         (Maybe.Nothing) false))
     "upgrade without Sec-WebSocket-Protocol header returns Nothing protocol")
 
@@ -983,8 +987,7 @@
           buf (String.to-bytes
             &@"GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Protocol: chat\r\n\r\n")]
       (match (web-try-ws-upgrade &buf (App.ws-routes &app))
-        (Maybe.Just info)
-          (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
+        (Maybe.Just info) (Maybe.nothing? (Pair.a (Pair.b (Pair.b &info))))
         (Maybe.Nothing) false))
     "WS route (no protocols) ignores client Sec-WebSocket-Protocol")
 
@@ -1000,13 +1003,13 @@
 
   (assert-equal test
     &[@"chat-v2" @"chat-v1"]
-    (let [app (-> (App.create)
-                  (App.WSP @"/ws/chat" [@"chat-v2" @"chat-v1"] (fn [e p w] ())))]
-      (WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
+    &(let [app (-> (App.create)
+                   (App.WSP @"/ws/chat" [@"chat-v2" @"chat-v1"] (fn [e p w] ())))]
+      @(WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
     "App.WSP stores protocols on the route")
 
   (assert-equal test
     &(the (Array String) [])
-    (let [app (-> (App.create) (App.WS @"/ws/echo" (fn [e p w] ())))]
-      (WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
+    &(let [app (-> (App.create) (App.WS @"/ws/echo" (fn [e p w] ())))]
+      @(WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
     "App.WS stores empty protocols on the route"))
