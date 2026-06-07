@@ -265,6 +265,15 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
           default)))))
 
 ; ---------------------------------------------------------------------------
+; C helpers
+; ---------------------------------------------------------------------------
+
+(relative-include "src/fstat_mtime.h")
+(private web-fstat-mtime)
+(hidden web-fstat-mtime)
+(register web-fstat-mtime (Fn [Int] Long) "web_fstat_mtime")
+
+; ---------------------------------------------------------------------------
 ; Response helpers
 ; ---------------------------------------------------------------------------
 
@@ -392,26 +401,26 @@ server does not detect the `X-Sendfile` header.
 
 The `Content-Type` is inferred from the extension. The server sets
 `Content-Length` from the file size. An `ETag` header is computed from
-the SHA-1 hash of the file contents.")
+the file's modification time and size, avoiding a full read of the
+file contents.")
   (defn sendfile [path]
-    (let [etag (match (File.open-with path "r")
-            (Result.Error _) @""
-            (Result.Success f)
-              (match (File.read-all &f)
-                (Result.Error _) (do (File.close f) @"")
-                (Result.Success contents)
-                  (let-do [h (fmt "\"%s\""
-                                  &(SHA1.hex-digest &(String.to-bytes &contents)))]
-                    (File.close f)
-                    h)))]
-      (if (String.empty? &etag)
+    (let [fd (IO.Raw.open path IO.Raw.O-RDONLY)]
+      (if (< fd 0)
         (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
             (with-header @"Content-Type" (content-type-for path))
             (with-header @"X-Sendfile" @path))
-        (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
-            (with-header @"Content-Type" (content-type-for path))
-            (with-header @"X-Sendfile" @path)
-            (with-header @"ETag" etag))))))
+        (let-do [sz (IO.Raw.fstat-size fd)
+                 mt (web-fstat-mtime fd)]
+          (ignore (IO.Raw.close-fd fd))
+          (if (or (< sz 0l) (< mt 0l))
+            (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
+                (with-header @"Content-Type" (content-type-for path))
+                (with-header @"X-Sendfile" @path))
+            (let [etag (fmt "\"%x-%x\"" mt sz)]
+              (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
+                  (with-header @"Content-Type" (content-type-for path))
+                  (with-header @"X-Sendfile" @path)
+                  (with-header @"ETag" etag)))))))))
 
 ; ---------------------------------------------------------------------------
 ; Form parsing
@@ -1146,6 +1155,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
 ; Strip the response body for HEAD requests while preserving Content-Length.
 ; For sendfile responses, computes Content-Length from the file and removes
 ; X-Sendfile so the server does not attempt a file transfer.
+; When Transfer-Encoding is present, strips the body without adding
+; Content-Length (RFC 7230 Section 3.3.2).
 (hidden web-strip-head-body)
 (defn web-strip-head-body [resp]
   (match (web-sendfile-path &resp)
@@ -1164,13 +1175,15 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Response.set-body @"")
                     (Response.set-headers (Map.put hdrs &cl-k &cl-v))))))))
     (Maybe.Nothing)
-      (let [body-len (String.length (Response.body &resp))
-            hdrs @(Response.headers &resp)
-            cl-k @"Content-Length"
-            cl-v [(Int.str body-len)]]
-        (-> resp
-            (Response.set-body @"")
-            (Response.set-headers (Map.put hdrs &cl-k &cl-v))))))
+      (if (Map.contains? (Response.headers &resp) "Transfer-Encoding")
+        (Response.set-body resp @"")
+        (let [body-len (String.length (Response.body &resp))
+              hdrs @(Response.headers &resp)
+              cl-k @"Content-Length"
+              cl-v [(Int.str body-len)]]
+          (-> resp
+              (Response.set-body @"")
+              (Response.set-headers (Map.put hdrs &cl-k &cl-v)))))))
 
 ; Check If-None-Match against a response's ETag header.
 ; Returns true if the request's If-None-Match matches the response's ETag.

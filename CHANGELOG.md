@@ -9,11 +9,13 @@
   empty body. For `sendfile` responses, the file size is computed for
   `Content-Length` without transferring the file data.
 
-- **ETag-based conditional responses for static files.** `Response.file` and
-  `Response.sendfile` now compute an `ETag` header from the SHA-1 hash of
-  the file contents. When a request includes an `If-None-Match` header that
-  matches the response's `ETag`, the server returns `304 Not Modified`
-  with no body, eliminating redundant file transfers.
+- **ETag-based conditional responses for static files.** `Response.file`
+  computes an `ETag` from the SHA-1 hash of the file contents.
+  `Response.sendfile` computes an `ETag` from the file's modification time
+  and size, preserving its zero-copy design by avoiding a full file read.
+  When a request includes an `If-None-Match` header that matches the
+  response's `ETag`, the server returns `304 Not Modified` with no body,
+  eliminating redundant file transfers.
 
 - `SHA1.hex-digest` computes the SHA-1 digest of a byte array and returns
   it as a 40-character lowercase hex string.

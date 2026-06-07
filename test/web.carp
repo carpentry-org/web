@@ -576,6 +576,59 @@
       (= (Array.unsafe-first &cl-vals) "2"))
     "HEAD preserves Content-Length from GET body")
 
+  ; -- HEAD + chunked omits Content-Length (RFC 7230 §3.3.2) --
+  (assert-false test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)]
+      (Map.contains? (Response.headers &resp) "Content-Length"))
+    "HEAD + chunked omits Content-Length")
+
+  ; -- HEAD + chunked preserves Transfer-Encoding --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)]
+      (Map.contains? (Response.headers &resp) "Transfer-Encoding"))
+    "HEAD + chunked preserves Transfer-Encoding")
+
+  ; -- HEAD + chunked has empty body --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      (String.empty? (Response.body (Pair.a &pair))))
+    "HEAD + chunked has empty body")
+
   ; ---------------------------------------------------------------------------
   ; ETag / If-None-Match tests
   ; ---------------------------------------------------------------------------
