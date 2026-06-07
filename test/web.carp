@@ -495,4 +495,237 @@
             (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
           params (the (Map String String) {})]
       @(Response.code &(log-after &req &params (Response.text @"ok"))))
-    "log-after does not crash without _start param"))
+    "log-after does not crash without _start param")
+
+  ; ---------------------------------------------------------------------------
+  ; SHA1.hex-digest tests
+  ; ---------------------------------------------------------------------------
+
+  ; hex-digest returns a 40-char lowercase hex string
+  (assert-true test
+    (= 40 (String.length &(SHA1.hex-digest &(the (Array Byte) []))))
+    "SHA1 hex-digest returns 40 chars")
+
+  ; hex-digest is deterministic (same input -> same output)
+  (assert-true test
+    (=
+      &(SHA1.hex-digest &(String.to-bytes "hello"))
+      &(SHA1.hex-digest &(String.to-bytes "hello")))
+    "SHA1 hex-digest is deterministic")
+
+  ; different inputs produce different digests
+  (assert-true test
+    (/=
+      &(SHA1.hex-digest &(String.to-bytes "hello"))
+      &(SHA1.hex-digest &(String.to-bytes "world")))
+    "SHA1 hex-digest differs for different inputs")
+
+  ; ---------------------------------------------------------------------------
+  ; HEAD method routing tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- HEAD matches GET routes --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/hello" (fn [r p] (Response.text @"hi"))))
+          req (Result.unsafe-from-success
+            (Request.parse "HEAD /hello HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (Maybe.just? &(web-find-handler (App.routes &app) &req)))
+    "HEAD matches GET route")
+
+  ; -- HEAD does not match POST routes --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.POST @"/data" (fn [r p] (Response.text @"ok"))))
+          req (Result.unsafe-from-success
+            (Request.parse "HEAD /data HTTP/1.1\r\nHost: x\r\n\r\n"))]
+      (Maybe.nothing? &(web-find-handler (App.routes &app) &req)))
+    "HEAD does not match POST route")
+
+  ; -- HEAD response strips body --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/hello" (fn [r p] (Response.text @"hi"))))
+          req @"HEAD /hello HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      (String.empty? (Response.body (Pair.a &pair))))
+    "HEAD response has empty body")
+
+  ; -- HEAD preserves Content-Length from GET body --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/hello" (fn [r p] (Response.text @"hi"))))
+          req @"HEAD /hello HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)
+          cl-vals (Map.get-with-default (Response.headers &resp)
+                                        "Content-Length"
+                                        &[@"0"])]
+      (= (Array.unsafe-first &cl-vals) "2"))
+    "HEAD preserves Content-Length from GET body")
+
+  ; -- HEAD + chunked omits Content-Length (RFC 7230 §3.3.2) --
+  (assert-false test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)]
+      (Map.contains? (Response.headers &resp) "Content-Length"))
+    "HEAD + chunked omits Content-Length")
+
+  ; -- HEAD + chunked preserves Transfer-Encoding --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)]
+      (Map.contains? (Response.headers &resp) "Transfer-Encoding"))
+    "HEAD + chunked preserves Transfer-Encoding")
+
+  ; -- HEAD + chunked has empty body --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/stream"
+                           (fn [r p]
+                             (Response.chunked 200 @"text/plain" &[@"hello"]))))
+          req @"HEAD /stream HTTP/1.1\r\nHost: x\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      (String.empty? (Response.body (Pair.a &pair))))
+    "HEAD + chunked has empty body")
+
+  ; ---------------------------------------------------------------------------
+  ; ETag / If-None-Match tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- web-etag-match? returns false without If-None-Match --
+  (assert-false test
+    (let [req (Result.unsafe-from-success
+            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
+      (web-etag-match? &req &resp))
+    "etag-match? false without If-None-Match")
+
+  ; -- web-etag-match? returns true on match --
+  (assert-true test
+    (let [req (Result.unsafe-from-success
+            (Request.parse
+              "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n"))
+          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
+      (web-etag-match? &req &resp))
+    "etag-match? true when ETags match")
+
+  ; -- web-etag-match? returns false on mismatch --
+  (assert-false test
+    (let [req (Result.unsafe-from-success
+            (Request.parse
+              "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\n\r\n"))
+          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
+      (web-etag-match? &req &resp))
+    "etag-match? false when ETags differ")
+
+  ; -- 304 Not Modified on matching ETag --
+  (assert-equal test
+    304
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"ETag"
+                                                   @"\"abc\""))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "matching If-None-Match returns 304")
+
+  ; -- 304 preserves ETag header --
+  (assert-true test
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"ETag"
+                                                   @"\"abc\""))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))
+          resp @(Pair.a &pair)]
+      (Map.contains? (Response.headers &resp) "ETag"))
+    "304 response preserves ETag header")
+
+  ; -- No 304 when ETags differ --
+  (assert-equal test
+    200
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"ETag"
+                                                   @"\"abc\""))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "mismatched If-None-Match returns 200")
+
+  ; -- finalize preserves explicit Content-Length --
+  (assert-true test
+    (let [resp (-> (Response.text @"")
+                   (Response.with-header @"Content-Length" @"42"))
+          final (web-finalize-response resp true)
+          cl (Map.get-with-default (Response.headers &final)
+                                   "Content-Length"
+                                   &[@"0"])]
+      (= (Array.unsafe-first &cl) "42"))
+    "finalize preserves explicit Content-Length"))

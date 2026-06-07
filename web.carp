@@ -152,7 +152,20 @@
                                                     (* (Long.from-int (- 3 j))
                                                        8l))
                                    255l)))))))
-          result)))))
+          result))))
+
+  (doc hex-digest "computes the SHA-1 digest of a byte array and returns it
+as a 40-character lowercase hex string.")
+  (defn hex-digest [data]
+    (let-do [d (digest data)
+             hex @"0123456789abcdef"
+             out (Array.replicate 40 &\0)]
+      (for [i 0 20]
+        (let-do [b (Byte.to-int @(Array.unsafe-nth &d i))]
+          (Array.aset! &out (* i 2) (String.char-at &hex (bit-shift-right b 4)))
+          (Array.aset! &out (+ (* i 2) 1) (String.char-at &hex (bit-and b 15)))))
+      (String.from-chars &out))))
+; end defmodule SHA1
 
 ; ---------------------------------------------------------------------------
 ; Base64 encoding (RFC 4648)
@@ -252,6 +265,15 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
           default)))))
 
 ; ---------------------------------------------------------------------------
+; C helpers
+; ---------------------------------------------------------------------------
+
+(relative-include "src/fstat_mtime.h")
+(private web-fstat-mtime)
+(hidden web-fstat-mtime)
+(register web-fstat-mtime (Fn [Int] Long) "web_fstat_mtime")
+
+; ---------------------------------------------------------------------------
 ; Response helpers
 ; ---------------------------------------------------------------------------
 
@@ -325,7 +347,8 @@ based on its extension. Unknown extensions return `application/octet-stream`.")
   (doc file "creates a 200 OK response by reading `path` from disk. Returns
 a 404 Not Found response if the file is missing or unreadable. The
 `Content-Type` header is inferred from the file extension via
-[`content-type-for`](#content-type-for).")
+[`content-type-for`](#content-type-for). An `ETag` header is computed
+from the SHA-1 hash of the file contents.")
   (defn file [path]
     (match (File.open-with path "r")
       (Result.Error _) (not-found)
@@ -333,11 +356,15 @@ a 404 Not Found response if the file is missing or unreadable. The
         (match (File.read-all &f)
           (Result.Error _) (do (File.close f) (not-found))
           (Result.Success contents)
-            (let [k @"Content-Type"
-                  v [(content-type-for path)]]
-              (do
-                (File.close f)
-                (init 200 @"OK" @"HTTP/1.1" [] (Map.put {} &k &v) contents))))))
+            (let-do [ct-k @"Content-Type"
+                     ct-v [(content-type-for path)]
+                     etag (fmt "\"%s\""
+                               &(SHA1.hex-digest &(String.to-bytes &contents)))
+                     et-k @"ETag"
+                     et-v [etag]
+                     hdrs (Map.put (Map.put {} &ct-k &ct-v) &et-k &et-v)]
+              (File.close f)
+              (init 200 @"OK" @"HTTP/1.1" [] hdrs contents)))))
 
   (doc chunked "creates a response with `Transfer-Encoding: chunked`.
 
@@ -373,11 +400,27 @@ avoiding the user-space copy. Falls back to [`file`](#file) if the
 server does not detect the `X-Sendfile` header.
 
 The `Content-Type` is inferred from the extension. The server sets
-`Content-Length` from the file size.")
+`Content-Length` from the file size. An `ETag` header is computed from
+the file's modification time and size, avoiding a full read of the
+file contents.")
   (defn sendfile [path]
-    (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
-        (with-header @"Content-Type" (content-type-for path))
-        (with-header @"X-Sendfile" @path))))
+    (let [fd (IO.Raw.open path IO.Raw.O-RDONLY)]
+      (if (< fd 0)
+        (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
+            (with-header @"Content-Type" (content-type-for path))
+            (with-header @"X-Sendfile" @path))
+        (let-do [sz (IO.Raw.fstat-size fd)
+                 mt (web-fstat-mtime fd)]
+          (ignore (IO.Raw.close-fd fd))
+          (if (or (< sz 0l) (< mt 0l))
+            (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
+                (with-header @"Content-Type" (content-type-for path))
+                (with-header @"X-Sendfile" @path))
+            (let [etag (fmt "\"%x-%x\"" mt sz)]
+              (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
+                  (with-header @"Content-Type" (content-type-for path))
+                  (with-header @"X-Sendfile" @path)
+                  (with-header @"ETag" etag)))))))))
 
 ; ---------------------------------------------------------------------------
 ; Form parsing
@@ -923,10 +966,11 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
         has-te (Map.contains? (Response.headers &resp) "Transfer-Encoding")
+        has-cl (Map.contains? (Response.headers &resp) "Content-Length")
         conn-k @"Connection"
         conn-v [(if keep-alive @"keep-alive" @"close")]
         h (let [base (Map.put @(Response.headers &resp) &conn-k &conn-v)]
-          (if has-te
+          (if (or has-te has-cl)
             base
             (let [cl-k @"Content-Length"
                   cl-v [(Int.str body-len)]]
@@ -971,10 +1015,14 @@ responses. The `protocols` field lists the subprotocols that this route supports
 
 (defn web-find-handler [routes req]
   (let-do [result (the (Maybe (Pair Int (Map String String))) (Maybe.Nothing))
-           path (web-routable-path req)]
+           path (web-routable-path req)
+           verb (Request.verb req)
+           ; RFC 7231: HEAD must match GET routes when no explicit HEAD route
+           is-head (= verb "HEAD")]
     (for [i 0 (Array.length routes)]
       (let [r (Array.unsafe-nth routes i)]
-        (when (= (Route.method r) (Request.verb req))
+        (when (or (= (Route.method r) verb)
+                  (and is-head (= (Route.method r) "GET")))
           (match (match-route (Route.pattern r) &path)
             (Maybe.Just params)
               (do (set! result (Maybe.Just (Pair.init i params))) (break))
@@ -1001,8 +1049,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
            result (the (Array String) [])]
     (for [i 0 (Array.length parts)]
       (let [trimmed (String.trim (Array.unsafe-nth parts i))]
-        (when (> (String.length &trimmed) 0)
-          (Array.push-back! &result trimmed))))
+        (when (> (String.length &trimmed) 0) (Array.push-back! &result trimmed))))
     result))
 
 ; Select the first client-requested protocol that appears in the server's
@@ -1016,9 +1063,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
         (for [j 0 (Array.length server-protos)]
           (when (= (Array.unsafe-nth client-protos i)
                    (Array.unsafe-nth server-protos j))
-            (do (set! result (Maybe.Just @(Array.unsafe-nth client-protos i)))
-                (set! found true)
-                (break))))
+            (do
+              (set! result (Maybe.Just @(Array.unsafe-nth client-protos i)))
+              (set! found true)
+              (break))))
         (when found (break))))
     result))
 
@@ -1029,8 +1077,9 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-try-ws-upgrade)
 (defn web-try-ws-upgrade [buf ws-routes]
   (if (= 0 (Array.length ws-routes))
-    (the (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
-         (Maybe.Nothing))
+    (the
+      (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
+      (Maybe.Nothing))
     (let [raw &(String.from-bytes buf)]
       (match (Request.parse raw)
         (Result.Error _) (Maybe.Nothing)
@@ -1054,8 +1103,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
                   false)
                 ; RFC 6455 §4.2.1: Sec-WebSocket-Protocol (optional)
                 proto-vals (Map.get-with-default (Request.headers &req)
-                                                  "Sec-WebSocket-Protocol"
-                                                  &(the (Array String) []))
+                                                 "Sec-WebSocket-Protocol"
+                                                 &(the (Array String) []))
                 client-protos (if (> (Array.length &proto-vals) 0)
                   (ws-parse-protocols (Array.unsafe-first &proto-vals))
                   (the (Array String) []))]
@@ -1064,24 +1113,25 @@ responses. The `protocols` field lists the subprotocols that this route supports
                 ; Bad or missing version — signal with route-idx -1
                 (Maybe.Just
                   (Pair.init @""
-                    (Pair.init -1
-                      (Pair.init (the (Maybe String) (Maybe.Nothing))
-                                 (the (Map String String) {})))))
+                             (Pair.init -1
+                                        (Pair.init (the (Maybe String)
+                                                        (Maybe.Nothing))
+                                                   (the (Map String String) {})))))
                 (let [path (web-routable-path &req)]
                   (match (web-find-ws-handler ws-routes &path)
                     (Maybe.Just route-match)
                       (let [ri @(Pair.a &route-match)
                             params @(Pair.b &route-match)
-                            server-protos (WSRoute.protocols
-                                            (Array.unsafe-nth ws-routes ri))
+                            server-protos (WSRoute.protocols (Array.unsafe-nth ws-routes
+                                                                               ri))
                             negotiated (if (> (Array.length &client-protos) 0)
-                              (ws-negotiate-protocol &client-protos server-protos)
+                              (ws-negotiate-protocol &client-protos
+                                                     server-protos)
                               (the (Maybe String) (Maybe.Nothing)))]
                         (Maybe.Just
                           (Pair.init
                             (ws-accept-key (Array.unsafe-first &key-vals))
-                            (Pair.init ri
-                              (Pair.init negotiated params)))))
+                            (Pair.init ri (Pair.init negotiated params)))))
                     (Maybe.Nothing) (Maybe.Nothing))))
               (Maybe.Nothing)))))))
 
@@ -1102,6 +1152,63 @@ responses. The `protocols` field lists the subprotocols that this route supports
       (set! r (~(Array.unsafe-nth hooks i) req params r)))
     r))
 
+; Strip the response body for HEAD requests while preserving Content-Length.
+; For sendfile responses, computes Content-Length from the file and removes
+; X-Sendfile so the server does not attempt a file transfer.
+; When Transfer-Encoding is present, strips the body without adding
+; Content-Length (RFC 7230 Section 3.3.2).
+(hidden web-strip-head-body)
+(defn web-strip-head-body [resp]
+  (match (web-sendfile-path &resp)
+    (Maybe.Just sf-path)
+      (let [ffd (IO.Raw.open &sf-path IO.Raw.O-RDONLY)]
+        (if (< ffd 0)
+          (Response.not-found)
+          (let-do [sz (IO.Raw.fstat-size ffd)]
+            (ignore (IO.Raw.close-fd ffd))
+            (if (< sz 0l)
+              (Response.not-found)
+              (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")
+                    cl-k @"Content-Length"
+                    cl-v [(Long.str sz)]]
+                (-> resp
+                    (Response.set-body @"")
+                    (Response.set-headers (Map.put hdrs &cl-k &cl-v))))))))
+    (Maybe.Nothing)
+      (if (Map.contains? (Response.headers &resp) "Transfer-Encoding")
+        (Response.set-body resp @"")
+        (let [body-len (String.length (Response.body &resp))
+              hdrs @(Response.headers &resp)
+              cl-k @"Content-Length"
+              cl-v [(Int.str body-len)]]
+          (-> resp
+              (Response.set-body @"")
+              (Response.set-headers (Map.put hdrs &cl-k &cl-v)))))))
+
+; Check If-None-Match against a response's ETag header.
+; Returns true if the request's If-None-Match matches the response's ETag.
+(hidden web-etag-match?)
+(defn web-etag-match? [req resp]
+  (match (Request.header req "If-None-Match")
+    (Maybe.Nothing) false
+    (Maybe.Just inm)
+      (match (Map.get-maybe (Response.headers resp) "ETag")
+        (Maybe.Nothing) false
+        (Maybe.Just vals)
+          (if (= (Array.length &vals) 0)
+            false
+            (= &inm (Array.unsafe-first &vals))))))
+
+; Build a 304 Not Modified response, preserving the ETag header.
+(hidden web-not-modified)
+(defn web-not-modified [resp]
+  (let [etag-vals (Map.get-with-default (Response.headers &resp) "ETag" &[])]
+    (if (= (Array.length &etag-vals) 0)
+      (Response.init 304 @"Not Modified" @"HTTP/1.1" [] {} @"")
+      (let [k @"ETag"
+            v [@(Array.unsafe-first &etag-vals)]]
+        (Response.init 304 @"Not Modified" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))))
+
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)]
@@ -1109,6 +1216,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
       (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
         (let [ka (web-keep-alive? &req)
+              is-head (= (Request.verb &req) "HEAD")
               route-match (web-find-handler (App.routes app) &req)
               handler-idx (match-ref &route-match
                 (Maybe.Just p) @(Pair.a p)
@@ -1123,7 +1231,13 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (~(App.error-handler app) &req 404 @"Not Found")
                     (let [r (Array.unsafe-nth (App.routes app) handler-idx)]
                       (~(Route.handler r) &req &params))))
-              final (web-run-after after-hooks &req &params resp)]
+              after-resp (web-run-after after-hooks &req &params resp)
+              ; ETag conditional: return 304 if If-None-Match matches
+              cond-resp (if (web-etag-match? &req &after-resp)
+                (web-not-modified after-resp)
+                after-resp)
+              ; HEAD: strip body, preserve Content-Length
+              final (if is-head (web-strip-head-body cond-resp) cond-resp)]
           (Pair.init final ka)))))
 
 ; Check if a response has an X-Sendfile header and extract the path.
@@ -1399,14 +1513,25 @@ fallback.")
           (Array.push-back! wbuf @(Array.unsafe-nth frame j))))))
 
   (hidden handle-ws-upgrade)
-  (defn handle-ws-upgrade [cs ws-routes poll fd stream accept route-idx proto params]
+  (defn handle-ws-upgrade [cs
+                           ws-routes
+                           poll
+                           fd
+                           stream
+                           accept
+                           route-idx
+                           proto
+                           params]
     (let-do [resp-str (match-ref proto
                (Maybe.Just p)
-                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: %s\r\n\r\n"
-                      accept p)
+                 (fmt
+                   "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\nSec-WebSocket-Protocol: %s\r\n\r\n"
+                   accept
+                   p)
                (Maybe.Nothing)
-                 (fmt "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
-                      accept))
+                 (fmt
+                   "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: %s\r\n\r\n"
+                   accept))
              wbuf (String.to-bytes &resp-str)
              ws (WebSocket.init fd @proto [])]
       (~(WSRoute.handler (Array.unsafe-nth ws-routes route-idx)) &(WSEvent.Connect)
@@ -1904,8 +2029,8 @@ fallback.")
       (App.before-form? r) (list 'App.use-before (cadr r))
       (App.after-form? r) (list 'App.use-after (cadr r))
       (App.errors-form? r) (list 'App.set-error (cadr r))
-      (App.wsp-form? r) (list 'App.WSP (list 'copy (cadr r)) (caddr r)
-                               (car (cdr (cdr (cdr r)))))
+      (App.wsp-form? r)
+        (list 'App.WSP (list 'copy (cadr r)) (caddr r) (car (cdr (cdr (cdr r)))))
       (list (Symbol.prefix 'App (car r)) (list 'copy (cadr r)) (caddr r))))
 
   ; -----------------------------------------------------------------------

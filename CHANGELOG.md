@@ -4,6 +4,22 @@
 
 ### Added
 
+- **HEAD method support** (RFC 7231). HEAD requests automatically match GET
+  routes and return the same headers (including `Content-Length`) but with an
+  empty body. For `sendfile` responses, the file size is computed for
+  `Content-Length` without transferring the file data.
+
+- **ETag-based conditional responses for static files.** `Response.file`
+  computes an `ETag` from the SHA-1 hash of the file contents.
+  `Response.sendfile` computes an `ETag` from the file's modification time
+  and size, preserving its zero-copy design by avoiding a full file read.
+  When a request includes an `If-None-Match` header that matches the
+  response's `ETag`, the server returns `304 Not Modified` with no body,
+  eliminating redundant file transfers.
+
+- `SHA1.hex-digest` computes the SHA-1 digest of a byte array and returns
+  it as a 40-character lowercase hex string.
+
 - **WebSocket subprotocol negotiation** (RFC 6455 §4.2.2). `App.WSP` registers
   a WebSocket route with a list of supported subprotocols. During the upgrade
   handshake, the server selects the first client-requested protocol that appears
@@ -46,6 +62,10 @@
   responds with 426 Upgrade Required if the version is missing or wrong (§4.2.1).
 
 ### Fixed
+
+- **`web-finalize-response` preserves explicit Content-Length.** When a response
+  already has a `Content-Length` header (e.g. HEAD responses), finalization no
+  longer overrides it with the body length.
 
 - **Content-Length no longer sent with chunked encoding.** `web-finalize-response`
   now skips the `Content-Length` header when `Transfer-Encoding` is already set,
