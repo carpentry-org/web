@@ -44,6 +44,14 @@
   `Form.multipart?` checks whether a request has multipart content type.
   Header matching is case-insensitive.
 
+- **HTTPS/TLS support** via `TlsServerCtx` integration. `Connection` sum type
+  abstracts over plain `TcpStream` and `TlsStream` connections. `App.serve-tls`
+  starts an HTTPS server given cert and key file paths. `defserver-tls` macro
+  provides the same concise syntax as `defserver` with added `cert-file` and
+  `key-file` parameters. For TLS connections, `sendfile` responses are
+  transparently resolved to in-memory reads since kernel `sendfile(2)` cannot
+  encrypt data. Requires `carpentry-org/tls` at commit `40e9fef`.
+
 - **Binary WebSocket frame support.** `WSEvent.Binary` variant for receiving
   binary frames (opcode 0x2). `WebSocket.encode-binary` encodes byte arrays
   as binary frames. `WebSocket.send-binary` and `WebSocket.send-binary-now`
@@ -79,6 +87,9 @@
 
 ### Changed
 
+- `ConnState.streams` type changed from `(Map Int TcpStream)` to
+  `(Map Int Connection)` to support both plain and TLS connections.
+- Added `tls@40e9fef` dependency for non-blocking TLS I/O.
 - `WSRoute` gains a `protocols` field (`(Array String)`) listing supported
   subprotocols. Existing `App.WS` calls pass an empty array for backward
   compatibility.

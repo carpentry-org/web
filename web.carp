@@ -1,4 +1,4 @@
-(doc Web "is a minimal web framework for Carp with WebSocket support.
+(doc Web "is a minimal web framework for Carp with WebSocket and HTTPS support.
 
 ## Installation
 
@@ -24,6 +24,15 @@
 (defserver \"0.0.0.0\" 8080
   (GET \"/hello\" hello)
   (WS  \"/ws/echo\" echo))
+```
+
+## HTTPS
+
+Use `defserver-tls` or `App.serve-tls` for TLS-encrypted connections:
+
+```
+(defserver-tls \"0.0.0.0\" 8443 \"cert.pem\" \"key.pem\"
+  (GET \"/hello\" hello))
 ```")
 
 ; ---------------------------------------------------------------------------
@@ -35,6 +44,7 @@
 (load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.1.2")
 (load "git@github.com:carpentry-org/log@0.1.1")
+(load "git@github.com:carpentry-org/tls@40e9fef")
 
 ; ---------------------------------------------------------------------------
 ; SHA-1 (RFC 3174) — used for WebSocket handshake tokens
@@ -272,6 +282,62 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
 (private web-fstat-mtime)
 (hidden web-fstat-mtime)
 (register web-fstat-mtime (Fn [Int] Long) "web_fstat_mtime")
+
+(relative-include "src/conn_helpers.h")
+
+; ---------------------------------------------------------------------------
+; Connection abstraction — wraps TcpStream or TlsStream
+; ---------------------------------------------------------------------------
+
+(doc Connection "wraps either a plain TCP or a TLS-encrypted stream,
+allowing the event loop to handle both transparently.")
+(deftype Connection
+  (Plain [TcpStream])
+  (Tls [TlsStream]))
+
+(doc Conn "provides unified I/O operations over [`Connection`](#Connection)
+values. Each function dispatches to the appropriate `TcpStream` or
+`TlsStream` variant.")
+(defmodule Conn
+  (hidden detach-fd)
+  (private detach-fd)
+  (register detach-fd (Fn [&TcpStream] Int) "web_detach_fd")
+
+  (doc read-append-nb "non-blocking read, appending data to `buf`.")
+  (defn read-append-nb [conn buf]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.read-append-nb s buf)
+      (Connection.Tls s) (TlsStream.read-append-nb s buf)))
+
+  (doc read-blocked? "returns true when `n` is the would-block sentinel
+for this connection type.")
+  (defn read-blocked? [conn n]
+    (match-ref conn
+      (Connection.Plain _) (= n TcpStream.read-blocked)
+      (Connection.Tls _) (= n TlsStream.read-blocked)))
+
+  (doc send-nb "non-blocking send from `data` at `offset`.")
+  (defn send-nb [conn data offset]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.send-nb s data offset)
+      (Connection.Tls s) (TlsStream.send-nb s data offset)))
+
+  (doc close! "closes the connection by reference.")
+  (defn close! [conn]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.close! s)
+      (Connection.Tls s) (TlsStream.close! s)))
+
+  (doc tls? "returns true when the connection is TLS-encrypted.")
+  (defn tls? [conn]
+    (match-ref conn (Connection.Plain _) false (Connection.Tls _) true))
+
+  (doc sendfile-chunk "transfers a chunk of a file to the socket. Only
+works for plain TCP connections; TLS connections return an error.")
+  (defn sendfile-chunk [conn file-fd offset count]
+    (match-ref conn
+      (Connection.Plain s) (TcpStream.sendfile-chunk s file-fd offset count)
+      (Connection.Tls _) (Result.Error @"sendfile not available over TLS"))))
 
 ; ---------------------------------------------------------------------------
 ; Response helpers
@@ -1249,6 +1315,26 @@ responses. The `protocols` field lists the subprotocols that this route supports
         (Maybe.Nothing))
     (Maybe.Nothing) (Maybe.Nothing)))
 
+; For TLS connections, convert a sendfile response into a regular body
+; response by reading the file contents. Kernel sendfile(2) cannot
+; encrypt data, so TLS streams must go through user-space I/O.
+(hidden web-tls-resolve-sendfile)
+(defn web-tls-resolve-sendfile [resp]
+  (match (web-sendfile-path &resp)
+    (Maybe.Just p)
+      (match (File.open-with &p "r")
+        (Result.Error _) (Response.not-found)
+        (Result.Success f)
+          (match (File.read-all &f)
+            (Result.Error _) (do (File.close f) (Response.not-found))
+            (Result.Success contents)
+              (let-do [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")]
+                (File.close f)
+                (-> resp
+                    (Response.set-body contents)
+                    (Response.set-headers hdrs)))))
+    (Maybe.Nothing) resp))
+
 ; Serialize a response for the wire. For sendfile responses, strips the
 ; X-Sendfile header and sets Content-Length from the file size.
 (defn web-serialize-response [resp ka file-size]
@@ -1274,7 +1360,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 ; ---------------------------------------------------------------------------
 
 (deftype ConnState
-  [streams (Map Int TcpStream)
+  [streams (Map Int Connection)
    read-bufs (Map Int (Array Byte))
    write-bufs (Map Int (Array Byte))
    write-positions (Map Int Int)
@@ -1421,9 +1507,7 @@ fallback.")
   (defn conn-cleanup [cs poll fd]
     (do
       (ignore (Poll.remove-fd poll fd))
-      (Map.update-value! (ConnState.streams cs)
-                         &fd
-                         &(fn [s] (TcpStream.close! s)))
+      (Map.update-value! (ConnState.streams cs) &fd &(fn [c] (Conn.close! c)))
       (Map.remove! (ConnState.streams cs) &fd)
       (Map.remove! (ConnState.read-bufs cs) &fd)
       (Map.remove! (ConnState.write-bufs cs) &fd)
@@ -1457,19 +1541,42 @@ fallback.")
           (TcpStream.set-nodelay &client)
           (TcpStream.set-nonblocking &client)
           (ignore (Poll.add poll cfd poll-read))
-          (Map.put! (ConnState.streams cs) &cfd &client)
+          (Map.put! (ConnState.streams cs) &cfd &(Connection.Plain client))
           (Map.put! (ConnState.read-bufs cs) &cfd &(the (Array Byte) []))
           (Map.put! (ConnState.last-active cs) &cfd &(System.time)))))
 
+  (hidden handle-accept-tls)
+  (defn handle-accept-tls [cs poll listener tls-ctx]
+    (match (TcpListener.accept listener)
+      (Result.Error _) ()
+      (Result.Success client)
+        (let-do [cfd (TcpStream.poll-fd &client)
+                 _ (TcpStream.set-nodelay &client)
+                 raw-fd (Conn.detach-fd &client)]
+          ; client now has fd=-1, will not close the socket on drop.
+          ; TlsStream.accept takes ownership of raw-fd and performs
+          ; a blocking handshake.
+          (match (TlsStream.accept tls-ctx raw-fd)
+            (Result.Error _) ()
+            (Result.Success tls-stream)
+              (do
+                (TlsStream.set-nonblocking &tls-stream)
+                (ignore (Poll.add poll cfd poll-read))
+                (Map.put! (ConnState.streams cs)
+                          &cfd
+                          &(Connection.Tls tls-stream))
+                (Map.put! (ConnState.read-bufs cs) &cfd &(the (Array Byte) []))
+                (Map.put! (ConnState.last-active cs) &cfd &(System.time)))))))
+
   (hidden handle-writable)
   (defn handle-writable [cs poll fd]
-    (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
-          stream2 @&stream
+    (let [conn0 (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
+          conn2 @&conn0
           pos (Map.get (ConnState.write-positions cs) &fd)
           n (Map.value-ref! (ConnState.write-bufs cs)
                             &fd
                             &(fn [buf]
-                              (match (TcpStream.send-nb &stream buf pos)
+                              (match (Conn.send-nb &conn0 buf pos)
                                 (Result.Success k) k
                                 (Result.Error _) -1))
                             -1)]
@@ -1488,10 +1595,10 @@ fallback.")
                 (let-do [sf-fd (Map.get (ConnState.sf-fds cs) &fd)
                          sf-off (Map.get (ConnState.sf-offsets cs) &fd)
                          sf-sz (Map.get (ConnState.sf-sizes cs) &fd)
-                         sn (match (TcpStream.sendfile-chunk &stream2
-                                                             sf-fd
-                                                             &sf-off
-                                                             (- sf-sz sf-off))
+                         sn (match (Conn.sendfile-chunk &conn2
+                                                        sf-fd
+                                                        &sf-off
+                                                        (- sf-sz sf-off))
                            (Result.Success k) k
                            (Result.Error _) -1)]
                   (Map.put! (ConnState.sf-offsets cs) &fd &sf-off)
@@ -1517,7 +1624,7 @@ fallback.")
                            ws-routes
                            poll
                            fd
-                           stream
+                           conn
                            accept
                            route-idx
                            proto
@@ -1550,7 +1657,7 @@ fallback.")
       (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
                                &fd
                                &(fn [b]
-                                 (match (TcpStream.send-nb &stream b 0)
+                                 (match (Conn.send-nb &conn b 0)
                                    (Result.Success k) k
                                    (Result.Error _) -1))
                                -1)
@@ -1565,17 +1672,18 @@ fallback.")
 
   (hidden handle-ws-readable)
   (defn handle-ws-readable [cs ws-routes poll fd]
-    (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
-          stream2 @&stream
+    (let [conn0 (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
+          conn @&conn0
+          conn2 @&conn0
           n (Map.value-ref! (ConnState.read-bufs cs)
                             &fd
                             &(fn [buf]
-                              (match (TcpStream.read-append-nb &stream buf)
+                              (match (Conn.read-append-nb &conn0 buf)
                                 (Result.Success k) k
                                 (Result.Error _) -1))
                             -1)]
       (cond
-        (= n TcpStream.read-blocked) ()
+        (Conn.read-blocked? &conn n) ()
         (<= n 0) (queue-close cs fd)
         (do
           (Map.put! (ConnState.last-active cs) &fd &(System.time))
@@ -1755,9 +1863,7 @@ fallback.")
                   (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
                                            &fd
                                            &(fn [b]
-                                             (match (TcpStream.send-nb &stream2
-                                                                       b
-                                                                       0)
+                                             (match (Conn.send-nb &conn2 b 0)
                                                (Result.Success k) k
                                                (Result.Error _) -1))
                                            -1)
@@ -1776,17 +1882,18 @@ fallback.")
     ; Active WebSocket connections bypass HTTP parsing
     (if (Map.contains? (ConnState.ws-route-idx cs) &fd)
       (handle-ws-readable cs (App.ws-routes app) poll fd)
-      (let [stream (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
-            stream2 @&stream
+      (let [conn0 (Maybe.unsafe-from (Map.get-maybe (ConnState.streams cs) &fd))
+            conn @&conn0
+            conn2 @&conn0
             n (Map.value-ref! (ConnState.read-bufs cs)
                               &fd
                               &(fn [buf]
-                                (match (TcpStream.read-append-nb &stream buf)
+                                (match (Conn.read-append-nb &conn0 buf)
                                   (Result.Success k) k
                                   (Result.Error _) -1))
                               -1)]
         (cond
-          (= n TcpStream.read-blocked) ()
+          (Conn.read-blocked? &conn n) ()
           (<= n 0) (queue-close cs fd)
           (do
             (Map.put! (ConnState.last-active cs) &fd &(System.time))
@@ -1837,9 +1944,9 @@ fallback.")
                               (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
                                                        &fd
                                                        &(fn [b]
-                                                         (match (TcpStream.send-nb &stream2
-                                                                                   b
-                                                                                   0)
+                                                         (match (Conn.send-nb &conn2
+                                                                              b
+                                                                              0)
                                                            (Result.Success k) k
                                                            (Result.Error _) -1))
                                                        -1)
@@ -1857,7 +1964,7 @@ fallback.")
                                                (App.ws-routes app)
                                                poll
                                                fd
-                                               stream2
+                                               conn2
                                                &accept
                                                ri
                                                &proto
@@ -1873,7 +1980,14 @@ fallback.")
                                                               false))
                               resp @(Pair.a &pair)
                               ka @(Pair.b &pair)
-                              sf-path (web-sendfile-path &resp)
+                              is-tls (Conn.tls? &conn)
+                              ; For TLS connections, resolve sendfile to a
+                              ; regular body response — kernel sendfile cannot
+                              ; encrypt data.
+                              resolved (if is-tls
+                                (web-tls-resolve-sendfile resp)
+                                resp)
+                              sf-path (web-sendfile-path &resolved)
                               sf-result (match-ref &sf-path
                                 (Maybe.Just p)
                                   (let [ffd (IO.Raw.open p IO.Raw.O-RDONLY)]
@@ -1897,7 +2011,7 @@ fallback.")
                               actual-resp (if (and (Maybe.just? &sf-path)
                                                    (< sf-result 0l))
                                 (Response.not-found)
-                                resp)
+                                resolved)
                               wbuf (web-serialize-response actual-resp
                                                            ka
                                                            sf-result)]
@@ -1908,9 +2022,9 @@ fallback.")
                             (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
                                                      &fd
                                                      &(fn [b]
-                                                       (match (TcpStream.send-nb &stream2
-                                                                                 b
-                                                                                 0)
+                                                       (match (Conn.send-nb &conn2
+                                                                            b
+                                                                            0)
                                                          (Result.Success k) k
                                                          (Result.Error _) -1))
                                                      -1)
@@ -2101,7 +2215,101 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                       (sweep-idle &cs &poll)
                       (flush-closed &cs &poll))))
               (Poll.close poll)
-              (TcpListener.close listener))))))
+              (TcpListener.close listener)))))
+
+  ; -----------------------------------------------------------------------
+  ; serve-tls
+  ; -----------------------------------------------------------------------
+
+  (doc serve-tls "starts an HTTPS server on `host`:`port`.
+
+Like [`serve`](#serve), but wraps every accepted connection with TLS
+using the PEM-encoded certificate at `cert-file` and private key at
+`key-file`.
+
+The TLS handshake is currently **blocking**: each new connection stalls
+the event loop until the handshake completes. This is fine for moderate
+connection rates but may become a bottleneck under heavy concurrent
+connection storms. A future version can move to a non-blocking
+handshake state machine.
+
+File responses created with `Response.sendfile` are automatically
+converted to regular body responses because kernel `sendfile(2)` cannot
+encrypt data. For large files, this means the entire file is read into
+memory before sending.")
+  (defn serve-tls [app before-hooks after-hooks host port cert-file key-file]
+    (match (TlsServerCtx.create cert-file key-file)
+      (Result.Error e) (IO.errorln &(fmt "TLS setup failed: %s" &e))
+      (Result.Success tls-ctx)
+        (match (TcpListener.bind host port)
+          (Result.Error e)
+            (do
+              (IO.errorln &(fmt "Failed to bind: %s" &e))
+              (TlsServerCtx.close tls-ctx))
+          (Result.Success listener)
+            (match (Poll.create)
+              (Result.Error e)
+                (do
+                  (IO.errorln &e)
+                  (TcpListener.close listener)
+                  (TlsServerCtx.close tls-ctx))
+              (Result.Success poll)
+                (let-do [lfd (TcpListener.poll-fd &listener)
+                         cs (ConnState.init {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            []
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {}
+                                            {})]
+                  (IO.println &(fmt "Listening on %s:%d (TLS)" host port))
+                  (set! App.running true)
+                  (System.signal System.signal-int
+                                 (fn [_] (set! App.running false)))
+                  (System.signal System.signal-term
+                                 (fn [_] (set! App.running false)))
+                  (ignore (Poll.add-read &poll &listener))
+                  (while App.running
+                    (match (the (Result (Array PollEvent) String)
+                                (Poll.wait &poll 30000))
+                      (Result.Error _) (break)
+                      (Result.Success events)
+                        (do
+                          (ConnState.set-to-close! &cs [])
+                          (for [i 0 (Array.length &events)]
+                            (let [e (Array.unsafe-nth &events i)
+                                  fd (PollEvent.fd e)]
+                              (cond
+                                (= fd lfd)
+                                  (handle-accept-tls &cs
+                                                     &poll
+                                                     &listener
+                                                     &tls-ctx)
+                                (PollEvent.writable e)
+                                  (handle-writable &cs &poll fd)
+                                (PollEvent.readable e)
+                                  (handle-readable &cs
+                                                   app
+                                                   before-hooks
+                                                   after-hooks
+                                                   &poll
+                                                   fd)
+                                ())))
+                          (sweep-idle &cs &poll)
+                          (flush-closed &cs &poll))))
+                  (Poll.close poll)
+                  (TcpListener.close listener)
+                  (TlsServerCtx.close tls-ctx)))))))
 ; end defmodule App
 
 ; ---------------------------------------------------------------------------
@@ -2259,4 +2467,50 @@ is equivalent to:
                              (list 'let
                                    ['app app-form 'bh before-arr 'ah after-arr]
                                    (list 'App.serve '&app '&bh '&ah host port))))]
+    (eval (list 'defn 'main (array) (cons 'do body-forms)))))
+
+(doc defserver-tls "generates a `main` function that builds an `App`,
+registers routes, and starts serving HTTPS on `host`:`port` using the
+PEM-encoded certificate at `cert-file` and private key at `key-file`.
+
+```
+(defserver-tls \"0.0.0.0\" 8443 \"cert.pem\" \"key.pem\"
+  (GET \"/\" hello))
+```
+
+See [`defserver`](#defserver) for the full route and hook syntax.")
+(defmacro defserver-tls [host port cert-file key-file :rest body]
+  (let [routes (filter
+          (fn [f]
+            (and (App.route-form? f)
+                 (not (App.before-form? f))
+                 (not (App.after-form? f))))
+          body)
+        befores (filter App.before-form? body)
+        afters (filter App.after-form? body)
+        setup (filter (fn [f] (not (App.route-form? f))) body)
+        app-form (cons '-> (cons '(App.create) (map App.route-call routes)))
+        before-arr (collect-into
+          (map
+            (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
+            befores)
+          array)
+        after-arr (collect-into
+          (map
+            (fn [f]
+              (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
+            afters)
+          array)
+        body-forms (append setup
+                           (list
+                             (list 'let
+                                   ['app app-form 'bh before-arr 'ah after-arr]
+                                   (list 'App.serve-tls
+                                         '&app
+                                         '&bh
+                                         '&ah
+                                         host
+                                         port
+                                         cert-file
+                                         key-file))))]
     (eval (list 'defn 'main (array) (cons 'do body-forms)))))
