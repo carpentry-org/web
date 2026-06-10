@@ -4,7 +4,6 @@ import asyncio
 import sys
 import time
 
-sys.path.insert(0, "/Users/veitheller/Library/Python/3.9/lib/python/site-packages")
 import websockets
 
 CLIENTS = 10

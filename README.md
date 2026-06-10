@@ -177,6 +177,7 @@ and a `WebSocket` handle for sending messages:
   (match-ref event
     (WSEvent.Connect) (WebSocket.send ws @"connected")
     (WSEvent.Message msg) (WebSocket.send ws (fmt "echo: %s" msg))
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
 (defserver "0.0.0.0" 3000
@@ -186,8 +187,8 @@ and a `WebSocket` handle for sending messages:
 
 The upgrade handshake (RFC 6455) is handled automatically. Once upgraded,
 the connection uses WebSocket framing over the same non-blocking event
-loop. Text frames, ping/pong, and close frames are supported. Binary
-frames are not yet supported.
+loop. Text frames, binary frames, ping/pong, and close frames are
+supported.
 
 ### Concurrent connections
 
