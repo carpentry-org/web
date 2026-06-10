@@ -1209,6 +1209,45 @@ responses. The `protocols` field lists the subprotocols that this route supports
             v [@(Array.unsafe-first &etag-vals)]]
         (Response.init 304 @"Not Modified" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))))
 
+; Check whether a method token is a standard HTTP method (RFC 7231 + PATCH).
+(defn web-valid-method? [m]
+  (or (= m "GET")
+      (or (= m "HEAD")
+          (or (= m "POST")
+              (or (= m "PUT")
+                  (or (= m "DELETE")
+                      (or (= m "PATCH")
+                          (or (= m "OPTIONS") (or (= m "TRACE") (= m "CONNECT"))))))))))
+
+; Validate the HTTP request line before full parsing.
+; Checks method, version, and request-line length.
+; Returns (Maybe Response) — Nothing if valid, (Just resp) if malformed.
+(defn web-validate-request-line [buf]
+  (let [raw &(String.from-bytes buf)
+        len (String.length raw)
+        first-crlf (String.find-crlf raw 0 len)]
+    (if (< first-crlf 0)
+      (Maybe.Just (Response.bad-request))
+      (if (> first-crlf App.max-header-line)
+        (Maybe.Just (Response.bad-request))
+        (let [request-line &(String.byte-slice raw 0 first-crlf)
+              sp1 (String.index-of request-line \space)]
+          (if (< sp1 0)
+            (Maybe.Just (Response.bad-request))
+            (let [sp2 (String.index-of-from request-line \space (+ sp1 1))]
+              (if (< sp2 0)
+                (Maybe.Just (Response.bad-request))
+                (let [method &(String.byte-slice request-line 0 sp1)
+                      version &(String.byte-slice request-line
+                                                  (+ sp2 1)
+                                                  (String.length request-line))]
+                  (cond
+                    (not (or (= version "HTTP/1.0") (= version "HTTP/1.1")))
+                      (Maybe.Just (Response.bad-request))
+                    (not (web-valid-method? method))
+                      (Maybe.Just (Response.bad-request))
+                    (the (Maybe Response) (Maybe.Nothing))))))))))))
+
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)]
@@ -1280,6 +1319,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
    write-positions (Map Int Int)
    keep-alives (Map Int Bool)
    last-active (Map Int Int)
+   read-start (Map Int Int)
    sf-fds (Map Int Int)
    sf-offsets (Map Int Long)
    sf-sizes (Map Int Long)
@@ -1381,6 +1421,8 @@ fallback.")
 
   (def max-request-size 1048576)
   (def idle-timeout 60)
+  (def header-timeout 15)
+  (def max-header-line 8192)
   (def ws-ping-interval 30)
   (def ws-max-missed-pongs 3)
   (def running true)
@@ -1405,6 +1447,7 @@ fallback.")
               (Map.update-value! (ConnState.read-bufs cs)
                                  &fd
                                  &(fn [b] (TcpStream.clear-buf b))))
+            (Map.put! (ConnState.read-start cs) &fd &0)
             (ignore (Poll.modify poll fd poll-read)))
           (queue-close cs fd)))))
 
@@ -1430,6 +1473,7 @@ fallback.")
       (Map.remove! (ConnState.write-positions cs) &fd)
       (Map.remove! (ConnState.keep-alives cs) &fd)
       (Map.remove! (ConnState.last-active cs) &fd)
+      (Map.remove! (ConnState.read-start cs) &fd)
       (when (Map.contains? (ConnState.sf-fds cs) &fd)
         (do
           (ignore (IO.Raw.close-fd (Map.get (ConnState.sf-fds cs) &fd)))
@@ -1459,7 +1503,8 @@ fallback.")
           (ignore (Poll.add poll cfd poll-read))
           (Map.put! (ConnState.streams cs) &cfd &client)
           (Map.put! (ConnState.read-bufs cs) &cfd &(the (Array Byte) []))
-          (Map.put! (ConnState.last-active cs) &cfd &(System.time)))))
+          (Map.put! (ConnState.last-active cs) &cfd &(System.time))
+          (Map.put! (ConnState.read-start cs) &cfd &0))))
 
   (hidden handle-writable)
   (defn handle-writable [cs poll fd]
@@ -1790,6 +1835,8 @@ fallback.")
           (<= n 0) (queue-close cs fd)
           (do
             (Map.put! (ConnState.last-active cs) &fd &(System.time))
+            (when (= (Map.get (ConnState.read-start cs) &fd) 0)
+              (Map.put! (ConnState.read-start cs) &fd &(System.time)))
             (let [too-big (Map.value-ref! (ConnState.read-bufs cs)
                                           &fd
                                           &(fn [buf]
@@ -1803,128 +1850,178 @@ fallback.")
                                             &(fn [buf] (web-has-header-end buf))
                                             false)]
                   (when ready
-                    ; Check for WebSocket upgrade before normal HTTP response
-                    (let [ws-info (Map.value-ref! (ConnState.read-bufs cs)
+                    (Map.put! (ConnState.read-start cs) &fd &0)
+                    ; Validate request line before parsing
+                    (let [bad-req (Map.value-ref! (ConnState.read-bufs cs)
                                                   &fd
                                                   &(fn [buf]
-                                                    (web-try-ws-upgrade buf
-                                                                        (App.ws-routes app)))
-                                                  (the
-                                                    (Maybe
-                                                      (Pair String
-                                                            (Pair Int
-                                                                  (Pair (Maybe String)
-                                                                        (Map String
-                                                                             String)))))
-                                                    (Maybe.Nothing)))]
-                      (if (Maybe.just? &ws-info)
-                        (let [info (Maybe.unsafe-from ws-info)
-                              accept @(Pair.a &info)
-                              ri @(Pair.a (Pair.b &info))
-                              proto @(Pair.a (Pair.b (Pair.b &info)))
-                              ps @(Pair.b (Pair.b (Pair.b &info)))]
-                          (if (< ri 0)
-                            ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
-                            (let-do [resp-str @"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
-                                     wbuf (String.to-bytes &resp-str)]
-                              (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
-                              (Map.put! (ConnState.write-positions cs) &fd &0)
-                              (Map.put! (ConnState.keep-alives cs) &fd &false)
-                              (Map.update-value! (ConnState.read-bufs cs)
-                                                 &fd
-                                                 &(fn [b]
-                                                   (TcpStream.clear-buf b)))
-                              (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
-                                                       &fd
-                                                       &(fn [b]
-                                                         (match (TcpStream.send-nb &stream2
-                                                                                   b
-                                                                                   0)
-                                                           (Result.Success k) k
-                                                           (Result.Error _) -1))
-                                                       -1)
-                                    buf-len (Array.length &wbuf)]
-                                (cond
-                                  (< n0 0) (queue-close cs fd)
-                                  (if (< n0 buf-len)
-                                    (do
-                                      (Map.put! (ConnState.write-positions cs)
-                                                &fd
-                                                &n0)
-                                      (ignore (Poll.modify poll fd poll-write)))
-                                    (queue-close cs fd)))))
-                            (handle-ws-upgrade cs
-                                               (App.ws-routes app)
-                                               poll
-                                               fd
-                                               stream2
-                                               &accept
-                                               ri
-                                               &proto
-                                               &ps)))
-                        (let [pair (Map.value-ref! (ConnState.read-bufs cs)
+                                                    (web-validate-request-line buf))
+                                                  (the (Maybe Response)
+                                                       (Maybe.Nothing)))]
+                      (if (Maybe.just? &bad-req)
+                        ; Malformed request — send 400 and close
+                        (let-do [wbuf (web-serialize-response (Maybe.unsafe-from bad-req)
+                                                              false
+                                                              -1l)]
+                          (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+                          (Map.put! (ConnState.write-positions cs) &fd &0)
+                          (Map.put! (ConnState.keep-alives cs) &fd &false)
+                          (Map.update-value! (ConnState.read-bufs cs)
+                                             &fd
+                                             &(fn [b] (TcpStream.clear-buf b)))
+                          (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
                                                    &fd
-                                                   &(fn [buf]
-                                                     (web-build-response app
-                                                                         before-hooks
-                                                                         after-hooks
-                                                                         buf))
-                                                   (Pair.init (Response.bad-request)
-                                                              false))
-                              resp @(Pair.a &pair)
-                              ka @(Pair.b &pair)
-                              sf-path (web-sendfile-path &resp)
-                              sf-result (match-ref &sf-path
-                                (Maybe.Just p)
-                                  (let [ffd (IO.Raw.open p IO.Raw.O-RDONLY)]
-                                    (if (< ffd 0)
-                                      -1l
-                                      (let [sz (IO.Raw.fstat-size ffd)]
-                                        (if (< sz 0l)
-                                          (do (ignore (IO.Raw.close-fd ffd)) -1l)
-                                          (do
-                                            (Map.put! (ConnState.sf-fds cs)
+                                                   &(fn [b]
+                                                     (match (TcpStream.send-nb &stream2
+                                                                               b
+                                                                               0)
+                                                       (Result.Success k) k
+                                                       (Result.Error _) -1))
+                                                   -1)
+                                buf-len (Array.length &wbuf)]
+                            (cond
+                              (< n0 0) (queue-close cs fd)
+                              (if (< n0 buf-len)
+                                (do
+                                  (Map.put! (ConnState.write-positions cs)
+                                            &fd
+                                            &n0)
+                                  (ignore (Poll.modify poll fd poll-write)))
+                                (queue-close cs fd)))))
+                        ; Check for WebSocket upgrade before normal HTTP response
+                        (let [ws-info (Map.value-ref! (ConnState.read-bufs cs)
                                                       &fd
-                                                      &ffd)
-                                            (Map.put! (ConnState.sf-offsets cs)
-                                                      &fd
-                                                      &0l)
-                                            (Map.put! (ConnState.sf-sizes cs)
-                                                      &fd
-                                                      &sz)
-                                            sz)))))
-                                (Maybe.Nothing) -1l)
-                              actual-resp (if (and (Maybe.just? &sf-path)
-                                                   (< sf-result 0l))
-                                (Response.not-found)
-                                resp)
-                              wbuf (web-serialize-response actual-resp
-                                                           ka
-                                                           sf-result)]
-                          (do
-                            (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
-                            (Map.put! (ConnState.write-positions cs) &fd &0)
-                            (Map.put! (ConnState.keep-alives cs) &fd &ka)
-                            (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                                      &(fn [buf]
+                                                        (web-try-ws-upgrade buf
+                                                                            (App.ws-routes app)))
+                                                      (the
+                                                        (Maybe
+                                                          (Pair String
+                                                                (Pair Int
+                                                                      (Pair (Maybe String)
+                                                                            (Map String
+                                                                                 String)))))
+                                                        (Maybe.Nothing)))]
+                          (if (Maybe.just? &ws-info)
+                            (let [info (Maybe.unsafe-from ws-info)
+                                  accept @(Pair.a &info)
+                                  ri @(Pair.a (Pair.b &info))
+                                  proto @(Pair.a (Pair.b (Pair.b &info)))
+                                  ps @(Pair.b (Pair.b (Pair.b &info)))]
+                              (if (< ri 0)
+                                ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
+                                (let-do [resp-str @"HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+                                         wbuf (String.to-bytes &resp-str)]
+                                  (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+                                  (Map.put! (ConnState.write-positions cs)
+                                            &fd
+                                            &0)
+                                  (Map.put! (ConnState.keep-alives cs)
+                                            &fd
+                                            &false)
+                                  (Map.update-value! (ConnState.read-bufs cs)
                                                      &fd
                                                      &(fn [b]
-                                                       (match (TcpStream.send-nb &stream2
-                                                                                 b
-                                                                                 0)
-                                                         (Result.Success k) k
-                                                         (Result.Error _) -1))
-                                                     -1)
-                                  buf-len (Array.length &wbuf)]
-                              (cond
-                                (< n0 0) (queue-close cs fd)
-                                (if (or (< n0 buf-len)
-                                        (Map.contains? (ConnState.sf-fds cs) &fd))
-                                  (do
-                                    (Map.put! (ConnState.write-positions cs)
-                                              &fd
-                                              &n0)
-                                    (ignore (Poll.modify poll fd poll-write)))
-                                  (conn-done-writing cs poll fd)))))))))))))))))
+                                                       (TcpStream.clear-buf b)))
+                                  (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                                           &fd
+                                                           &(fn [b]
+                                                             (match (TcpStream.send-nb &stream2
+                                                                                       b
+                                                                                       0)
+                                                               (Result.Success k)
+                                                                 k
+                                                               (Result.Error _)
+                                                                 -1))
+                                                           -1)
+                                        buf-len (Array.length &wbuf)]
+                                    (cond
+                                      (< n0 0) (queue-close cs fd)
+                                      (if (< n0 buf-len)
+                                        (do
+                                          (Map.put! (ConnState.write-positions cs)
+                                                    &fd
+                                                    &n0)
+                                          (ignore (Poll.modify poll
+                                                               fd
+                                                               poll-write)))
+                                        (queue-close cs fd)))))
+                                (handle-ws-upgrade cs
+                                                   (App.ws-routes app)
+                                                   poll
+                                                   fd
+                                                   stream2
+                                                   &accept
+                                                   ri
+                                                   &proto
+                                                   &ps)))
+                            (let [pair (Map.value-ref! (ConnState.read-bufs cs)
+                                                       &fd
+                                                       &(fn [buf]
+                                                         (web-build-response app
+                                                                             before-hooks
+                                                                             after-hooks
+                                                                             buf))
+                                                       (Pair.init (Response.bad-request)
+                                                                  false))
+                                  resp @(Pair.a &pair)
+                                  ka @(Pair.b &pair)
+                                  sf-path (web-sendfile-path &resp)
+                                  sf-result (match-ref &sf-path
+                                    (Maybe.Just p)
+                                      (let [ffd (IO.Raw.open p IO.Raw.O-RDONLY)]
+                                        (if (< ffd 0)
+                                          -1l
+                                          (let [sz (IO.Raw.fstat-size ffd)]
+                                            (if (< sz 0l)
+                                              (do
+                                                (ignore (IO.Raw.close-fd ffd))
+                                                -1l)
+                                              (do
+                                                (Map.put! (ConnState.sf-fds cs)
+                                                          &fd
+                                                          &ffd)
+                                                (Map.put! (ConnState.sf-offsets cs)
+                                                          &fd
+                                                          &0l)
+                                                (Map.put! (ConnState.sf-sizes cs)
+                                                          &fd
+                                                          &sz)
+                                                sz)))))
+                                    (Maybe.Nothing) -1l)
+                                  actual-resp (if (and (Maybe.just? &sf-path)
+                                                       (< sf-result 0l))
+                                    (Response.not-found)
+                                    resp)
+                                  wbuf (web-serialize-response actual-resp
+                                                               ka
+                                                               sf-result)]
+                              (do
+                                (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+                                (Map.put! (ConnState.write-positions cs) &fd &0)
+                                (Map.put! (ConnState.keep-alives cs) &fd &ka)
+                                (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                                         &fd
+                                                         &(fn [b]
+                                                           (match (TcpStream.send-nb &stream2
+                                                                                     b
+                                                                                     0)
+                                                             (Result.Success k)
+                                                               k
+                                                             (Result.Error _) -1))
+                                                         -1)
+                                      buf-len (Array.length &wbuf)]
+                                  (cond
+                                    (< n0 0) (queue-close cs fd)
+                                    (if (or (< n0 buf-len)
+                                            (Map.contains? (ConnState.sf-fds cs)
+                                                           &fd))
+                                      (do
+                                        (Map.put! (ConnState.write-positions cs)
+                                                  &fd
+                                                  &n0)
+                                        (ignore (Poll.modify poll fd poll-write)))
+                                      (conn-done-writing cs poll fd)))))))))))))))))))
 
   (doc ws-ping-action "Decides what to do for a WebSocket connection's ping
     state. Returns 0 (nothing), 1 (send ping), or 2 (close as dead).
@@ -1980,8 +2077,13 @@ fallback.")
                     (Map.put! (ConnState.ws-last-ping cs) &rfd &now)
                     (ignore (Poll.modify poll rfd poll-write)))
                 ()))
-            ; HTTP: simple idle timeout
-            (when (> idle App.idle-timeout) (queue-close cs rfd)))))))
+            ; HTTP: header accumulation timeout (slow loris) + idle timeout
+            (let [rs (Map.get (ConnState.read-start cs) &rfd)]
+              (cond
+                (and (> rs 0) (> (- now rs) App.header-timeout))
+                  (queue-close cs rfd)
+                (> idle App.idle-timeout) (queue-close cs rfd)
+                ())))))))
 
   (hidden flush-closed)
   (defn flush-closed [cs poll]
@@ -2054,6 +2156,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
           (Result.Success poll)
             (let-do [lfd (TcpListener.poll-fd &listener)
                      cs (ConnState.init {}
+                                        {}
                                         {}
                                         {}
                                         {}
