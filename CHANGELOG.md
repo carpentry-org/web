@@ -4,6 +4,21 @@
 
 ### Added
 
+- **Slow-client timeout (slow loris protection).** New connections must
+  complete HTTP headers within `App.header-timeout` seconds (default 15).
+  Connections that trickle bytes without completing the request line and
+  headers are closed, regardless of how frequently data arrives. The
+  per-request timer is tracked via `ConnState.read-start` and checked in
+  `sweep-idle`. Keep-alive connections reset the timer between requests.
+
+- **Request line validation.** Before full parsing, the server validates
+  that the HTTP method is a recognized token (GET, HEAD, POST, PUT,
+  DELETE, PATCH, OPTIONS, TRACE, CONNECT), that the version is HTTP/1.0
+  or HTTP/1.1, and that the request line fits within `App.max-header-line`
+  bytes (default 8192). Malformed requests receive an immediate 400 Bad
+  Request response. `web-valid-method?` and `web-validate-request-line`
+  are available as public helpers.
+
 - **HEAD method support** (RFC 7231). HEAD requests automatically match GET
   routes and return the same headers (including `Content-Length`) but with an
   empty body. For `sendfile` responses, the file size is computed for

@@ -728,4 +728,97 @@
                                    "Content-Length"
                                    &[@"0"])]
       (= (Array.unsafe-first &cl) "42"))
-    "finalize preserves explicit Content-Length"))
+    "finalize preserves explicit Content-Length")
+
+  ; ---------------------------------------------------------------------------
+  ; Request validation tests
+  ; ---------------------------------------------------------------------------
+
+  ; -- valid-method? --
+  (assert-true test (web-valid-method? "GET") "valid-method? accepts GET")
+
+  (assert-true test (web-valid-method? "POST") "valid-method? accepts POST")
+
+  (assert-true test
+    (web-valid-method? "OPTIONS")
+    "valid-method? accepts OPTIONS")
+
+  (assert-false test
+    (web-valid-method? "BREW")
+    "valid-method? rejects unknown method")
+
+  (assert-false test (web-valid-method? "") "valid-method? rejects empty string")
+
+  ; -- validate-request-line: valid requests --
+  (assert-true test
+    (Maybe.nothing?
+      &(web-validate-request-line
+        &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n")))
+    "validate accepts valid GET request")
+
+  (assert-true test
+    (Maybe.nothing?
+      &(web-validate-request-line
+        &(String.to-bytes "POST /data HTTP/1.0\r\nHost: x\r\n\r\n")))
+    "validate accepts HTTP/1.0 POST")
+
+  (assert-true test
+    (Maybe.nothing?
+      &(web-validate-request-line
+        &(String.to-bytes "DELETE /item/42 HTTP/1.1\r\nHost: x\r\n\r\n")))
+    "validate accepts DELETE with path")
+
+  ; -- validate-request-line: bad HTTP version --
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line
+        &(String.to-bytes "GET / HTTP/2.0\r\nHost: x\r\n\r\n")))
+    "validate rejects HTTP/2.0")
+
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line
+        &(String.to-bytes "GET / BLAH\r\nHost: x\r\n\r\n")))
+    "validate rejects non-HTTP version")
+
+  ; -- validate-request-line: unknown method --
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line
+        &(String.to-bytes "BREW / HTTP/1.1\r\nHost: x\r\n\r\n")))
+    "validate rejects unknown method BREW")
+
+  ; -- validate-request-line: missing version --
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line &(String.to-bytes "GET /\r\nHost: x\r\n\r\n")))
+    "validate rejects missing version")
+
+  ; -- validate-request-line: no spaces --
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line &(String.to-bytes "GARBAGE\r\n\r\n")))
+    "validate rejects request line without spaces")
+
+  ; -- validate-request-line: no CRLF --
+  (assert-true test
+    (Maybe.just?
+      &(web-validate-request-line &(String.to-bytes "GET / HTTP/1.1")))
+    "validate rejects missing CRLF")
+
+  ; -- build-response returns 400 for malformed request --
+  (assert-equal test
+    400
+    (let [app (-> (App.create) (App.GET @"/" (fn [r p] (Response.text @"hi"))))
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app
+                                   &bh
+                                   &ah
+                                   &(String.to-bytes "INVALID\r\n\r\n"))]
+      @(Response.code (Pair.a &pair)))
+    "build-response returns 400 for garbage input"))
