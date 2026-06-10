@@ -1209,6 +1209,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
             v [@(Array.unsafe-first &etag-vals)]]
         (Response.init 304 @"Not Modified" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))))
 
+; Forward-declare App.max-header-line so top-level validation helpers can
+; reference it before the main (defmodule App ...) block.
+(defmodule App (def max-header-line 8192))
+
 ; Check whether a method token is a standard HTTP method (RFC 7231 + PATCH).
 (defn web-valid-method? [m]
   (or (= m "GET")
@@ -1422,7 +1426,6 @@ fallback.")
   (def max-request-size 1048576)
   (def idle-timeout 60)
   (def header-timeout 15)
-  (def max-header-line 8192)
   (def ws-ping-interval 30)
   (def ws-max-missed-pongs 3)
   (def running true)
@@ -1849,7 +1852,7 @@ fallback.")
                                             &fd
                                             &(fn [buf] (web-has-header-end buf))
                                             false)]
-                  (when ready
+                  (when-do ready
                     (Map.put! (ConnState.read-start cs) &fd &0)
                     ; Validate request line before parsing
                     (let [bad-req (Map.value-ref! (ConnState.read-bufs cs)
