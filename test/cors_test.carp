@@ -1,0 +1,291 @@
+(add-cflag "-Wno-incompatible-pointer-types-discards-qualifiers")
+(load "Test.carp")
+(load "../web.carp")
+(use Test)
+
+; Helper: reset CORS to defaults
+(defn cors-reset! []
+  (do
+    (CORS.setup @"*"
+                @"GET, POST, PUT, DELETE, PATCH, OPTIONS"
+                @"Content-Type, Authorization"
+                @"86400")
+    (CORS.set-credentials! false)
+    (CORS.set-expose-headers! @"")))
+
+; Helper: get first header value or empty string
+(defn get-header [resp key]
+  (let [vals (Map.get-with-default (Response.headers resp) key &[@""])]
+    @(Array.unsafe-first &vals)))
+
+(deftest test
+  ; ---------------------------------------------------------------------------
+  ; before-hook
+  ; ---------------------------------------------------------------------------
+
+  ; -- passes through non-OPTIONS requests --
+  (assert-true test
+    (do
+      (cors-reset!)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (Maybe.nothing? &(CORS.before-hook &req &params))))
+    "CORS before-hook passes through non-OPTIONS requests")
+
+  ; -- returns 204 for OPTIONS --
+  (assert-equal test
+    204
+    (do
+      (cors-reset!)
+      (let [req (Result.unsafe-from-success
+              (Request.parse
+                "OPTIONS /api HTTP/1.1\r\nHost: x\r\nOrigin: http://example.com\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp) @(Response.code &resp)
+          (Maybe.Nothing) 0)))
+    "CORS before-hook returns 204 for OPTIONS preflight")
+
+  ; -- preflight includes configured methods --
+  (assert-equal test
+    "GET, POST"
+    &(do
+      (CORS.setup @"*" @"GET, POST" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp) (get-header &resp "Access-Control-Allow-Methods")
+          (Maybe.Nothing) @"")))
+    "CORS preflight includes configured methods")
+
+  ; -- preflight includes configured headers --
+  (assert-equal test
+    "X-Custom, Authorization"
+    &(do
+      (CORS.setup @"*" @"GET" @"X-Custom, Authorization" @"600")
+      (CORS.set-credentials! false)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp) (get-header &resp "Access-Control-Allow-Headers")
+          (Maybe.Nothing) @"")))
+    "CORS preflight includes configured headers")
+
+  ; -- preflight includes configured max-age --
+  (assert-equal test
+    "600"
+    &(do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"600")
+      (CORS.set-credentials! false)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp) (get-header &resp "Access-Control-Max-Age")
+          (Maybe.Nothing) @"")))
+    "CORS preflight includes configured max-age")
+
+  ; -- preflight includes credentials when enabled --
+  (assert-equal test
+    "true"
+    &(do
+      (CORS.setup @"https://example.com" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! true)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp)
+            (get-header &resp "Access-Control-Allow-Credentials")
+          (Maybe.Nothing) @"")))
+    "CORS preflight includes credentials when enabled")
+
+  ; -- preflight omits credentials when disabled --
+  (assert-true test
+    (do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (let [req (Result.unsafe-from-success
+              (Request.parse "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})]
+        (match (CORS.before-hook &req &params)
+          (Maybe.Just resp)
+            (not
+              (Map.contains? (Response.headers &resp)
+                             "Access-Control-Allow-Credentials"))
+          (Maybe.Nothing) false)))
+    "CORS preflight omits credentials when disabled")
+
+  ; ---------------------------------------------------------------------------
+  ; after-hook
+  ; ---------------------------------------------------------------------------
+
+  ; -- adds Allow-Origin --
+  (assert-equal test
+    "https://example.com"
+    &(do
+      (CORS.setup @"https://example.com" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (get-header &resp "Access-Control-Allow-Origin")))
+    "CORS after-hook adds configured origin")
+
+  ; -- adds Vary: Origin for non-wildcard origin --
+  (assert-equal test
+    "Origin"
+    &(do
+      (CORS.setup @"https://example.com" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (get-header &resp "Vary")))
+    "CORS after-hook adds Vary: Origin for non-wildcard origin")
+
+  ; -- omits Vary for wildcard origin --
+  (assert-true test
+    (do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (not (Map.contains? (Response.headers &resp) "Vary"))))
+    "CORS after-hook omits Vary for wildcard origin")
+
+  ; -- adds credentials on normal response --
+  (assert-equal test
+    "true"
+    &(do
+      (CORS.setup @"https://example.com" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! true)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (get-header &resp "Access-Control-Allow-Credentials")))
+    "CORS after-hook includes credentials when enabled")
+
+  ; -- omits credentials when disabled --
+  (assert-true test
+    (do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (not
+          (Map.contains? (Response.headers &resp)
+                         "Access-Control-Allow-Credentials"))))
+    "CORS after-hook omits credentials when disabled")
+
+  ; -- adds expose-headers --
+  (assert-equal test
+    "X-Request-Id, X-Total"
+    &(do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"X-Request-Id, X-Total")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (get-header &resp "Access-Control-Expose-Headers")))
+    "CORS after-hook adds expose-headers when configured")
+
+  ; -- omits expose-headers when empty --
+  (assert-true test
+    (do
+      (CORS.setup @"*" @"GET" @"Content-Type" @"86400")
+      (CORS.set-credentials! false)
+      (CORS.set-expose-headers! @"")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (not
+          (Map.contains? (Response.headers &resp)
+                         "Access-Control-Expose-Headers"))))
+    "CORS after-hook omits expose-headers when empty")
+
+  ; ---------------------------------------------------------------------------
+  ; Integration: CORS hooks with build-response
+  ; ---------------------------------------------------------------------------
+
+  ; -- normal request gets Allow-Origin through pipeline --
+  (assert-equal test
+    "*"
+    &(do
+      (cors-reset!)
+      (let [app (-> (App.create) (App.GET @"/" (fn [r p] (Response.text @"hi"))))
+            bh [(fn [req params] (CORS.before-hook req params))]
+            ah [(fn [req params resp] (CORS.after-hook req params resp))]
+            pair (web-build-response &app
+                                     &bh
+                                     &ah
+                                     &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            resp @(Pair.a &pair)]
+        (get-header &resp "Access-Control-Allow-Origin")))
+    "CORS hooks integrate with build-response pipeline")
+
+  ; -- OPTIONS preflight returns 204 through pipeline --
+  (assert-equal test
+    204
+    (do
+      (cors-reset!)
+      (let [app (-> (App.create) (App.GET @"/" (fn [r p] (Response.text @"hi"))))
+            bh [(fn [req params] (CORS.before-hook req params))]
+            ah [(fn [req params resp] (CORS.after-hook req params resp))]
+            pair (web-build-response &app
+                                     &bh
+                                     &ah
+                                     &(String.to-bytes "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            resp @(Pair.a &pair)]
+        @(Response.code &resp)))
+    "CORS preflight returns 204 through build-response")
+
+  ; -- preflight response also gets Allow-Origin from after-hook --
+  (assert-true test
+    (do
+      (cors-reset!)
+      (let [app (-> (App.create) (App.GET @"/" (fn [r p] (Response.text @"hi"))))
+            bh [(fn [req params] (CORS.before-hook req params))]
+            ah [(fn [req params resp] (CORS.after-hook req params resp))]
+            pair (web-build-response &app
+                                     &bh
+                                     &ah
+                                     &(String.to-bytes "OPTIONS / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            resp @(Pair.a &pair)]
+        (Map.contains? (Response.headers &resp) "Access-Control-Allow-Origin")))
+    "CORS preflight gets Allow-Origin from after-hook")
+
+  ; ---------------------------------------------------------------------------
+  ; CORS.configure backward compatibility
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test
+    "https://old-api.example.com"
+    &(do
+      (cors-reset!)
+      (CORS.configure @"https://old-api.example.com")
+      (let [req (Result.unsafe-from-success
+              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+            params (the (Map String String) {})
+            resp (CORS.after-hook &req &params (Response.text @"ok"))]
+        (get-header &resp "Access-Control-Allow-Origin")))
+    "CORS.configure still works for backward compatibility"))
