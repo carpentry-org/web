@@ -1333,6 +1333,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
    ws-protocol (Map Int (Maybe String))
    ws-frag-bufs (Map Int (Array Byte))
    ws-frag-opcodes (Map Int Int)
+   ws-frag-start (Map Int Int)
    ws-ping-count (Map Int Int)
    ws-last-ping (Map Int Int)])
 
@@ -1428,6 +1429,8 @@ fallback.")
   (def header-timeout 15)
   (def ws-ping-interval 30)
   (def ws-max-missed-pongs 3)
+  (def ws-frag-ttl 30)
+  (def ws-max-frag-size 1048576)
   (def running true)
 
   ; -----------------------------------------------------------------------
@@ -1488,6 +1491,7 @@ fallback.")
       (Map.remove! (ConnState.ws-protocol cs) &fd)
       (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
       (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+      (Map.remove! (ConnState.ws-frag-start cs) &fd)
       (Map.remove! (ConnState.ws-ping-count cs) &fd)
       (Map.remove! (ConnState.ws-last-ping cs) &fd)))
 
@@ -1701,12 +1705,19 @@ fallback.")
                         (do
                           (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                           (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                          (Map.remove! (ConnState.ws-frag-start cs) &fd)
                           (set! should-close true)
                           (break))
-                        (let-do [payload @(WSFrame.payload &frame)]
-                          (Map.put! (ConnState.ws-frag-opcodes cs) &fd &op)
-                          (Map.put! (ConnState.ws-frag-bufs cs) &fd &payload)
-                          (set! offset (+ offset consumed))))
+                        (if (> plen App.ws-max-frag-size)
+                          ; First fragment already exceeds limit
+                          (do (set! should-close true) (break))
+                          (let-do [payload @(WSFrame.payload &frame)]
+                            (Map.put! (ConnState.ws-frag-opcodes cs) &fd &op)
+                            (Map.put! (ConnState.ws-frag-bufs cs) &fd &payload)
+                            (Map.put! (ConnState.ws-frag-start cs)
+                                      &fd
+                                      &(System.time))
+                            (set! offset (+ offset consumed)))))
                       ; Continuation frame (opcode 0)
                       (= op 0)
                       (if (not
@@ -1718,11 +1729,12 @@ fallback.")
                                                         &(fn [b]
                                                           (Array.length b))
                                                         0)]
-                          (if (> (+ frag-size plen) App.max-request-size)
+                          (if (> (+ frag-size plen) App.ws-max-frag-size)
                             ; Accumulated message too large
                             (do
                               (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                               (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                              (Map.remove! (ConnState.ws-frag-start cs) &fd)
                               (set! should-close true)
                               (break))
                             (let-do [frag-buf (Map.value-ref! (ConnState.ws-frag-bufs cs)
@@ -1741,6 +1753,7 @@ fallback.")
                                   (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                                   (Map.remove! (ConnState.ws-frag-opcodes cs)
                                                &fd)
+                                  (Map.remove! (ConnState.ws-frag-start cs) &fd)
                                   (if (= orig-op 1)
                                     (~(WSRoute.handler (Array.unsafe-nth ws-routes
                                                                          route-idx))
@@ -1765,6 +1778,7 @@ fallback.")
                         (do
                           (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                           (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
+                          (Map.remove! (ConnState.ws-frag-start cs) &fd)
                           (set! should-close true)
                           (break))
                         (do
@@ -2054,20 +2068,21 @@ fallback.")
               is-ws (Map.contains? (ConnState.ws-route-idx cs) &rfd)]
           (if is-ws
             ; WebSocket: ping/pong dead client detection
-            (let [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
-                    (Map.get (ConnState.ws-ping-count cs) &rfd)
-                    0)
-                  last-ping (if (Map.contains? (ConnState.ws-last-ping cs) &rfd)
-                    (Map.get (ConnState.ws-last-ping cs) &rfd)
-                    0)
-                  since-ping (- now last-ping)
-                  write-pending (Map.contains? (ConnState.write-bufs cs) &rfd)
-                  action (ws-ping-action App.ws-ping-interval
-                                         App.ws-max-missed-pongs
-                                         idle
-                                         pcount
-                                         since-ping
-                                         write-pending)]
+            (let-do [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
+                       (Map.get (ConnState.ws-ping-count cs) &rfd)
+                       0)
+                     last-ping (if (Map.contains? (ConnState.ws-last-ping cs)
+                                                  &rfd)
+                       (Map.get (ConnState.ws-last-ping cs) &rfd)
+                       0)
+                     since-ping (- now last-ping)
+                     write-pending (Map.contains? (ConnState.write-bufs cs) &rfd)
+                     action (ws-ping-action App.ws-ping-interval
+                                            App.ws-max-missed-pongs
+                                            idle
+                                            pcount
+                                            since-ping
+                                            write-pending)]
               (cond
                 (= action 2) (queue-close cs rfd)
                 (= action 1)
@@ -2079,7 +2094,16 @@ fallback.")
                     (Map.put! (ConnState.ws-ping-count cs) &rfd &(+ pcount 1))
                     (Map.put! (ConnState.ws-last-ping cs) &rfd &now)
                     (ignore (Poll.modify poll rfd poll-write)))
-                ()))
+                ())
+              ; Fragment TTL: close connections with stale partial messages
+              (when (and (> App.ws-frag-ttl 0)
+                         (Map.contains? (ConnState.ws-frag-start cs) &rfd))
+                (let [frag-ts (Map.get (ConnState.ws-frag-start cs) &rfd)]
+                  (when-do (> (- now frag-ts) App.ws-frag-ttl)
+                    (Map.remove! (ConnState.ws-frag-start cs) &rfd)
+                    (Map.remove! (ConnState.ws-frag-bufs cs) &rfd)
+                    (Map.remove! (ConnState.ws-frag-opcodes cs) &rfd)
+                    (queue-close cs rfd)))))
             ; HTTP: header accumulation timeout (slow loris) + idle timeout
             (let [rs (Map.get (ConnState.read-start cs) &rfd)]
               (cond
@@ -2169,6 +2193,7 @@ For multi-core scaling, run several copies behind a TCP load balancer.")
                                         {}
                                         {}
                                         []
+                                        {}
                                         {}
                                         {}
                                         {}
