@@ -4,6 +4,14 @@
 
 ### Added
 
+- **WebSocket fragment timeout and size limits.** Fragment accumulation
+  now tracks per-connection timestamps via `ConnState.ws-frag-start`.
+  `sweep-idle` closes connections where fragments have been accumulating
+  longer than `App.ws-frag-ttl` seconds (default 30), preventing
+  memory exhaustion from incomplete messages. A separate
+  `App.ws-max-frag-size` constant (default 1 MiB) governs the maximum
+  accumulated fragment size, independent of `App.max-request-size`.
+
 - **Slow-client timeout (slow loris protection).** New connections must
   complete HTTP headers within `App.header-timeout` seconds (default 15).
   Connections that trickle bytes without completing the request line and

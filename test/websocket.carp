@@ -1012,4 +1012,15 @@
     &(the (Array String) [])
     &(let [app (-> (App.create) (App.WS @"/ws/echo" (fn [e p w] ())))]
       @(WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
-    "App.WS stores empty protocols on the route"))
+    "App.WS stores empty protocols on the route")
+
+  ; ---------------------------------------------------------------------------
+  ; Fragment TTL and size limit defaults
+  ; ---------------------------------------------------------------------------
+
+  (assert-equal test 30 App.ws-frag-ttl "ws-frag-ttl defaults to 30 seconds")
+
+  (assert-equal test
+    1048576
+    App.ws-max-frag-size
+    "ws-max-frag-size defaults to 1 MiB"))
