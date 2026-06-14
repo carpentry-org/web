@@ -4,6 +4,12 @@
 
 ### Added
 
+- **Multi-core serving via SO_REUSEPORT.** `App.serve-with-workers`
+  forks `n` worker processes, each running its own event loop bound to
+  the same port. The kernel distributes incoming connections across
+  workers. Falls back to single-process `serve` when `n` is 1 or less.
+  `defserver` gains a `(workers N)` form for declarative configuration.
+
 - **WebSocket fragment timeout and size limits.** Fragment accumulation
   now tracks per-connection timestamps via `ConnState.ws-frag-start`.
   `sweep-idle` closes connections where fragments have been accumulating
