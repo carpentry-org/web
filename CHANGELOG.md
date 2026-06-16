@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Fixed
+
+- **WebSocket RFC 6455 protocol compliance.**
+  - Protocol error paths (unexpected fragments, unknown opcodes) now send
+    a 1002 close frame before disconnecting, as required by RFC 6455 §7.2.
+  - Unknown opcodes (3–7, 11–15) trigger a 1002 protocol error close
+    instead of being silently skipped (RFC 6455 §5.2).
+  - Upgrade header matching is now case-insensitive for both the header
+    name and value, per RFC 7230 §3.2 and RFC 6455 §4.2.1.
+
 ### Added
 
 - **Multi-core serving via SO_REUSEPORT.** `App.serve-with-workers`
