@@ -313,6 +313,31 @@
     "non-upgrade request returns Nothing")
 
   ; ---------------------------------------------------------------------------
+  ; Case-insensitive Upgrade header (RFC 7230 §3.2 / RFC 6455 §4.2.1)
+  ; ---------------------------------------------------------------------------
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nupgrade: WebSocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "upgrade matches with lowercase header name and mixed-case value")
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nUPGRADE: WEBSOCKET\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "upgrade matches with uppercase header name and value")
+
+  (assert-true test
+    (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
+          buf (String.to-bytes
+            &@"GET /ws HTTP/1.1\r\nHost: x\r\nupgrade: websocket\r\nsec-websocket-version: 13\r\nsec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")]
+      (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
+    "upgrade matches with all-lowercase header names")
+
+  ; ---------------------------------------------------------------------------
   ; App construction with WS routes
   ; ---------------------------------------------------------------------------
 

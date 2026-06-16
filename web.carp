@@ -1070,6 +1070,16 @@ responses. The `protocols` field lists the subprotocols that this route supports
         (when found (break))))
     result))
 
+; Case-insensitive header value lookup. Header names in the parsed map
+; preserve original case (RFC 7230 §3.2 says names are case-insensitive).
+(hidden header-values-ci)
+(defn header-values-ci [hdrs name]
+  (let [lower-name &(String.ascii-to-lower name)]
+    (Map.kv-reduce
+      &(fn [acc k v] (if (= &(String.ascii-to-lower k) lower-name) @v acc))
+      (the (Array String) [])
+      hdrs)))
+
 ; Try to parse a WebSocket upgrade from a raw HTTP buffer. Returns
 ; (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
 ; — the accept key, route index, negotiated protocol, and params — or
@@ -1082,58 +1092,57 @@ responses. The `protocols` field lists the subprotocols that this route supports
       (Maybe.Nothing))
     (let [raw &(String.from-bytes buf)]
       (match (Request.parse raw)
-        (Result.Error _) (Maybe.Nothing)
+        (Result.Error _)
+        (Maybe.Nothing)
         (Result.Success req)
-          (let [has-upgrade (let [vals (Map.get-with-default (Request.headers &req)
-                                                             "Upgrade"
-                                                             &(the (Array String)
-                                                                   []))]
-                  (if (> (Array.length &vals) 0)
-                    (= (Array.unsafe-first &vals) "websocket")
-                    false))
-                key-vals (Map.get-with-default (Request.headers &req)
-                                               "Sec-WebSocket-Key"
-                                               &(the (Array String) []))
-                ; RFC 6455 §4.2.1: Sec-WebSocket-Version MUST be 13
-                version-vals (Map.get-with-default (Request.headers &req)
-                                                   "Sec-WebSocket-Version"
-                                                   &(the (Array String) []))
-                version-ok (if (> (Array.length &version-vals) 0)
-                  (= (Array.unsafe-first &version-vals) "13")
-                  false)
-                ; RFC 6455 §4.2.1: Sec-WebSocket-Protocol (optional)
-                proto-vals (Map.get-with-default (Request.headers &req)
-                                                 "Sec-WebSocket-Protocol"
-                                                 &(the (Array String) []))
-                client-protos (if (> (Array.length &proto-vals) 0)
-                  (ws-parse-protocols (Array.unsafe-first &proto-vals))
-                  (the (Array String) []))]
-            (if (and has-upgrade (> (Array.length &key-vals) 0))
-              (if (not version-ok)
-                ; Bad or missing version — signal with route-idx -1
-                (Maybe.Just
-                  (Pair.init @""
-                             (Pair.init -1
-                                        (Pair.init (the (Maybe String)
-                                                        (Maybe.Nothing))
-                                                   (the (Map String String) {})))))
-                (let [path (web-routable-path &req)]
-                  (match (web-find-ws-handler ws-routes &path)
-                    (Maybe.Just route-match)
-                      (let [ri @(Pair.a &route-match)
-                            params @(Pair.b &route-match)
-                            server-protos (WSRoute.protocols (Array.unsafe-nth ws-routes
-                                                                               ri))
-                            negotiated (if (> (Array.length &client-protos) 0)
-                              (ws-negotiate-protocol &client-protos
-                                                     server-protos)
-                              (the (Maybe String) (Maybe.Nothing)))]
-                        (Maybe.Just
-                          (Pair.init
-                            (ws-accept-key (Array.unsafe-first &key-vals))
-                            (Pair.init ri (Pair.init negotiated params)))))
-                    (Maybe.Nothing) (Maybe.Nothing))))
-              (Maybe.Nothing)))))))
+        ; RFC 7230 §3.2: header field names are case-insensitive
+        (let [has-upgrade (let [vals (header-values-ci (Request.headers &req)
+                                                       "Upgrade")]
+                (if (> (Array.length &vals) 0)
+                  ; RFC 6455 §4.2.1: Upgrade value is case-insensitive
+                  (=
+                    &(String.ascii-to-lower (Array.unsafe-first &vals))
+                    "websocket")
+                  false))
+              key-vals (header-values-ci (Request.headers &req)
+                                         "Sec-WebSocket-Key")
+              ; RFC 6455 §4.2.1: Sec-WebSocket-Version MUST be 13
+              version-vals (header-values-ci (Request.headers &req)
+                                             "Sec-WebSocket-Version")
+              version-ok (if (> (Array.length &version-vals) 0)
+                (= (Array.unsafe-first &version-vals) "13")
+                false)
+              ; RFC 6455 §4.2.1: Sec-WebSocket-Protocol (optional)
+              proto-vals (header-values-ci (Request.headers &req)
+                                           "Sec-WebSocket-Protocol")
+              client-protos (if (> (Array.length &proto-vals) 0)
+                (ws-parse-protocols (Array.unsafe-first &proto-vals))
+                (the (Array String) []))]
+          (if (and has-upgrade (> (Array.length &key-vals) 0))
+            (if (not version-ok)
+              ; Bad or missing version — signal with route-idx -1
+              (Maybe.Just
+                (Pair.init @""
+                           (Pair.init -1
+                                      (Pair.init (the (Maybe String)
+                                                      (Maybe.Nothing))
+                                                 (the (Map String String) {})))))
+              (let [path (web-routable-path &req)]
+                (match (web-find-ws-handler ws-routes &path)
+                  (Maybe.Just route-match)
+                    (let [ri @(Pair.a &route-match)
+                          params @(Pair.b &route-match)
+                          server-protos (WSRoute.protocols (Array.unsafe-nth ws-routes
+                                                                             ri))
+                          negotiated (if (> (Array.length &client-protos) 0)
+                            (ws-negotiate-protocol &client-protos server-protos)
+                            (the (Maybe String) (Maybe.Nothing)))]
+                      (Maybe.Just
+                        (Pair.init
+                          (ws-accept-key (Array.unsafe-first &key-vals))
+                          (Pair.init ri (Pair.init negotiated params)))))
+                  (Maybe.Nothing) (Maybe.Nothing))))
+            (Maybe.Nothing)))))))
 
 ; Run before-hooks. Each hook can annotate `params` via Map.put! and
 ; optionally short-circuit by returning (Maybe.Just response).
@@ -1706,6 +1715,8 @@ fallback.")
                           (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                           (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
                           (Map.remove! (ConnState.ws-frag-start cs) &fd)
+                          (Array.push-back! (WebSocket.outbox &ws)
+                                            (WebSocket.encode-close-with-code 1002))
                           (set! should-close true)
                           (break))
                         (if (> plen App.ws-max-frag-size)
@@ -1723,7 +1734,11 @@ fallback.")
                       (if (not
                           (Map.contains? (ConnState.ws-frag-opcodes cs) &fd))
                         ; Protocol error: continuation without start
-                        (do (set! should-close true) (break))
+                        (do
+                          (Array.push-back! (WebSocket.outbox &ws)
+                                            (WebSocket.encode-close-with-code 1002))
+                          (set! should-close true)
+                          (break))
                         (let [frag-size (Map.value-ref! (ConnState.ws-frag-bufs cs)
                                                         &fd
                                                         &(fn [b]
@@ -1779,6 +1794,8 @@ fallback.")
                           (Map.remove! (ConnState.ws-frag-bufs cs) &fd)
                           (Map.remove! (ConnState.ws-frag-opcodes cs) &fd)
                           (Map.remove! (ConnState.ws-frag-start cs) &fd)
+                          (Array.push-back! (WebSocket.outbox &ws)
+                                            (WebSocket.encode-close-with-code 1002))
                           (set! should-close true)
                           (break))
                         (do
@@ -1795,8 +1812,12 @@ fallback.")
                               &params
                               &ws))
                           (set! offset (+ offset consumed))))
-                      ; Unknown opcode — skip frame
-                      (set! offset (+ offset consumed))))))
+                      ; Unknown opcode — protocol error (RFC 6455 §5.2)
+                      (do
+                        (Array.push-back! (WebSocket.outbox &ws)
+                                          (WebSocket.encode-close-with-code 1002))
+                        (set! should-close true)
+                        (break))))))
             ; Update read-buf with remaining bytes
             (if (>= offset (Array.length &buf))
               (Map.update-value! (ConnState.read-bufs cs)
