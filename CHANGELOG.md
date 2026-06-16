@@ -11,6 +11,11 @@
     instead of being silently skipped (RFC 6455 §5.2).
   - Upgrade header matching is now case-insensitive for both the header
     name and value, per RFC 7230 §3.2 and RFC 6455 §4.2.1.
+  - Oversized WebSocket messages now send a 1009 (Message Too Big) close
+    frame before disconnecting, as required by RFC 6455 §7.4.1.
+    Previously, the three size-limit code paths (single frame too large,
+    first fragment too large, accumulated fragments too large) closed the
+    connection silently without a close frame.
 
 ### Added
 

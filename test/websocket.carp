@@ -693,6 +693,15 @@
         (Maybe.Nothing) (the (Array Byte) [])))
     "close-with-code 1002 encodes correct status bytes")
 
+  (assert-equal test
+    &[(Byte.from-int 3) (Byte.from-int 241)]
+    ; 1009 = 0x03F1
+    &(let [f (WebSocket.encode-close-with-code 1009)]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) @(WSFrame.payload &frame)
+        (Maybe.Nothing) (the (Array Byte) [])))
+    "close-with-code 1009 encodes correct status bytes")
+
   ; ---------------------------------------------------------------------------
   ; Sec-WebSocket-Version validation (RFC 6455 §4.2.1)
   ; ---------------------------------------------------------------------------
