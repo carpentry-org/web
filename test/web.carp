@@ -895,4 +895,154 @@
     1
     (let [app (-> (App.create) (StaticFile.mount @"/assets" @"./public"))]
       (Array.length (App.routes &app)))
-    "mount adds one route to app"))
+    "mount adds one route to app")
+
+  ; -- HMAC-SHA1 --
+  (assert-equal test
+    40
+    (String.length
+      &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg")))
+    "HMAC-SHA1 returns 40-char hex string")
+
+  (assert-equal test
+    &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg"))
+    &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg"))
+    "HMAC-SHA1 is deterministic")
+
+  (assert-true test
+    (/=
+      &(HMAC.sha1-hex &(String.to-bytes "key1") &(String.to-bytes "msg"))
+      &(HMAC.sha1-hex &(String.to-bytes "key2") &(String.to-bytes "msg")))
+    "HMAC-SHA1 different keys produce different digests")
+
+  (assert-true test
+    (/=
+      &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg1"))
+      &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg2")))
+    "HMAC-SHA1 different messages produce different digests")
+
+  ; -- Request.cookies-map --
+  (assert-equal test
+    "abc"
+    &(Map.get
+      &(Request.cookies-map
+        &(Result.unsafe-from-success
+          (Request.parse
+            "GET / HTTP/1.1\r\nCookie: session=abc; lang=en\r\n\r\n")))
+      "session")
+    "cookies-map extracts session cookie")
+
+  (assert-equal test
+    "en"
+    &(Map.get
+      &(Request.cookies-map
+        &(Result.unsafe-from-success
+          (Request.parse
+            "GET / HTTP/1.1\r\nCookie: session=abc; lang=en\r\n\r\n")))
+      "lang")
+    "cookies-map extracts second cookie")
+
+  (assert-equal test
+    0
+    (Map.length
+      &(Request.cookies-map
+        &(Result.unsafe-from-success
+          (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))))
+    "cookies-map returns empty map when no cookies")
+
+  ; -- Request.cookie --
+  (assert-equal test
+    "abc"
+    &(Maybe.unsafe-from
+      (Request.cookie
+        &(Result.unsafe-from-success
+          (Request.parse
+            "GET / HTTP/1.1\r\nCookie: session=abc; lang=en\r\n\r\n"))
+        "session"))
+    "cookie extracts value by name")
+
+  (assert-true test
+    (Maybe.nothing?
+      &(Request.cookie
+        &(Result.unsafe-from-success
+          (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+        "missing"))
+    "cookie returns Nothing for missing name")
+
+  ; -- Cookie.sign / Cookie.verify --
+  (assert-true test
+    (do
+      (Cookie.set-secret @"test-secret")
+      (let [signed &(Cookie.sign "hello")]
+        (and (String.starts-with? signed "hello.") (= (String.length signed) 46))))
+    "sign produces value.40-char-hex format")
+
+  (assert-equal test
+    "hello"
+    &(do
+      (Cookie.set-secret @"test-secret")
+      (let [signed (Cookie.sign "hello")]
+        (Maybe.unsafe-from (Cookie.verify &signed))))
+    "verify round-trips with sign")
+
+  (assert-true test
+    (do
+      (Cookie.set-secret @"test-secret")
+      (let [signed (Cookie.sign "hello")
+            len (String.length &signed)
+            tampered &(String.append "tampered"
+                                     &(String.byte-slice &signed 5 len))]
+        (Maybe.nothing? &(Cookie.verify tampered))))
+    "verify rejects tampered value")
+
+  (assert-true test
+    (do
+      (Cookie.set-secret @"test-secret")
+      (Maybe.nothing? &(Cookie.verify "short")))
+    "verify rejects too-short input")
+
+  (assert-true test
+    (do
+      (Cookie.set-secret @"secret-a")
+      (let [signed (Cookie.sign "hello")]
+        (do
+          (Cookie.set-secret @"secret-b")
+          (Maybe.nothing? &(Cookie.verify &signed)))))
+    "verify rejects value signed with different secret")
+
+  ; -- Request.signed-cookie --
+  (assert-equal test
+    "session123"
+    &(do
+      (Cookie.set-secret @"test-secret")
+      (let [signed-val (Cookie.sign "session123")
+            raw (fmt "GET / HTTP/1.1\r\nCookie: tok=%s\r\n\r\n" &signed-val)
+            req (Result.unsafe-from-success (Request.parse &raw))]
+        (Maybe.unsafe-from (Request.signed-cookie &req "tok"))))
+    "signed-cookie verifies and returns original value")
+
+  ; -- Response.set-cookie-with-max-age --
+  (assert-true test
+    (let [resp (Response.set-cookie-with-max-age (Response.text @"ok")
+                                                 (Cookie.init @"prefs"
+                                                              @"dark"
+                                                              @"/"
+                                                              (Maybe.Nothing)
+                                                              (Maybe.Nothing)
+                                                              false
+                                                              false
+                                                              (SameSite.Lax))
+                                                 86400)
+          vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
+          hdr (Array.unsafe-first &vals)]
+      (>= (Form.find-substring hdr "Max-Age=86400" 0) 0))
+    "set-cookie-with-max-age includes Max-Age attribute")
+
+  ; -- Response.clear-cookie --
+  (assert-true test
+    (let [resp (Response.clear-cookie (Response.text @"bye") @"session" @"/")
+          vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
+          hdr (Array.unsafe-first &vals)]
+      (and (String.starts-with? hdr "session=;")
+           (>= (Form.find-substring hdr "Max-Age=0" 0) 0)))
+    "clear-cookie sets empty value and Max-Age=0"))
