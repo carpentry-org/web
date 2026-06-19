@@ -2,6 +2,11 @@
 (load "../web.carp")
 (use Test)
 
+(defn parse-req [s]
+  (match (Request.parse s)
+    (Result.Success r) r
+    (Result.Error _) (Request.init @"GET" @"HTTP/1.1" (zero) [] {} @"")))
+
 ; ---------------------------------------------------------------------------
 ; Response helper tests
 ; ---------------------------------------------------------------------------
@@ -150,16 +155,14 @@
       (Maybe.just?
         &(web-run-before
           &[(fn [req p] (Maybe.Just (Response.text @"blocked")))]
-          &(Result.unsafe-from-success
-            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+          &(parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
           &params)))
     "before-hook can short-circuit")
 
   ; -- before-hook annotates params --
   (assert-true test
     (let-do [params (the (Map String String) {})
-             req (Result.unsafe-from-success
-               (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
+             req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")]
       (ignore
         (web-run-before
           &[(fn [r p] (do (Map.put! p &@"_tagged" &@"yes") (Maybe.Nothing)))]
@@ -172,8 +175,7 @@
   (assert-equal test
     201
     (let-do [params (the (Map String String) {})
-             req (Result.unsafe-from-success
-               (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+             req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
              resp (web-run-after
                &[(fn [r p resp] (Response.with-status resp 201 @"Created"))]
                &req
@@ -415,31 +417,24 @@
     (FormPart.body
       (Array.unsafe-nth
         &(Form.decode-multipart-request
-          &(Result.unsafe-from-success
-            (Request.parse
-              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
+          &(parse-req "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
         0))
     "decode-multipart-request handles uppercase Boundary param")
 
   ; -- multipart? --
   (assert-true test
     (Form.multipart?
-      &(Result.unsafe-from-success
-        (Request.parse
-          "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=abc\r\n\r\n")))
+      &(parse-req "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=abc\r\n\r\n"))
     "multipart? detects multipart content type")
 
   (assert-false test
     (Form.multipart?
-      &(Result.unsafe-from-success
-        (Request.parse
-          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n")))
+      &(parse-req "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n"))
     "multipart? false for non-multipart")
 
   (assert-false test
     (Form.multipart?
-      &(Result.unsafe-from-success
-        (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n")))
+      &(parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "multipart? false when no content-type")
 
   ; -- decode-multipart-request --
@@ -448,9 +443,7 @@
     (FormPart.body
       (Array.unsafe-nth
         &(Form.decode-multipart-request
-          &(Result.unsafe-from-success
-            (Request.parse
-              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
+          &(parse-req "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
         0))
     "decode-multipart-request parses from request")
 
@@ -458,9 +451,7 @@
     0
     (Array.length
       &(Form.decode-multipart-request
-        &(Result.unsafe-from-success
-          (Request.parse
-            "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}"))))
+        &(parse-req "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
     "decode-multipart-request empty for non-multipart")
 
   ; ---------------------------------------------------------------------------
@@ -491,8 +482,7 @@
   ; -- log-after does not crash when _start is missing --
   (assert-equal test
     200
-    (let [req (Result.unsafe-from-success
-            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
           params (the (Map String String) {})]
       @(Response.code &(log-after &req &params (Response.text @"ok"))))
     "log-after does not crash without _start param")
@@ -528,8 +518,7 @@
   (assert-true test
     (let [app (-> (App.create)
                   (App.GET @"/hello" (fn [r p] (Response.text @"hi"))))
-          req (Result.unsafe-from-success
-            (Request.parse "HEAD /hello HTTP/1.1\r\nHost: x\r\n\r\n"))]
+          req (parse-req "HEAD /hello HTTP/1.1\r\nHost: x\r\n\r\n")]
       (Maybe.just? &(web-find-handler (App.routes &app) &req)))
     "HEAD matches GET route")
 
@@ -537,8 +526,7 @@
   (assert-true test
     (let [app (-> (App.create)
                   (App.POST @"/data" (fn [r p] (Response.text @"ok"))))
-          req (Result.unsafe-from-success
-            (Request.parse "HEAD /data HTTP/1.1\r\nHost: x\r\n\r\n"))]
+          req (parse-req "HEAD /data HTTP/1.1\r\nHost: x\r\n\r\n")]
       (Maybe.nothing? &(web-find-handler (App.routes &app) &req)))
     "HEAD does not match POST route")
 
@@ -635,26 +623,21 @@
 
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
-    (let [req (Result.unsafe-from-success
-            (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
           resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
       (web-etag-match? &req &resp))
     "etag-match? false without If-None-Match")
 
   ; -- web-etag-match? returns true on match --
   (assert-true test
-    (let [req (Result.unsafe-from-success
-            (Request.parse
-              "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n"))
+    (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n")
           resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
       (web-etag-match? &req &resp))
     "etag-match? true when ETags match")
 
   ; -- web-etag-match? returns false on mismatch --
   (assert-false test
-    (let [req (Result.unsafe-from-success
-            (Request.parse
-              "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\n\r\n"))
+    (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\n\r\n")
           resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
       (web-etag-match? &req &resp))
     "etag-match? false when ETags differ")
