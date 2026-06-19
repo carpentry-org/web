@@ -2474,6 +2474,19 @@ not match.
   (Maybe.Just val) (IO.println &(fmt \"verified: %s\" &val))
   (Maybe.Nothing) (IO.println \"bad signature\"))
 ```")
+  (hidden constant-time-eq)
+  (private constant-time-eq)
+  (defn constant-time-eq [a b]
+    (let-do [la (String.length a)
+             lb (String.length b)
+             result (bit-xor la lb)]
+      (for [i 0 (Int.min la lb)]
+        (set! result
+              (bit-or result
+                      (bit-xor (Char.to-int (String.char-at a i))
+                               (Char.to-int (String.char-at b i))))))
+      (= result 0)))
+
   (defn verify [signed]
     (let [len (String.length signed)]
       ; 40 hex chars + 1 dot + at least 1 char value = 42
@@ -2486,7 +2499,9 @@ not match.
                   sig &(String.byte-slice signed (+ dot-pos 1) len)
                   expected (HMAC.sha1-hex &(String.to-bytes &secret)
                                           &(String.to-bytes value))]
-              (if (= sig &expected) (Maybe.Just @value) (Maybe.Nothing)))))))))
+              (if (constant-time-eq sig &expected)
+                (Maybe.Just @value)
+                (Maybe.Nothing)))))))))
 
 (defmodule Request
   (doc cookies-map "returns all cookies from the request as a name-to-value map.

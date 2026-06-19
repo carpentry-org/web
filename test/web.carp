@@ -921,6 +921,13 @@
       &(HMAC.sha1-hex &(String.to-bytes "key") &(String.to-bytes "msg2")))
     "HMAC-SHA1 different messages produce different digests")
 
+  ; -- HMAC-SHA1 RFC 2202 known-answer --
+  (assert-equal test
+    "effcdf6ae5eb2fa2d27416d5f184df9c259a7c79"
+    &(HMAC.sha1-hex &(String.to-bytes "Jefe")
+                    &(String.to-bytes "what do ya want for nothing?"))
+    "HMAC-SHA1 matches RFC 2202 test vector 2")
+
   ; -- Request.cookies-map --
   (assert-equal test
     "abc"
