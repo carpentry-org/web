@@ -443,6 +443,50 @@
     "encode-binary 16-bit payload length correct")
 
   ; ---------------------------------------------------------------------------
+  ; 64-bit payload length encoding
+  ; ---------------------------------------------------------------------------
+
+  ; encode-text uses 64-bit length indicator for payloads >= 65536
+  (assert-equal test
+    (Byte.from-int 127)
+    (let [f (WebSocket.encode-text &(String.allocate 65536 \x))]
+      @(Array.unsafe-nth &f 1))
+    "encode-text uses 64-bit length for >= 65536 bytes")
+
+  ; 64-bit encode/decode round-trip
+  (assert-equal test
+    65536
+    (let [f (WebSocket.encode-text &(String.allocate 65536 \x))]
+      (match (WebSocket.decode-frame &f 0)
+        (Maybe.Just frame) (Array.length (WSFrame.payload &frame))
+        (Maybe.Nothing) -1))
+    "64-bit frame round-trips with correct payload length")
+
+  ; High 32 bits in 64-bit header are not truncated.
+  ; Craft a raw frame header with byte 5 = 1 (plen high word = 2^32).
+  ; The buffer is tiny, so decode must return Nothing.
+  ; Old code ignored bytes 2-5 and would read plen=0, returning a
+  ; zero-payload frame instead.
+  (assert-true test
+    (let [buf (the (Array Byte)
+                   [(Byte.from-int 130)
+                    ; FIN + binary, unmasked
+                    (Byte.from-int 127)
+                    ; 64-bit length indicator
+                    (Byte.from-int 0)
+                    (Byte.from-int 0)
+                    (Byte.from-int 0)
+                    (Byte.from-int 1)
+                    ; bytes 2-5: plen = 1 * 2^32 = 4294967296
+                    (Byte.from-int 0)
+                    (Byte.from-int 0)
+                    (Byte.from-int 0)
+                    (Byte.from-int 0)])]
+      ; bytes 6-9: low word = 0
+      (Maybe.nothing? &(WebSocket.decode-frame &buf 0)))
+    "64-bit length high bytes are not truncated")
+
+  ; ---------------------------------------------------------------------------
   ; FIN bit extraction
   ; ---------------------------------------------------------------------------
 
