@@ -7,10 +7,6 @@
     (Result.Success r) r
     (Result.Error _) (Request.init @"GET" @"HTTP/1.1" (zero) [] {} @"")))
 
-; ---------------------------------------------------------------------------
-; Response helper tests
-; ---------------------------------------------------------------------------
-
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -70,10 +66,6 @@
     @(Response.code
       &(Response.with-status (Response.text @"created") 201 @"Created"))
     "with-status sets code")
-
-  ; ---------------------------------------------------------------------------
-  ; Route matching tests
-  ; ---------------------------------------------------------------------------
 
   ; -- exact match --
   (assert-true test
@@ -184,10 +176,6 @@
       @(Response.code &resp))
     "after-hook can modify status code")
 
-  ; ---------------------------------------------------------------------------
-  ; App construction tests
-  ; ---------------------------------------------------------------------------
-
   ; -- prefix glob route --
   (assert-true test
     (Maybe.just? &(match-route "/api/*" "/api/foo/bar"))
@@ -248,10 +236,6 @@
                   (App.DELETE @"/c" (fn [r p] (Response.text @""))))]
       (Array.length (App.routes &app)))
     "app accumulates routes")
-
-  ; ---------------------------------------------------------------------------
-  ; Multipart form-data parsing tests
-  ; ---------------------------------------------------------------------------
 
   ; -- decode-multipart: single text field --
   (assert-equal test
@@ -457,10 +441,6 @@
           "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
     "decode-multipart-request empty for non-multipart")
 
-  ; ---------------------------------------------------------------------------
-  ; Response.chunked status text
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     "OK"
     (Response.message &(Response.chunked 200 @"text/plain" &[@"hi"]))
@@ -475,10 +455,6 @@
     "Internal Server Error"
     (Response.message &(Response.chunked 500 @"text/plain" &[@"err"]))
     "chunked 500 has reason phrase Internal Server Error")
-
-  ; ---------------------------------------------------------------------------
-  ; Response finalization tests
-  ; ---------------------------------------------------------------------------
 
   ; -- finalize omits Content-Length for chunked responses --
   (assert-false test
@@ -497,10 +473,6 @@
       "Content-Length")
     "finalize adds Content-Length for normal responses")
 
-  ; ---------------------------------------------------------------------------
-  ; log-after safety tests
-  ; ---------------------------------------------------------------------------
-
   ; -- log-after does not crash when _start is missing --
   (assert-equal test
     200
@@ -508,10 +480,6 @@
           params (the (Map String String) {})]
       @(Response.code &(log-after &req &params (Response.text @"ok"))))
     "log-after does not crash without _start param")
-
-  ; ---------------------------------------------------------------------------
-  ; SHA1.hex-digest tests
-  ; ---------------------------------------------------------------------------
 
   ; hex-digest returns a 40-char lowercase hex string
   (assert-true test
@@ -531,10 +499,6 @@
       &(SHA1.hex-digest &(String.to-bytes "hello"))
       &(SHA1.hex-digest &(String.to-bytes "world")))
     "SHA1 hex-digest differs for different inputs")
-
-  ; ---------------------------------------------------------------------------
-  ; HEAD method routing tests
-  ; ---------------------------------------------------------------------------
 
   ; -- HEAD matches GET routes --
   (assert-true test
@@ -639,10 +603,6 @@
       (String.empty? (Response.body (Pair.a &pair))))
     "HEAD + chunked has empty body")
 
-  ; ---------------------------------------------------------------------------
-  ; ETag / If-None-Match tests
-  ; ---------------------------------------------------------------------------
-
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
     (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
@@ -736,10 +696,6 @@
                                    &[@"0"])]
       (= (Array.unsafe-first &cl) "42"))
     "finalize preserves explicit Content-Length")
-
-  ; ---------------------------------------------------------------------------
-  ; Request validation tests
-  ; ---------------------------------------------------------------------------
 
   ; -- valid-method? --
   (assert-true test (web-valid-method? "GET") "valid-method? accepts GET")

@@ -1,19 +1,11 @@
 (load "git@github.com:carpentry-org/web@0.5.0")
 (load "git@github.com:carpentry-org/orm@0.1.0" "backends/sqlite3.carp")
 
-; ---------------------------------------------------------------------------
-; Model
-; ---------------------------------------------------------------------------
-
 (deftype Item [id Int text String done Bool])
 (derive-model Item SQLiteBackend [id Int])
 
 ; The application owns the DB handle. The ORM just uses it.
 (def db (Result.unsafe-from-success (SQLite3.open "todos.db")))
-
-; ---------------------------------------------------------------------------
-; JSON marshalling
-; ---------------------------------------------------------------------------
 
 (defn item-to-json [item]
   (JSON.obj [(JSON.entry @"id"   (JSON.Num (Double.from-int @(Item.id item))))
@@ -26,15 +18,9 @@
       &(fn [item] (Box.init (item-to-json item)))
       items)))
 
-; ---------------------------------------------------------------------------
-; Request helpers
-; ---------------------------------------------------------------------------
-
-; Parse the ":id" URL parameter into an Int, or Nothing if missing/invalid.
 (defn id-param [params]
   (Int.from-string &(Map.get params "id")))
 
-; Return a 500 response with a text body.
 (defn server-error [msg]
   (Response.with-status (Response.text msg) 500 @"Internal Server Error"))
 
@@ -48,10 +34,6 @@
                    (Maybe.Just (JSON.Bool b)) b
                    _ @(Item.done current))]
     (Item.init @(Item.id current) new-text new-done)))
-
-; ---------------------------------------------------------------------------
-; API handlers
-; ---------------------------------------------------------------------------
 
 (defn api-list [req params]
   (match (Item.find-all &db)
@@ -90,10 +72,6 @@
     (Maybe.Just id)
       (do (Item.delete-by-id &db &id)
           (Response.json &(JSON.Obj {})))))
-
-; ---------------------------------------------------------------------------
-; Main
-; ---------------------------------------------------------------------------
 
 (defserver "0.0.0.0" 3000
   (Item.create-table &db)

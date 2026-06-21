@@ -73,10 +73,6 @@
     frame))
 
 (deftest test
-  ; ---------------------------------------------------------------------------
-  ; Base64 encoding
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test "" &(Base64.encode &(String.to-bytes &@"")) "Base64 empty")
 
   (assert-equal test
@@ -99,10 +95,6 @@
     &(Base64.encode &(String.to-bytes &@"foobar"))
     "Base64 six bytes")
 
-  ; ---------------------------------------------------------------------------
-  ; SHA-1 + Base64
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     "qZk+NkcGgWq6PiVxeFDCbJzQ2J0="
     &(Base64.encode &(SHA1.digest &(String.to-bytes &@"abc")))
@@ -113,18 +105,10 @@
     &(Base64.encode &(SHA1.digest &(String.to-bytes &@"")))
     "SHA1 of empty string")
 
-  ; ---------------------------------------------------------------------------
-  ; WebSocket accept key (RFC 6455 section 4.2.2 example)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
     &(ws-accept-key "dGhlIHNhbXBsZSBub25jZQ==")
     "accept key matches RFC 6455 example")
-
-  ; ---------------------------------------------------------------------------
-  ; Frame encoding (server-to-client, no mask)
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     2
@@ -150,10 +134,6 @@
         (Array.push-back! &payload @(Array.unsafe-nth &f i)))
       (String.from-bytes &payload))
     "encode-text payload matches input")
-
-  ; ---------------------------------------------------------------------------
-  ; Frame decoding (client-to-server, masked)
-  ; ---------------------------------------------------------------------------
 
   (assert-true test
     (Maybe.just? &(WebSocket.decode-frame &(make-masked-text-frame "hello") 0))
@@ -186,10 +166,6 @@
       &(WebSocket.decode-frame &(the (Array Byte) [(Byte.from-int 129)]) 0))
     "decode-frame returns Nothing for incomplete buffer")
 
-  ; ---------------------------------------------------------------------------
-  ; Encode/decode round-trip (encode server frame, decode without mask)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     "round-trip"
     &(let [encoded (WebSocket.encode-text "round-trip")]
@@ -197,10 +173,6 @@
         (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
         (Maybe.Nothing) @"FAIL"))
     "server frame round-trips through decode")
-
-  ; ---------------------------------------------------------------------------
-  ; Extended length encoding (16-bit)
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     (Byte.from-int 126)
@@ -213,10 +185,6 @@
     (let [f (WebSocket.encode-text &(String.allocate 200 \x))]
       (- (Array.length &f) 4))
     "encode-text 16-bit payload length correct")
-
-  ; ---------------------------------------------------------------------------
-  ; Decode at non-zero offset (multiple frames in buffer)
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     "world"
@@ -232,10 +200,6 @@
           (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
           (Maybe.Nothing) @"FAIL")))
     "decode-frame at non-zero offset")
-
-  ; ---------------------------------------------------------------------------
-  ; Close and pong frame codec
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     8
@@ -253,10 +217,6 @@
         (Maybe.Nothing) -1))
     "decode pong frame opcode")
 
-  ; ---------------------------------------------------------------------------
-  ; web-routable-path
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     "/"
     &(let [req (Result.unsafe-from-success
@@ -271,10 +231,6 @@
       (web-routable-path &req))
     "routable-path with segments")
 
-  ; ---------------------------------------------------------------------------
-  ; Keep-alive detection
-  ; ---------------------------------------------------------------------------
-
   (assert-true test
     (let [req (Result.unsafe-from-success
             (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
@@ -287,10 +243,6 @@
               "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))]
       (web-keep-alive? &req))
     "Connection: close disables keep-alive")
-
-  ; ---------------------------------------------------------------------------
-  ; Upgrade detection
-  ; ---------------------------------------------------------------------------
 
   (assert-true test
     (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
@@ -311,10 +263,6 @@
           buf (String.to-bytes &@"GET / HTTP/1.1\r\nHost: x\r\n\r\n")]
       (Maybe.nothing? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
     "non-upgrade request returns Nothing")
-
-  ; ---------------------------------------------------------------------------
-  ; Case-insensitive Upgrade header (RFC 7230 §3.2 / RFC 6455 §4.2.1)
-  ; ---------------------------------------------------------------------------
 
   (assert-true test
     (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
@@ -337,10 +285,6 @@
       (Maybe.just? &(web-try-ws-upgrade &buf (App.ws-routes &app))))
     "upgrade matches with all-lowercase header names")
 
-  ; ---------------------------------------------------------------------------
-  ; App construction with WS routes
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     1
     (let [app (-> (App.create) (App.WS @"/ws/echo" (fn [event params ws] ())))]
@@ -354,10 +298,6 @@
                   (App.WS @"/ws/echo" (fn [e p w] ())))]
       (Array.length (App.routes &app)))
     "WS routes do not affect HTTP routes count")
-
-  ; ---------------------------------------------------------------------------
-  ; Binary frame encoding (server-to-client, no mask)
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     2
@@ -388,10 +328,6 @@
       @&payload)
     "encode-binary payload matches input")
 
-  ; ---------------------------------------------------------------------------
-  ; Binary frame decoding (client-to-server, masked)
-  ; ---------------------------------------------------------------------------
-
   (assert-true test
     (let [data [(Byte.from-int 202) (Byte.from-int 254)]]
       (Maybe.just? &(WebSocket.decode-frame &(make-masked-binary-frame &data) 0)))
@@ -413,10 +349,6 @@
         (Maybe.Nothing) (the (Array Byte) [])))
     "decode-frame unmasks binary payload correctly")
 
-  ; ---------------------------------------------------------------------------
-  ; Binary encode/decode round-trip (server frame, no mask)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     &[(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
     &(let [data [(Byte.from-int 1) (Byte.from-int 2) (Byte.from-int 3)]
@@ -425,10 +357,6 @@
         (Maybe.Just f) @(WSFrame.payload &f)
         (Maybe.Nothing) (the (Array Byte) [])))
     "binary frame round-trips through decode")
-
-  ; ---------------------------------------------------------------------------
-  ; Binary extended length encoding (16-bit)
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     (Byte.from-int 126)
@@ -442,18 +370,12 @@
       (- (Array.length &f) 4))
     "encode-binary 16-bit payload length correct")
 
-  ; ---------------------------------------------------------------------------
-  ; 64-bit payload length encoding
-  ; ---------------------------------------------------------------------------
-
-  ; encode-text uses 64-bit length indicator for payloads >= 65536
   (assert-equal test
     (Byte.from-int 127)
     (let [f (WebSocket.encode-text &(String.allocate 65536 \x))]
       @(Array.unsafe-nth &f 1))
     "encode-text uses 64-bit length for >= 65536 bytes")
 
-  ; 64-bit encode/decode round-trip
   (assert-equal test
     65536
     (let [f (WebSocket.encode-text &(String.allocate 65536 \x))]
@@ -486,10 +408,6 @@
       (Maybe.nothing? &(WebSocket.decode-frame &buf 0)))
     "64-bit length high bytes are not truncated")
 
-  ; ---------------------------------------------------------------------------
-  ; FIN bit extraction
-  ; ---------------------------------------------------------------------------
-
   (assert-true test
     (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
       (Maybe.Just f) @(WSFrame.fin &f)
@@ -510,10 +428,6 @@
         (Maybe.Just f) @(WSFrame.opcode &f)
         (Maybe.Nothing) -1))
     "non-final text frame has opcode 1")
-
-  ; ---------------------------------------------------------------------------
-  ; Continuation frame codec
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     0
@@ -544,10 +458,6 @@
         (Maybe.Just f) (String.from-bytes (WSFrame.payload &f))
         (Maybe.Nothing) @"FAIL"))
     "final continuation payload decoded correctly")
-
-  ; ---------------------------------------------------------------------------
-  ; Fragmented frame sequence in a single buffer
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     3
@@ -600,10 +510,6 @@
       (String.from-bytes &assembled))
     "reassembled fragments produce correct message")
 
-  ; ---------------------------------------------------------------------------
-  ; Interleaved control frame in fragment sequence
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     4
     (let-do [f1 (make-masked-frame false 1 &(String.to-bytes &@"hel"))
@@ -646,10 +552,6 @@
           (Maybe.Nothing) -1)))
     "ping after first fragment has correct opcode")
 
-  ; ---------------------------------------------------------------------------
-  ; RSV bits extraction (RFC 6455 §5.2)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     0
     (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
@@ -691,10 +593,6 @@
         (Maybe.Nothing) -1))
     "frame with all RSV bits set reports RSV=7")
 
-  ; ---------------------------------------------------------------------------
-  ; Masked flag extraction (RFC 6455 §5.1)
-  ; ---------------------------------------------------------------------------
-
   (assert-true test
     (match (WebSocket.decode-frame &(make-masked-text-frame "hi") 0)
       (Maybe.Just f) @(WSFrame.masked &f)
@@ -707,10 +605,6 @@
         (Maybe.Just fr) @(WSFrame.masked &fr)
         (Maybe.Nothing) true))
     "unmasked server frame has masked=false")
-
-  ; ---------------------------------------------------------------------------
-  ; Close frame with status code encoding
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     8
@@ -746,10 +640,6 @@
         (Maybe.Nothing) (the (Array Byte) [])))
     "close-with-code 1009 encodes correct status bytes")
 
-  ; ---------------------------------------------------------------------------
-  ; Sec-WebSocket-Version validation (RFC 6455 §4.2.1)
-  ; ---------------------------------------------------------------------------
-
   (assert-true test
     (let [app (App.WS (App.create) @"/ws" (fn [e p w] ()))
           buf (String.to-bytes
@@ -776,10 +666,6 @@
         (Maybe.Just info) (< @(Pair.a (Pair.b &info)) 0)
         (Maybe.Nothing) false))
     "upgrade with missing version returns sentinel (ri < 0)")
-
-  ; ---------------------------------------------------------------------------
-  ; Ping frame encoding
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test
     9
@@ -818,10 +704,6 @@
     (let [f (WebSocket.encode-ping &(the (Array Byte) []))] (Array.length &f))
     "encode-ping empty is 2 bytes (header only)")
 
-  ; ---------------------------------------------------------------------------
-  ; Ping/pong symmetry: ping and pong with same payload
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     true
     (let [payload [(Byte.from-int 42)]
@@ -836,11 +718,8 @@
       (= &ping-pl &pong-pl))
     "ping and pong with same payload have identical payloads")
 
-  ; ---------------------------------------------------------------------------
-  ; WebSocket ping state machine (App.ws-ping-action)
-  ; Returns: 0 = nothing, 1 = send ping, 2 = close as dead
-  ; Params: ping-interval max-missed idle pcount since-ping write-pending
-  ; ---------------------------------------------------------------------------
+  ; ws-ping-action returns 0 = nothing, 1 = send ping, 2 = close as dead
+  ; for params: ping-interval max-missed idle pcount since-ping write-pending
 
   ; -- Disabled pinging (interval <= 0) --
 
@@ -948,10 +827,6 @@
     (App.ws-ping-action 30 3 60 0 0 false)
     "after pong resets pcount to 0: resumes pinging")
 
-  ; ---------------------------------------------------------------------------
-  ; ws-parse-protocols (Sec-WebSocket-Protocol header parsing)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     &[@"chat" @"superchat"]
     &(ws-parse-protocols "chat, superchat")
@@ -977,10 +852,6 @@
     &(ws-parse-protocols "  rpc , chat-v2  ")
     "parse-protocols trims whitespace")
 
-  ; ---------------------------------------------------------------------------
-  ; ws-negotiate-protocol (subprotocol selection)
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     &(Maybe.Just @"chat")
     &(ws-negotiate-protocol &[@"chat" @"rpc"] &[@"rpc" @"chat"])
@@ -1005,10 +876,6 @@
     &(the (Maybe String) (Maybe.Nothing))
     &(ws-negotiate-protocol &[@"chat"] &(the (Array String) []))
     "negotiate returns Nothing when server list empty")
-
-  ; ---------------------------------------------------------------------------
-  ; Subprotocol negotiation through upgrade path
-  ; ---------------------------------------------------------------------------
 
   (assert-true test
     (let [app (App.WSP (App.create)
@@ -1069,10 +936,6 @@
         (Maybe.Nothing) false))
     "WS route (no protocols) ignores client Sec-WebSocket-Protocol")
 
-  ; ---------------------------------------------------------------------------
-  ; App.WSP route construction
-  ; ---------------------------------------------------------------------------
-
   (assert-equal test
     1
     (let [app (-> (App.create) (App.WSP @"/ws/chat" [@"chat"] (fn [e p w] ())))]
@@ -1091,10 +954,6 @@
     &(let [app (-> (App.create) (App.WS @"/ws/echo" (fn [e p w] ())))]
       @(WSRoute.protocols (Array.unsafe-first (App.ws-routes &app))))
     "App.WS stores empty protocols on the route")
-
-  ; ---------------------------------------------------------------------------
-  ; Fragment TTL and size limit defaults
-  ; ---------------------------------------------------------------------------
 
   (assert-equal test 30 App.ws-frag-ttl "ws-frag-ttl defaults to 30 seconds")
 
