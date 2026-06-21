@@ -4,6 +4,20 @@
 
 ### Fixed
 
+- **WebSocket `decode-frame` 64-bit payload length truncation.**
+  `decode-frame` silently ignored the high 4 bytes (offsets 2–5) of
+  64-bit extended payload lengths (RFC 6455 §5.2), reading only the low
+  32 bits. A remote peer sending a frame header with non-zero high bytes
+  would cause the decoder to compute a wrong payload length, potentially
+  desynchronizing the frame parser. The decoder now checks the high bytes
+  and rejects frames whose payload length exceeds 32-bit `Int` range.
+
+- **`Response.chunked` hardcoded status text.** `Response.chunked` always
+  set the reason phrase to `"OK"` regardless of the status code passed.
+  A `(Response.chunked 404 ...)` would produce `HTTP/1.1 404 OK` on the
+  wire. Now uses `Status.reason` from the http library to derive the
+  correct phrase.
+
 - **WebSocket RFC 6455 protocol compliance.**
   - Protocol error paths (unexpected fragments, unknown opcodes) now send
     a 1002 close frame before disconnecting, as required by RFC 6455 §7.2.
