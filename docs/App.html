@@ -219,6 +219,42 @@ event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#WSP">
+                        <h3 id="WSP">
+                            WSP
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Array String), (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] App)
+                    </p>
+                    <pre class="args">
+                        (WSP app pattern protocols handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a WebSocket route with subprotocol negotiation.</p>
+<p>The <code>protocols</code> array lists the subprotocols this route supports
+(RFC 6455 §4.2.2). During the upgrade handshake, the server selects
+the first client-requested protocol that appears in this list and
+includes it in the <code>Sec-WebSocket-Protocol</code> response header. The
+negotiated protocol is available via <code>(WebSocket.protocol ws)</code>.</p>
+<pre><code>(defn chat [event params ws]
+  (match-ref event
+    (WSEvent.Connect)
+      (match-ref (WebSocket.protocol ws)
+        (Maybe.Just p) (WebSocket.send ws (fmt &quot;using protocol %s&quot; p))
+        (Maybe.Nothing) (WebSocket.send ws @&quot;no subprotocol&quot;))
+    _ ()))
+
+(defserver &quot;0.0.0.0&quot; 3000
+  (WSP &quot;/ws/chat&quot; [@&quot;chat-v2&quot; @&quot;chat-v1&quot;] chat))
+</code></pre>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#copy">
                         <h3 id="copy">
                             copy
@@ -299,6 +335,25 @@ event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#header-timeout">
+                        <h3 id="header-timeout">
+                            header-timeout
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#idle-timeout">
                         <h3 id="idle-timeout">
                             idle-timeout
@@ -335,6 +390,25 @@ event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code
                     <p class="doc">
                         <p>creates a <code>App</code>.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#max-header-line">
+                        <h3 id="max-header-line">
+                            max-header-line
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -456,7 +530,37 @@ event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code
 Sockets are non-blocking, reads accumulate into a per-connection buffer,
 and writes drain across writable events.</p>
 <p>The loop is single-threaded, so peak throughput is bounded by one core.
-For multi-core scaling, run several copies behind a TCP load balancer.</p>
+For multi-core scaling, see <a href="#serve-with-workers"><code>serve-with-workers</code></a>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#serve-with-workers">
+                        <h3 id="serve-with-workers">
+                            serve-with-workers
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Ref (Array (Fn [(Ref Request b), (Ref (Map String String) c)] (Maybe Response) d)) a), (Ref (Array (Fn [(Ref Request e), (Ref (Map String String) f), Response] Response g)) a), (Ref String h), Int, Int] ())
+                    </p>
+                    <pre class="args">
+                        (serve-with-workers app before-hooks after-hooks host port n)
+                    </pre>
+                    <p class="doc">
+                        <p>starts <code>n</code> worker processes, each running its own
+event loop bound to <code>host</code>:<code>port</code>. The kernel distributes incoming
+connections across workers via SO_REUSEPORT (Linux 3.9+, most BSDs).</p>
+<p>Falls back to single-process <a href="#serve"><code>serve</code></a> when <code>n</code> is 1 or less.</p>
+<pre><code>(App.serve-with-workers &amp;app &amp;bh &amp;ah &quot;0.0.0.0&quot; 3000 4)
+</code></pre>
+<p>Or via <a href="#defserver"><code>defserver</code></a>:</p>
+<pre><code>(defserver &quot;0.0.0.0&quot; 3000
+  (workers 4)
+  (GET &quot;/&quot; handler))
+</code></pre>
 
                     </p>
                 </div>
@@ -700,6 +804,44 @@ fallback.</p>
                     <p class="doc">
                         <p>updates the <code>ws-routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-frag-ttl">
+                        <h3 id="ws-frag-ttl">
+                            ws-frag-ttl
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ws-max-frag-size">
+                        <h3 id="ws-max-frag-size">
+                            ws-max-frag-size
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">

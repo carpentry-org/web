@@ -87,7 +87,8 @@
                 <div class="module-description">
                     <p>a WebSocket route entry. The handler receives a <a href="#WSEvent"><code>WSEvent</code></a>,
 the captured path parameters, and a <a href="#WebSocket"><code>WebSocket</code></a> handle for sending
-responses.</p>
+responses. The <code>protocols</code> field lists the subprotocols that this route supports
+(RFC 6455 §4.2.2). An empty list means no subprotocol negotiation.</p>
 
                 </div>
                 <div class="binder">
@@ -160,7 +161,7 @@ responses.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] WSRoute)
+                        (Fn [String, (Array String), (Fn [(Ref WSEvent a), (Ref (Map String String) b), (Ref WebSocket c)] ())] WSRoute)
                     </p>
                     <span>
                         
@@ -207,6 +208,26 @@ responses.</p>
                     </span>
                     <p class="doc">
                         <p>converts a <code>WSRoute</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#protocols">
+                        <h3 id="protocols">
+                            protocols
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSRoute a)] (Ref (Array String) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>protocols</code> property of a <code>WSRoute</code>.</p>
 
                     </p>
                 </div>
@@ -291,6 +312,46 @@ responses.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-protocols">
+                        <h3 id="set-protocols">
+                            set-protocols
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSRoute, (Array String)] WSRoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>protocols</code> property of a <code>WSRoute</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-protocols!">
+                        <h3 id="set-protocols!">
+                            set-protocols!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WSRoute a), (Array String)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>protocols</code> property of a <code>WSRoute</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -347,6 +408,26 @@ responses.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>pattern</code> property of a <code>WSRoute</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-protocols">
+                        <h3 id="update-protocols">
+                            update-protocols
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WSRoute, (Ref (Fn [(Array String)] (Array String) a) b)] WSRoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>protocols</code> property of a <code>WSRoute</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

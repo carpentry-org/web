@@ -298,7 +298,8 @@ based on its extension. Unknown extensions return <code>application/octet-stream
                         <p>creates a 200 OK response by reading <code>path</code> from disk. Returns
 a 404 Not Found response if the file is missing or unreadable. The
 <code>Content-Type</code> header is inferred from the file extension via
-<a href="#content-type-for"><code>content-type-for</code></a>.</p>
+<a href="#content-type-for"><code>content-type-for</code></a>. An <code>ETag</code> header is computed
+from the SHA-1 hash of the file contents.</p>
 
                     </p>
                 </div>
@@ -546,7 +547,9 @@ transfer the file at <code>path</code> directly to the socket via <code>sendfile
 avoiding the user-space copy. Falls back to <a href="#file"><code>file</code></a> if the
 server does not detect the <code>X-Sendfile</code> header.</p>
 <p>The <code>Content-Type</code> is inferred from the extension. The server sets
-<code>Content-Length</code> from the file size.</p>
+<code>Content-Length</code> from the file size. An <code>ETag</code> header is computed from
+the file's modification time and size, avoiding a full read of the
+file contents.</p>
 
                     </p>
                 </div>
