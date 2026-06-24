@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Changed
+
+- **`Response.chunked` uses StringBuf for O(n) chunk encoding.** Previously
+  each loop iteration allocated a new string via `String.append`, making
+  chunked encoding quadratic in the number of chunks. Now uses `StringBuf`
+  for amortized O(1) appends.
+
 ### Fixed
 
 - **WebSocket `decode-frame` 64-bit payload length truncation.**
