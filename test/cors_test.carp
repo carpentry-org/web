@@ -3,7 +3,6 @@
 (load "../web.carp")
 (use Test)
 
-; Helper: reset CORS to defaults
 (defn cors-reset! []
   (do
     (CORS.setup @"*"
@@ -13,17 +12,12 @@
     (CORS.set-credentials! false)
     (CORS.set-expose-headers! @"")))
 
-; Helper: get first header value or empty string
 (defn get-header [resp key]
   (let [vals (Map.get-with-default (Response.headers resp) key &[@""])]
     @(Array.unsafe-first &vals)))
 
 (deftest test
-  ; ---------------------------------------------------------------------------
-  ; before-hook
-  ; ---------------------------------------------------------------------------
-
-  ; -- passes through non-OPTIONS requests --
+  ; -- before-hook: passes through non-OPTIONS requests --
   (assert-true test
     (do
       (cors-reset!)
@@ -120,11 +114,7 @@
           (Maybe.Nothing) false)))
     "CORS preflight omits credentials when disabled")
 
-  ; ---------------------------------------------------------------------------
-  ; after-hook
-  ; ---------------------------------------------------------------------------
-
-  ; -- adds Allow-Origin --
+  ; -- after-hook: adds Allow-Origin --
   (assert-equal test
     "https://example.com"
     &(do
@@ -223,11 +213,7 @@
                          "Access-Control-Expose-Headers"))))
     "CORS after-hook omits expose-headers when empty")
 
-  ; ---------------------------------------------------------------------------
-  ; Integration: CORS hooks with build-response
-  ; ---------------------------------------------------------------------------
-
-  ; -- normal request gets Allow-Origin through pipeline --
+  ; -- integration: normal request gets Allow-Origin through pipeline --
   (assert-equal test
     "*"
     &(do
@@ -274,10 +260,7 @@
         (Map.contains? (Response.headers &resp) "Access-Control-Allow-Origin")))
     "CORS preflight gets Allow-Origin from after-hook")
 
-  ; ---------------------------------------------------------------------------
-  ; CORS.configure backward compatibility
-  ; ---------------------------------------------------------------------------
-
+  ; -- CORS.configure backward compatibility --
   (assert-equal test
     "https://old-api.example.com"
     &(do

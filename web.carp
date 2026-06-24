@@ -2280,40 +2280,24 @@ Or via [`defserver`](#defserver):
   (def credentials false)
   (def expose-headers @"")
 
-  (doc setup "configures CORS with the given origin, methods, headers, and
-max-age. Call before the server starts, or use the `(cors ...)` form
-in [`defserver`](#defserver) for a one-liner.
-
-```
-(CORS.setup @\"https://example.com\"
-            @\"GET, POST, OPTIONS\"
-            @\"Content-Type, Authorization\"
-            @\"86400\")
-```")
+  (doc setup "configures CORS origin, methods, headers, and max-age.")
   (defn setup [o m h ma]
     (do (set! origin o) (set! methods m) (set! headers h) (set! max-age ma)))
 
-  (doc configure "sets the allowed origin for CORS. For full configuration
-use [`setup`](#setup) or the `(cors ...)` form in `defserver`.")
+  (doc configure "sets the allowed origin for CORS. Use `setup` for full
+configuration.")
   (defn configure [allowed-origin] (set! origin allowed-origin))
 
   (doc set-credentials! "enables or disables `Access-Control-Allow-Credentials`.
-When enabled, the browser may send cookies and HTTP auth with cross-origin
-requests. Note that `Access-Control-Allow-Origin` must not be `*` when
-credentials are enabled.")
+Origin must not be `*` when enabled.")
   (defn set-credentials! [c] (set! credentials c))
 
   (doc set-expose-headers! "sets the `Access-Control-Expose-Headers` value.
-This controls which response headers the browser may access from JavaScript.
-Pass an empty string to omit the header (the default).")
+Pass an empty string to omit (the default).")
   (defn set-expose-headers! [h] (set! expose-headers h))
 
   (doc before-hook "handles CORS preflight `OPTIONS` requests. Returns a
-`204 No Content` with the appropriate `Access-Control-*` headers. For
-non-OPTIONS requests, returns `Nothing` so the request continues to the
-route handler. The `Access-Control-Allow-Origin` header is added by
-[`after-hook`](#after-hook) so it appears on both preflight and normal
-responses.")
+204 with CORS headers, or `Nothing` for non-OPTIONS requests.")
   (defn before-hook [req params]
     (if (= (Request.verb req) "OPTIONS")
       (let [r (-> (Response.text @"")
@@ -2329,12 +2313,7 @@ responses.")
             r)))
       (Maybe.Nothing)))
 
-  (doc after-hook "adds CORS response headers to every response.
-
-Always adds `Access-Control-Allow-Origin`. When the configured origin is
-not `*`, also adds `Vary: Origin` so caches key on the request origin.
-When credentials are enabled, adds `Access-Control-Allow-Credentials: true`.
-When expose-headers is non-empty, adds `Access-Control-Expose-Headers`.")
+  (doc after-hook "adds CORS headers to every response.")
   (defn after-hook [req params resp]
     (let [r1 (Response.with-header resp @"Access-Control-Allow-Origin" @&origin)
           r2 (if (= &origin "*") r1 (Response.with-header r1 @"Vary" @"Origin"))
@@ -2419,8 +2398,9 @@ CORS with automatic preflight handling.")
         worker-forms (filter App.workers-form? body)
         worker-count (if (= 0 (length worker-forms)) 0 (cadr (car worker-forms)))
         cors-forms (filter App.cors-form? body)
-        forms (filter (fn [f] (and (not (App.workers-form? f))
-                                   (not (App.cors-form? f)))) body)
+        forms (filter
+          (fn [f] (and (not (App.workers-form? f)) (not (App.cors-form? f))))
+          body)
         routes (filter
           (fn [f]
             (and (App.route-form? f)
@@ -2468,8 +2448,11 @@ CORS with automatic preflight handling.")
                            (append setup
                                    (list
                                      (list 'let
-                                           ['app app-form
-                                            'bh before-arr
-                                            'ah after-arr]
+                                           ['app
+                                            app-form
+                                            'bh
+                                            before-arr
+                                            'ah
+                                            after-arr]
                                            serve-call))))]
     (eval (list 'defn 'main (array) (cons 'do body-forms)))))
