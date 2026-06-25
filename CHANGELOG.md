@@ -7,6 +7,11 @@
   `CORS.set-expose-headers!` control additional headers. A `(cors ...)`
   form in `defserver` registers both hooks automatically.
 
+- **`StaticFile` module for serving static files.** `StaticFile.handler`
+  and `StaticFile.mount` serve files from a directory with directory index
+  support (index.html by default, configurable via `handler-with`), path
+  traversal prevention, and zero-copy transfer via `Response.sendfile`.
+
 ## 0.6.0 (2026-06-24)
 
 ### Added

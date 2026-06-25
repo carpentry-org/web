@@ -784,4 +784,115 @@
                                    &ah
                                    &(String.to-bytes "INVALID\r\n\r\n"))]
       @(Response.code (Pair.a &pair)))
-    "build-response returns 400 for garbage input"))
+    "build-response returns 400 for garbage input")
+
+  ; -- StaticFile.exists? --
+  (assert-true test
+    (StaticFile.exists? "test/static-fixtures/index.html")
+    "exists? finds an existing file")
+
+  (assert-false test
+    (StaticFile.exists? "test/static-fixtures/nonexistent.xyz")
+    "exists? returns false for missing file")
+
+  (assert-false test
+    (StaticFile.exists? "test/static-fixtures/sub")
+    "exists? returns false for a directory")
+
+  ; -- StaticFile.find-index --
+  (assert-true test
+    (Maybe.just?
+      &(StaticFile.find-index "test/static-fixtures" &[@"index.html"]))
+    "find-index finds index.html in root")
+
+  (assert-true test
+    (Maybe.just?
+      &(StaticFile.find-index "test/static-fixtures/sub" &[@"index.html"]))
+    "find-index finds index.html in subdirectory")
+
+  (assert-true test
+    (Maybe.nothing?
+      &(StaticFile.find-index "test/static-fixtures" &[@"default.htm"]))
+    "find-index returns Nothing when no index matches")
+
+  (assert-true test
+    (Maybe.just?
+      &(StaticFile.find-index "test/static-fixtures"
+                              &[@"missing.htm" @"index.html"]))
+    "find-index tries files in order and finds second")
+
+  ; -- StaticFile.serve: path traversal --
+  (assert-equal test
+    404
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures" "../web.carp" &[@"index.html"]))
+    "serve rejects .. traversal")
+
+  (assert-equal test
+    404
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures"
+                         "sub/../../web.carp"
+                         &[@"index.html"]))
+    "serve rejects nested .. traversal")
+
+  ; -- StaticFile.serve: file serving --
+  (assert-equal test
+    200
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures" "sub/style.css" &[@"index.html"]))
+    "serve returns 200 for existing file")
+
+  (assert-true test
+    (let [resp (StaticFile.serve "test/static-fixtures"
+                                 "sub/style.css"
+                                 &[@"index.html"])
+          ct (Map.get-with-default (Response.headers &resp)
+                                   "Content-Type"
+                                   &[@""])]
+      (= (Array.unsafe-first &ct) "text/css; charset=utf-8"))
+    "serve sets correct Content-Type for .css")
+
+  (assert-true test
+    (Map.contains?
+      (Response.headers
+        &(StaticFile.serve "test/static-fixtures"
+                           "sub/style.css"
+                           &[@"index.html"]))
+      "X-Sendfile")
+    "serve uses X-Sendfile header")
+
+  ; -- StaticFile.serve: index files --
+  (assert-equal test
+    200
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures" "" &[@"index.html"]))
+    "serve finds index.html for empty path")
+
+  (assert-equal test
+    200
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures" "sub/" &[@"index.html"]))
+    "serve finds index.html for trailing-slash path")
+
+  (assert-equal test
+    200
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures" "sub" &[@"index.html"]))
+    "serve tries index files when path is a directory")
+
+  ; -- StaticFile.serve: 404 --
+  (assert-equal test
+    404
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures"
+                         "nonexistent.txt"
+                         &[@"index.html"]))
+    "serve returns 404 for missing file")
+
+  ; -- StaticFile.mount --
+  (assert-equal test
+    1
+    (let [app (-> (App.create) (StaticFile.mount @"/assets" @"./public"))]
+      (Array.length (App.routes &app)))
+    "mount adds one route to app"))
