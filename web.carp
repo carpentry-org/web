@@ -2132,6 +2132,9 @@ fallback.")
   (hidden workers-form?)
   (defndynamic workers-form? [f] (and (list? f) (= 'workers (car f))))
 
+  (hidden cors-form?)
+  (defndynamic cors-form? [f] (and (list? f) (= 'cors (car f))))
+
   (hidden route-form?)
   (defndynamic route-form? [f]
     (and (list? f)
@@ -2145,7 +2148,8 @@ fallback.")
              (= 'static (car f))
              (= 'before (car f))
              (= 'after (car f))
-             (= 'errors (car f)))))
+             (= 'errors (car f))
+             (= 'cors (car f)))))
 
   (hidden route-call)
   (defndynamic route-call [r]
@@ -2273,28 +2277,54 @@ Or via [`defserver`](#defserver):
   (def methods @"GET, POST, PUT, DELETE, PATCH, OPTIONS")
   (def headers @"Content-Type, Authorization")
   (def max-age @"86400")
+  (def credentials false)
+  (def expose-headers @"")
 
-  (doc configure "sets the allowed origin for CORS. Call before the server
-starts. The default is `*` (all origins).")
+  (doc setup "configures CORS origin, methods, headers, and max-age.")
+  (defn setup [o m h ma]
+    (do (set! origin o) (set! methods m) (set! headers h) (set! max-age ma)))
+
+  (doc configure "sets the allowed origin for CORS. Use `setup` for full
+configuration.")
   (defn configure [allowed-origin] (set! origin allowed-origin))
 
+  (doc set-credentials! "enables or disables `Access-Control-Allow-Credentials`.
+Origin must not be `*` when enabled.")
+  (defn set-credentials! [c] (set! credentials c))
+
+  (doc set-expose-headers! "sets the `Access-Control-Expose-Headers` value.
+Pass an empty string to omit (the default).")
+  (defn set-expose-headers! [h] (set! expose-headers h))
+
   (doc before-hook "handles CORS preflight `OPTIONS` requests. Returns a
-`204 No Content` with the appropriate `Access-Control-*` headers. For
-non-OPTIONS requests, continues to the handler.")
+204 with CORS headers, or `Nothing` for non-OPTIONS requests.")
   (defn before-hook [req params]
     (if (= (Request.verb req) "OPTIONS")
-      ; Allow-Origin is added by after-hook; only set the other CORS headers here
-      (Maybe.Just
-        (-> (Response.text @"")
-            (Response.with-status 204 @"No Content")
-            (Response.with-header @"Access-Control-Allow-Methods" @&methods)
-            (Response.with-header @"Access-Control-Allow-Headers" @&headers)
-            (Response.with-header @"Access-Control-Max-Age" @&max-age)))
+      (let [r (-> (Response.text @"")
+                  (Response.with-status 204 @"No Content")
+                  (Response.with-header @"Access-Control-Allow-Methods"
+                                        @&methods)
+                  (Response.with-header @"Access-Control-Allow-Headers"
+                                        @&headers)
+                  (Response.with-header @"Access-Control-Max-Age" @&max-age))]
+        (Maybe.Just
+          (if credentials
+            (Response.with-header r @"Access-Control-Allow-Credentials" @"true")
+            r)))
       (Maybe.Nothing)))
 
-  (doc after-hook "adds `Access-Control-Allow-Origin` to every response.")
+  (doc after-hook "adds CORS headers to every response.")
   (defn after-hook [req params resp]
-    (Response.with-header resp @"Access-Control-Allow-Origin" @&origin)))
+    (let [r1 (Response.with-header resp @"Access-Control-Allow-Origin" @&origin)
+          r2 (if (= &origin "*") r1 (Response.with-header r1 @"Vary" @"Origin"))
+          r3 (if credentials
+            (Response.with-header r2 @"Access-Control-Allow-Credentials" @"true")
+            r2)]
+      (if (> (String.length &expose-headers) 0)
+        (Response.with-header r3
+                              @"Access-Control-Expose-Headers"
+                              @&expose-headers)
+        r3))))
 
 (defmodule Response
   (doc set-cookie "adds a `Set-Cookie` header to the response. The `cookie`
@@ -2360,32 +2390,17 @@ Each route is `(METHOD \"/path\" handler)` where METHOD is one of `GET`,
 `POST`, `PUT`, `DELETE`, or `PATCH`. Any other form in the body is
 evaluated as a setup expression before the server starts, in source order.
 
-Use `(workers N)` to fork N worker processes for multi-core scaling via
-SO_REUSEPORT. Each worker runs its own event loop bound to the same port.
-
-```
-(defserver \"0.0.0.0\" 3000
-  (workers 4)
-  (GET    \"/api/todos\"     api-list)
-  (POST   \"/api/todos\"     api-add)
-  (DELETE \"/api/todos/:id\" api-delete))
-```
-
-Without `(workers N)`, is equivalent to:
-
-```
-(defn main []
-  (let [app (-> (App.create) (App.GET @\"/\" hello))
-        bh (the (Array (Fn [&Request] (Maybe Response))) [])
-        ah (the (Array (Fn [&Request Response] Response)) [])]
-    (App.serve &app &bh &ah \"0.0.0.0\" 3000)))
-```")
+Use `(workers N)` to fork N worker processes via SO_REUSEPORT.
+Use `(cors origin)` or `(cors origin methods headers max-age)` to enable
+CORS with automatic preflight handling.")
 (defmacro defserver [host port :rest body]
-  (let [; Extract worker count if present, then filter it out
+  (let [; extract worker count and cors, then filter both out
         worker-forms (filter App.workers-form? body)
         worker-count (if (= 0 (length worker-forms)) 0 (cadr (car worker-forms)))
-        forms (filter (fn [f] (not (App.workers-form? f))) body)
-        ; Separate routes, hooks, and setup expressions
+        cors-forms (filter App.cors-form? body)
+        forms (filter
+          (fn [f] (and (not (App.workers-form? f)) (not (App.cors-form? f))))
+          body)
         routes (filter
           (fn [f]
             (and (App.route-form? f)
@@ -2397,24 +2412,47 @@ Without `(workers N)`, is equivalent to:
         setup (filter (fn [f] (not (App.route-form? f))) forms)
         ; Build the app with routes
         app-form (cons '-> (cons '(App.create) (map App.route-call routes)))
+        ; Generate CORS setup calls
+        cors-setup (map
+          (fn [f]
+            (if (= (length f) 2)
+              (list 'CORS.configure (cadr f))
+              (list 'CORS.setup
+                    (cadr f)
+                    (caddr f)
+                    (car (cdr (cdr (cdr f))))
+                    (car (cdr (cdr (cdr (cdr f))))))))
+          cors-forms)
+        ; CORS hooks (prepend before, append after)
+        cors-bh (unless (empty? cors-forms)
+          (list (list 'fn ['req 'params] (list 'CORS.before-hook 'req 'params))))
+        cors-ah (unless (empty? cors-forms)
+          (list
+            (list 'fn
+                  ['req 'params 'resp]
+                  (list 'CORS.after-hook 'req 'params 'resp))))
         ; Build hook arrays as lambdas wrapping the user's functions
-        before-arr (collect-into
-          (map
-            (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
-            befores)
-          array)
-        after-arr (collect-into
-          (map
-            (fn [f]
-              (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
-            afters)
-          array)
+        explicit-bh (map
+          (fn [f] (list 'fn ['req 'params] (list (cadr f) 'req 'params)))
+          befores)
+        explicit-ah (map
+          (fn [f]
+            (list 'fn ['req 'params 'resp] (list (cadr f) 'req 'params 'resp)))
+          afters)
+        before-arr (collect-into (append cors-bh explicit-bh) array)
+        after-arr (collect-into (append explicit-ah cors-ah) array)
         serve-call (if (> worker-count 0)
           (list 'App.serve-with-workers '&app '&bh '&ah host port worker-count)
           (list 'App.serve '&app '&bh '&ah host port))
-        body-forms (append setup
-                           (list
-                             (list 'let
-                                   ['app app-form 'bh before-arr 'ah after-arr]
-                                   serve-call)))]
+        body-forms (append cors-setup
+                           (append setup
+                                   (list
+                                     (list 'let
+                                           ['app
+                                            app-form
+                                            'bh
+                                            before-arr
+                                            'ah
+                                            after-arr]
+                                           serve-call))))]
     (eval (list 'defn 'main (array) (cons 'do body-forms)))))

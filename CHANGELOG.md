@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Configurable CORS middleware.** `CORS.setup` configures origin,
+  methods, headers, and max-age. `CORS.set-credentials!` and
+  `CORS.set-expose-headers!` control additional headers. A `(cors ...)`
+  form in `defserver` registers both hooks automatically.
+
 ## 0.6.0 (2026-06-24)
 
 ### Added
