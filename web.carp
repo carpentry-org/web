@@ -245,6 +245,11 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
 (hidden web-fstat-mtime)
 (register web-fstat-mtime (Fn [Int] Long) "web_fstat_mtime")
 
+(relative-include "src/is_directory.h")
+(private web-is-directory?)
+(hidden web-is-directory?)
+(register web-is-directory? (Fn [&String] Bool) "web_is_directory")
+
 (defmodule Response
   (doc text "creates a 200 OK response with a plain text body.")
   (defn text [body]
@@ -2278,6 +2283,67 @@ Or via [`defserver`](#defserver):
               (for [_ 0 spawned]
                 (ignore (System.wait (Pointer.address &status)))))
             (IO.println &(fmt "All %d workers exited" spawned))))))))
+
+(doc StaticFile "provides static file serving with directory index support,
+path traversal prevention, and efficient transfer via sendfile(2).")
+(defmodule StaticFile
+  (doc exists? "checks whether path exists and is a readable regular file.")
+  (defn exists? [path]
+    (if (web-is-directory? path)
+      false
+      (match (File.open-with path "r")
+        (Result.Error _) false
+        (Result.Success f) (do (File.close f) true))))
+
+  (doc find-index "returns the full path of the first existing index file in
+dir, or Nothing if none match.")
+  (defn find-index [dir index-files]
+    (let-do [result (the (Maybe String) (Maybe.Nothing))]
+      (for [i 0 (Array.length index-files)]
+        (let [candidate (fmt "%s/%s" dir (Array.unsafe-nth index-files i))]
+          (when-do (exists? &candidate)
+            (set! result (Maybe.Just candidate))
+            (break))))
+      result))
+
+  (doc serve "serves a static file from root for the relative path rel.
+rejects .. segments and tries index-files for directory paths.
+returns a 404 if the path is unsafe or no file matches.")
+  (defn serve [root rel index-files]
+    (if (not (web-safe-path? rel))
+      (Response.not-found)
+      (let [path (if (String.empty? rel) @root (fmt "%s/%s" root rel))]
+        (if (or (String.empty? rel) (String.ends-with? rel "/"))
+          (let [dir (if (String.ends-with? &path "/")
+                  (String.prefix &path (- (String.length &path) 1))
+                  @&path)]
+            (match (find-index &dir index-files)
+              (Maybe.Just idx-path) (Response.sendfile &idx-path)
+              (Maybe.Nothing) (Response.not-found)))
+          (if (exists? &path)
+            (Response.sendfile &path)
+            (match (find-index &path index-files)
+              (Maybe.Just idx-path) (Response.sendfile &idx-path)
+              (Maybe.Nothing) (Response.not-found)))))))
+
+  (doc handler "creates a request handler that serves static files from root,
+using index.html for directory paths. register with a * glob route.")
+  (defn handler [root]
+    (let [idx [@"index.html"]]
+      (fn [req params]
+        (let [rel (Map.get-with-default params "*" &@"")]
+          (StaticFile.serve &root &rel &idx)))))
+
+  (doc handler-with "like handler but with custom index file names.")
+  (defn handler-with [root index-files]
+    (fn [req params]
+      (let [rel (Map.get-with-default params "*" &@"")]
+        (StaticFile.serve &root &rel &index-files))))
+
+  (doc mount "registers a GET route at prefix/* that serves static files
+from root.")
+  (defn mount [app prefix root]
+    (App.GET app (String.append &prefix "/*") (handler root))))
 
 (defmodule CORS
   (def origin @"*")
