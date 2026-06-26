@@ -349,18 +349,25 @@ The chunks are pre-encoded into a single buffer. For truly lazy streaming
 where chunks are generated on demand, a future version will provide a
 callback-based API.")
   (defn chunked [code content-type chunks]
-    (let-do [buf @""]
+    (let-do [sb (StringBuf.create)]
       (for [i 0 (Array.length chunks)]
         (let-do [chunk (Array.unsafe-nth chunks i)
                  len (String.length chunk)]
-          (set! buf (String.append &buf &(fmt "%x\r\n" len)))
-          (set! buf (String.append &buf chunk))
-          (set! buf (String.append &buf "\r\n"))))
-      (set! buf (String.append &buf "0\r\n\r\n"))
-      (->
-        (init code (Status.reason code) @"HTTP/1.1" [] {} buf)
-        (with-header @"Transfer-Encoding" @"chunked")
-        (with-header @"Content-Type" content-type))))
+          (StringBuf.append-str &sb &(fmt "%x\r\n" len))
+          (StringBuf.append-str &sb chunk)
+          (StringBuf.append-str &sb "\r\n")))
+      (StringBuf.append-str &sb "0\r\n\r\n")
+      (let-do [body (StringBuf.to-string &sb)]
+        (StringBuf.delete sb)
+        (->
+          (init code
+                (Status.reason code)
+                @"HTTP/1.1"
+                []
+                {}
+                body)
+          (with-header @"Transfer-Encoding" @"chunked")
+          (with-header @"Content-Type" content-type)))))
 
   (doc sendfile "creates a 200 OK response that signals the server to
 transfer the file at `path` directly to the socket via `sendfile(2)`,

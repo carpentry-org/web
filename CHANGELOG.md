@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **`Response.chunked` uses StringBuf for O(n) chunk encoding.** Previously
+  each loop iteration allocated a new string via `String.append`, making
+  chunked encoding quadratic in the number of chunks. Now uses `StringBuf`
+  for amortized O(1) appends.
+
+### Fixed
 - **Configurable CORS middleware.** `CORS.setup` configures origin,
   methods, headers, and max-age. `CORS.set-credentials!` and
   `CORS.set-expose-headers!` control additional headers. A `(cors ...)`
