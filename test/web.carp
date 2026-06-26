@@ -1011,10 +1011,9 @@
   (assert-true test
     (do
       (Cookie.set-secret @"secret-a")
-      (let [signed (Cookie.sign "hello")]
-        (do
-          (Cookie.set-secret @"secret-b")
-          (Maybe.nothing? &(Cookie.verify &signed)))))
+      (let-do [signed (Cookie.sign "hello")]
+        (Cookie.set-secret @"secret-b")
+        (Maybe.nothing? &(Cookie.verify &signed))))
     "verify rejects value signed with different secret")
 
   ; -- Request.signed-cookie --
