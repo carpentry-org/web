@@ -357,15 +357,17 @@ callback-based API.")
           (StringBuf.append-str &sb chunk)
           (StringBuf.append-str &sb "\r\n")))
       (StringBuf.append-str &sb "0\r\n\r\n")
-      (->
-        (init code
-              (Status.reason code)
-              @"HTTP/1.1"
-              []
-              {}
-              (StringBuf.to-string &sb))
-        (with-header @"Transfer-Encoding" @"chunked")
-        (with-header @"Content-Type" content-type))))
+      (let-do [body (StringBuf.to-string &sb)]
+        (StringBuf.delete sb)
+        (->
+          (init code
+                (Status.reason code)
+                @"HTTP/1.1"
+                []
+                {}
+                body)
+          (with-header @"Transfer-Encoding" @"chunked")
+          (with-header @"Content-Type" content-type)))))
 
   (doc sendfile "creates a 200 OK response that signals the server to
 transfer the file at `path` directly to the socket via `sendfile(2)`,
