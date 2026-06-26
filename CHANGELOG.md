@@ -10,33 +10,12 @@
   for amortized O(1) appends.
 
 ### Fixed
+- **Configurable CORS middleware.** `CORS.setup` configures origin,
+  methods, headers, and max-age. `CORS.set-credentials!` and
+  `CORS.set-expose-headers!` control additional headers. A `(cors ...)`
+  form in `defserver` registers both hooks automatically.
 
-- **WebSocket `decode-frame` 64-bit payload length truncation.**
-  `decode-frame` silently ignored the high 4 bytes (offsets 2–5) of
-  64-bit extended payload lengths (RFC 6455 §5.2), reading only the low
-  32 bits. A remote peer sending a frame header with non-zero high bytes
-  would cause the decoder to compute a wrong payload length, potentially
-  desynchronizing the frame parser. The decoder now checks the high bytes
-  and rejects frames whose payload length exceeds 32-bit `Int` range.
-
-- **`Response.chunked` hardcoded status text.** `Response.chunked` always
-  set the reason phrase to `"OK"` regardless of the status code passed.
-  A `(Response.chunked 404 ...)` would produce `HTTP/1.1 404 OK` on the
-  wire. Now uses `Status.reason` from the http library to derive the
-  correct phrase.
-
-- **WebSocket RFC 6455 protocol compliance.**
-  - Protocol error paths (unexpected fragments, unknown opcodes) now send
-    a 1002 close frame before disconnecting, as required by RFC 6455 §7.2.
-  - Unknown opcodes (3–7, 11–15) trigger a 1002 protocol error close
-    instead of being silently skipped (RFC 6455 §5.2).
-  - Upgrade header matching is now case-insensitive for both the header
-    name and value, per RFC 7230 §3.2 and RFC 6455 §4.2.1.
-  - Oversized WebSocket messages now send a 1009 (Message Too Big) close
-    frame before disconnecting, as required by RFC 6455 §7.4.1.
-    Previously, the three size-limit code paths (single frame too large,
-    first fragment too large, accumulated fragments too large) closed the
-    connection silently without a close frame.
+## 0.6.0 (2026-06-24)
 
 ### Added
 
@@ -92,6 +71,56 @@
   The negotiated protocol is available to handlers via `(WebSocket.protocol ws)`.
   `App.WS` is unchanged and does not negotiate subprotocols.
 
+### Fixed
+
+- **WebSocket `decode-frame` 64-bit payload length truncation.**
+  `decode-frame` silently ignored the high 4 bytes (offsets 2–5) of
+  64-bit extended payload lengths (RFC 6455 §5.2), reading only the low
+  32 bits. A remote peer sending a frame header with non-zero high bytes
+  would cause the decoder to compute a wrong payload length, potentially
+  desynchronizing the frame parser. The decoder now checks the high bytes
+  and rejects frames whose payload length exceeds 32-bit `Int` range.
+
+- **`Response.chunked` hardcoded status text.** `Response.chunked` always
+  set the reason phrase to `"OK"` regardless of the status code passed.
+  A `(Response.chunked 404 ...)` would produce `HTTP/1.1 404 OK` on the
+  wire. Now uses `Status.reason` from the http library to derive the
+  correct phrase.
+
+- **WebSocket RFC 6455 protocol compliance.**
+  - Protocol error paths (unexpected fragments, unknown opcodes) now send
+    a 1002 close frame before disconnecting, as required by RFC 6455 §7.2.
+  - Unknown opcodes (3–7, 11–15) trigger a 1002 protocol error close
+    instead of being silently skipped (RFC 6455 §5.2).
+  - Upgrade header matching is now case-insensitive for both the header
+    name and value, per RFC 7230 §3.2 and RFC 6455 §4.2.1.
+  - Oversized WebSocket messages now send a 1009 (Message Too Big) close
+    frame before disconnecting, as required by RFC 6455 §7.4.1.
+    Previously, the three size-limit code paths (single frame too large,
+    first fragment too large, accumulated fragments too large) closed the
+    connection silently without a close frame.
+
+- **`web-finalize-response` preserves explicit Content-Length.** When a response
+  already has a `Content-Length` header (e.g. HEAD responses), finalization no
+  longer overrides it with the body length.
+
+### Changed
+
+- `WSRoute` gains a `protocols` field (`(Array String)`) listing supported
+  subprotocols. Existing `App.WS` calls pass an empty array for backward
+  compatibility.
+- `WebSocket` gains a `protocol` field (`(Maybe String)`) holding the
+  negotiated subprotocol, or `Nothing` if none was negotiated.
+- `ConnState` gains a `ws-protocol` map for tracking the negotiated
+  subprotocol per WebSocket connection.
+- `web-try-ws-upgrade` return type gains a `(Maybe String)` for the
+  negotiated protocol. `handle-ws-upgrade` includes `Sec-WebSocket-Protocol`
+  in the 101 response when a protocol was negotiated.
+
+## 0.5.0 (2026-06-02)
+
+### Added
+
 - **WebSocket server-initiated ping with dead client detection.**
   `WebSocket.encode-ping` encodes a ping frame. The server automatically sends
   ping frames to idle WebSocket connections (after `App.ws-ping-interval`
@@ -128,10 +157,6 @@
 
 ### Fixed
 
-- **`web-finalize-response` preserves explicit Content-Length.** When a response
-  already has a `Content-Length` header (e.g. HEAD responses), finalization no
-  longer overrides it with the body length.
-
 - **Content-Length no longer sent with chunked encoding.** `web-finalize-response`
   now skips the `Content-Length` header when `Transfer-Encoding` is already set,
   fixing an RFC 7230 §3.3.2 violation.
@@ -144,16 +169,6 @@
 
 ### Changed
 
-- `WSRoute` gains a `protocols` field (`(Array String)`) listing supported
-  subprotocols. Existing `App.WS` calls pass an empty array for backward
-  compatibility.
-- `WebSocket` gains a `protocol` field (`(Maybe String)`) holding the
-  negotiated subprotocol, or `Nothing` if none was negotiated.
-- `ConnState` gains a `ws-protocol` map for tracking the negotiated
-  subprotocol per WebSocket connection.
-- `web-try-ws-upgrade` return type gains a `(Maybe String)` for the
-  negotiated protocol. `handle-ws-upgrade` includes `Sec-WebSocket-Protocol`
-  in the 101 response when a protocol was negotiated.
 - `ConnState` gains `ws-ping-count` and `ws-last-ping` maps for tracking
   server-initiated ping state per WebSocket connection.
 - `sweep-idle` now takes a `poll` parameter and sends ping frames to idle

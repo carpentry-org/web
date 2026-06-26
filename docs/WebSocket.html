@@ -89,6 +89,8 @@
 <p>Handlers receive a reference to this and call <a href="#send"><code>WebSocket.send</code></a> or
 <a href="#send-binary"><code>WebSocket.send-binary</code></a> to queue outgoing text or binary
 frames. The event loop drains the outbox after the handler returns.</p>
+<p>The <code>protocol</code> field holds the negotiated subprotocol (RFC 6455 §4.2.2),
+or <code>Nothing</code> if no subprotocol was negotiated.</p>
 
                 </div>
                 <div class="binder">
@@ -221,7 +223,7 @@ frames. The event loop drains the outbox after the handler returns.</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Int, (Array (Array Byte))] WebSocket)
+                        (Fn [Int, (Maybe String), (Array (Array Byte))] WebSocket)
                     </p>
                     <span>
                         
@@ -268,6 +270,26 @@ frames. The event loop drains the outbox after the handler returns.</p>
                     </span>
                     <p class="doc">
                         <p>converts a <code>WebSocket</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#protocol">
+                        <h3 id="protocol">
+                            protocol
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a)] (Ref (Maybe String) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>protocol</code> property of a <code>WebSocket</code>.</p>
 
                     </p>
                 </div>
@@ -436,6 +458,46 @@ the client without waiting for the handler to return.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-protocol">
+                        <h3 id="set-protocol">
+                            set-protocol
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WebSocket, (Maybe String)] WebSocket)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>protocol</code> property of a <code>WebSocket</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-protocol!">
+                        <h3 id="set-protocol!">
+                            set-protocol!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref WebSocket a), (Maybe String)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>protocol</code> property of a <code>WebSocket</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -492,6 +554,26 @@ the client without waiting for the handler to return.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>outbox</code> property of a <code>WebSocket</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-protocol">
+                        <h3 id="update-protocol">
+                            update-protocol
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [WebSocket, (Ref (Fn [(Maybe String)] (Maybe String) a) b)] WebSocket)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>protocol</code> property of a <code>WebSocket</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
