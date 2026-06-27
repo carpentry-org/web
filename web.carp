@@ -219,6 +219,45 @@ as a 40-character lowercase hex string.")
           ()))
       (String.from-chars &out))))
 
+(defmodule HMAC
+  (hidden hex-encode)
+  (private hex-encode)
+  (defn hex-encode [bytes]
+    (let-do [hex @"0123456789abcdef"
+             len (Array.length bytes)
+             out (Array.replicate (* len 2) &\0)]
+      (for [i 0 len]
+        (let-do [b (Byte.to-int @(Array.unsafe-nth bytes i))]
+          (Array.aset! &out (* i 2) (String.char-at &hex (bit-shift-right b 4)))
+          (Array.aset! &out (+ (* i 2) 1) (String.char-at &hex (bit-and b 15)))))
+      (String.from-chars &out)))
+
+  (hidden block-size)
+  (private block-size)
+  (def block-size 64)
+
+  (doc sha1 "computes the HMAC-SHA1 digest of `msg` using `key`.
+Returns 20 raw bytes.")
+  (defn sha1 [key msg]
+    (let-do [norm (if (> (Array.length key) block-size) (SHA1.digest key) @key)
+             padded (Array.replicate block-size &(Byte.from-int 0))]
+      (for [i 0 (Array.length &norm)]
+        (Array.aset! &padded i @(Array.unsafe-nth &norm i)))
+      (let-do [i-pad (Array.replicate block-size &(Byte.from-int 0))
+               o-pad (Array.replicate block-size &(Byte.from-int 0))]
+        (for [i 0 block-size]
+          (let-do [kb (Byte.to-int @(Array.unsafe-nth &padded i))]
+            (Array.aset! &i-pad i (Byte.from-int (bit-xor kb 54)))
+            (Array.aset! &o-pad i (Byte.from-int (bit-xor kb 92)))))
+        (let [inner-data (Array.concat &[i-pad @msg])
+              inner-hash (SHA1.digest &inner-data)
+              outer-data (Array.concat &[o-pad inner-hash])]
+          (SHA1.digest &outer-data)))))
+
+  (doc sha1-hex "computes the HMAC-SHA1 of `msg` using `key`, returning a
+40-character lowercase hex string.")
+  (defn sha1-hex [key msg] (hex-encode &(sha1 key msg))))
+
 (defmodule Map
   (doc update-value! "calls `f` with a reference to the value at key `k`.
 Does nothing if the key is not found. The reference allows mutation through
@@ -365,12 +404,7 @@ callback-based API.")
       (let-do [body (StringBuf.to-string &sb)]
         (StringBuf.delete sb)
         (->
-          (init code
-                (Status.reason code)
-                @"HTTP/1.1"
-                []
-                {}
-                body)
+          (init code (Status.reason code) @"HTTP/1.1" [] {} body)
           (with-header @"Transfer-Encoding" @"chunked")
           (with-header @"Content-Type" content-type)))))
 
@@ -2399,17 +2433,78 @@ Pass an empty string to omit (the default).")
                               @&expose-headers)
         r3))))
 
+(defmodule Cookie
+  (def secret @"")
+
+  (doc set-secret "configures the secret key for cookie signing.")
+  (defn set-secret [s] (set! secret s))
+
+  (doc sign
+    "signs a cookie value using HMAC-SHA1, returning `value.hex-signature`.")
+  (defn sign [value]
+    (let [sig (HMAC.sha1-hex &(String.to-bytes &secret) &(String.to-bytes value))]
+      (fmt "%s.%s" value &sig)))
+
+  (doc verify "verifies a signed cookie value produced by [`sign`](#sign).
+Returns the original value if valid, or `Nothing` if invalid.")
+  (hidden constant-time-eq)
+  (private constant-time-eq)
+  (defn constant-time-eq [a b]
+    (let-do [la (String.length a)
+             lb (String.length b)
+             result (bit-xor la lb)]
+      (for [i 0 (Int.min la lb)]
+        (set! result
+              (bit-or result
+                      (bit-xor (Char.to-int (String.char-at a i))
+                               (Char.to-int (String.char-at b i))))))
+      (= result 0)))
+
+  (defn verify [signed]
+    (let [len (String.length signed)]
+      ; 40 hex chars + 1 dot + at least 1 char value = 42
+      (if (< len 42)
+        (the (Maybe String) (Maybe.Nothing))
+        (let [dot-pos (- len 41)]
+          (if (/= (String.char-at signed dot-pos) \.)
+            (Maybe.Nothing)
+            (let [value &(String.byte-slice signed 0 dot-pos)
+                  sig &(String.byte-slice signed (+ dot-pos 1) len)
+                  expected (HMAC.sha1-hex &(String.to-bytes &secret)
+                                          &(String.to-bytes value))]
+              (if (constant-time-eq sig &expected)
+                (Maybe.Just @value)
+                (Maybe.Nothing)))))))))
+
+(defmodule Request
+  (doc cookies-map
+    "returns all cookies from the request as a `(Map String String)`.")
+  (defn cookies-map [req]
+    (let-do [result (the (Map String String) {})]
+      (for [i 0 (Array.length (cookies req))]
+        (let [c (Array.unsafe-nth (cookies req) i)]
+          (Map.put! &result (Cookie.name c) (Cookie.value c))))
+      result))
+
+  (doc cookie "gets a single cookie value by name.")
+  (defn cookie [req name]
+    (let-do [result (the (Maybe String) (Maybe.Nothing))]
+      (for [i 0 (Array.length (cookies req))]
+        (let [c (Array.unsafe-nth (cookies req) i)]
+          (when-do (= (Cookie.name c) name)
+            (set! result (Maybe.Just @(Cookie.value c)))
+            (break))))
+      result))
+
+  (doc signed-cookie "gets and verifies a signed cookie by name. Returns the
+original value, or `Nothing` if missing or invalid.")
+  (defn signed-cookie [req name]
+    (match (cookie req name)
+      (Maybe.Just val) (Cookie.verify &val)
+      (Maybe.Nothing) (Maybe.Nothing))))
+
 (defmodule Response
-  (doc set-cookie "adds a `Set-Cookie` header to the response. The `cookie`
-argument is a `Cookie` value from the `http` library.
-
-```
-(Response.set-cookie resp
-  (Cookie.init @\"session\" @\"abc\" @\"/\"
-    (Maybe.Nothing) (Maybe.Nothing) true true (SameSite.Lax)))
-```
-
-For simple name/value cookies, use [`set-simple-cookie`](#set-simple-cookie).")
+  (doc set-cookie "adds a `Set-Cookie` header to the response.")
   (defn set-cookie [resp cookie]
     (with-header resp @"Set-Cookie" (Cookie.set &cookie)))
 
@@ -2424,7 +2519,31 @@ Uses `Path=/`, `HttpOnly`, and `SameSite=Lax` as defaults.")
                              (Maybe.Nothing)
                              false
                              true
-                             (SameSite.Lax)))))
+                             (SameSite.Lax))))
+
+  (doc set-cookie-with-max-age "adds a `Set-Cookie` header with a `Max-Age`
+attribute (in seconds).")
+  (defn set-cookie-with-max-age [resp cookie max-age]
+    (let [base (Cookie.set &cookie)]
+      (with-header resp @"Set-Cookie" (fmt "%s; Max-Age=%d" &base max-age))))
+
+  (doc clear-cookie "expires a cookie by name with `Max-Age=0`. The `path` must
+match the path used when the cookie was set.")
+  (defn clear-cookie [resp name path]
+    (set-cookie-with-max-age resp
+                             (Cookie.init name
+                                          @""
+                                          path
+                                          (Maybe.Nothing)
+                                          (Maybe.Nothing)
+                                          false
+                                          false
+                                          (SameSite.Lax))
+                             0)))
+
+(doc cookie-secret "sets the signing secret for cookies, for use inside
+[`defserver`](#defserver).")
+(defn cookie-secret [s] (Cookie.set-secret s))
 
 (doc log-before "before-hook that records the request start time in params
 under the key `_start`. Pair with [`log-after`](#log-after).")

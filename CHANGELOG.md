@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- **Cookie module.** Request-side helpers for reading cookies by name:
+  `Request.cookies-map` returns all cookies as a `Map String String`,
+  `Request.cookie` looks up a single cookie value.
+
+- **Cookie signing with HMAC-SHA1.** `Cookie.set-secret` configures a
+  signing key; `Cookie.sign` and `Cookie.verify` produce and validate
+  `value.signature` tokens. `Request.signed-cookie` combines lookup and
+  verification. A top-level `cookie-secret` function provides clean
+  `defserver` integration.
+
+- **`Response.set-cookie-with-max-age`.** Adds a `Set-Cookie` header
+  with a `Max-Age` attribute (in seconds), complementing the existing
+  `set-cookie` which uses the `http` library's `Expires`-only format.
+
+- **`Response.clear-cookie`.** Expires a cookie by name, setting
+  `Max-Age=0` and an empty value.
+
+- **HMAC-SHA1 module** (`HMAC.sha1`, `HMAC.sha1-hex`) implementing
+  RFC 2104 on top of the existing SHA-1 module, for cookie signing.
+
 ### Changed
 
 - **`Response.chunked` uses StringBuf for O(n) chunk encoding.** Previously
