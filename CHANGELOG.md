@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **WebSocket text frames with invalid UTF-8 now close with 1007.** Per
+  RFC 6455 §8.1, incoming text payloads (and reassembled fragmented text
+  messages) are validated as UTF-8; malformed data fails the connection
+  with close code 1007 instead of being passed to the handler.
+
 ## 0.7.0 (2026-07-06)
 
 ### Added
