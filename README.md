@@ -6,7 +6,7 @@ integration, and concurrent connection handling via kqueue/epoll.
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.6.0")
+(load "git@github.com:carpentry-org/web@0.7.0")
 ```
 
 ## Usage
@@ -14,7 +14,7 @@ integration, and concurrent connection handling via kqueue/epoll.
 Define handler functions and register them with `defserver`:
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.6.0")
+(load "git@github.com:carpentry-org/web@0.7.0")
 
 (defn hello [req params]
   (Response.text @"Hello, world!"))

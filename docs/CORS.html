@@ -103,7 +103,7 @@
                         (after-hook req params resp)
                     </pre>
                     <p class="doc">
-                        <p>adds <code>Access-Control-Allow-Origin</code> to every response.</p>
+                        <p>adds CORS headers to every response.</p>
 
                     </p>
                 </div>
@@ -124,8 +124,7 @@
                     </pre>
                     <p class="doc">
                         <p>handles CORS preflight <code>OPTIONS</code> requests. Returns a
-<code>204 No Content</code> with the appropriate <code>Access-Control-*</code> headers. For
-non-OPTIONS requests, continues to the handler.</p>
+204 with CORS headers, or <code>Nothing</code> for non-OPTIONS requests.</p>
 
                     </p>
                 </div>
@@ -145,9 +144,47 @@ non-OPTIONS requests, continues to the handler.</p>
                         (configure allowed-origin)
                     </pre>
                     <p class="doc">
-                        <p>sets the allowed origin for CORS. Call before the server
-starts. The default is <code>*</code> (all origins).</p>
+                        <p>sets the allowed origin for CORS. Use <code>setup</code> for full
+configuration.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#credentials">
+                        <h3 id="credentials">
+                            credentials
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Bool
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#expose-headers">
+                        <h3 id="expose-headers">
+                            expose-headers
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        String
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -224,6 +261,68 @@ starts. The default is <code>*</code> (all origins).</p>
                     </span>
                     <p class="doc">
                         
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-credentials!">
+                        <h3 id="set-credentials!">
+                            set-credentials!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Bool] ())
+                    </p>
+                    <pre class="args">
+                        (set-credentials! c)
+                    </pre>
+                    <p class="doc">
+                        <p>enables or disables <code>Access-Control-Allow-Credentials</code>.
+Origin must not be <code>*</code> when enabled.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-expose-headers!">
+                        <h3 id="set-expose-headers!">
+                            set-expose-headers!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [String] ())
+                    </p>
+                    <pre class="args">
+                        (set-expose-headers! h)
+                    </pre>
+                    <p class="doc">
+                        <p>sets the <code>Access-Control-Expose-Headers</code> value.
+Pass an empty string to omit (the default).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#setup">
+                        <h3 id="setup">
+                            setup
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [String, String, String, String] ())
+                    </p>
+                    <pre class="args">
+                        (setup o m h ma)
+                    </pre>
+                    <p class="doc">
+                        <p>configures CORS origin, methods, headers, and max-age.</p>
+
                     </p>
                 </div>
             </div>
