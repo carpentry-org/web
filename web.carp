@@ -31,6 +31,7 @@
 (load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.1.2")
 (load "git@github.com:carpentry-org/log@0.1.1")
+(load "git@github.com:carpentry-org/utf8.carp@0.1.0")
 
 (defmodule SHA1
   (hidden mask32)
@@ -1773,12 +1774,20 @@ fallback.")
                                                    &fd)
                                       (Map.remove! (ConnState.ws-frag-start cs)
                                                    &fd)
+                                      ; fragments are reassembled before dispatch, so this
+                                      ; UTF-8 check is message-level (RFC 6455 §8.1 Non-Strict)
                                       (if (= orig-op 1)
-                                        (~(WSRoute.handler (Array.unsafe-nth ws-routes
-                                                                             route-idx))
-                                          &(WSEvent.Message (String.from-bytes &frag-buf))
-                                          &params
-                                          &ws)
+                                        (if (UTF8.valid? &frag-buf)
+                                          (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                               route-idx))
+                                            &(WSEvent.Message (String.from-bytes &frag-buf))
+                                            &params
+                                            &ws)
+                                          (do
+                                            (Array.push-back! (WebSocket.outbox &ws)
+                                                              (WebSocket.encode-close-with-code 1007))
+                                            (set! should-close true)
+                                            (break)))
                                         (~(WSRoute.handler (Array.unsafe-nth ws-routes
                                                                              route-idx)) &(WSEvent.Binary @&frag-buf)
                                                                                          &params
@@ -1804,12 +1813,18 @@ fallback.")
                               (break))
                             (do
                               (if (= op 1)
-                                (~(WSRoute.handler (Array.unsafe-nth ws-routes
-                                                                     route-idx))
-                                  &(WSEvent.Message
-                                    (String.from-bytes (WSFrame.payload &frame)))
-                                  &params
-                                  &ws)
+                                (if (UTF8.valid? (WSFrame.payload &frame))
+                                  (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                       route-idx))
+                                    &(WSEvent.Message
+                                      (String.from-bytes (WSFrame.payload &frame)))
+                                    &params
+                                    &ws)
+                                  (do
+                                    (Array.push-back! (WebSocket.outbox &ws)
+                                                      (WebSocket.encode-close-with-code 1007))
+                                    (set! should-close true)
+                                    (break)))
                                 (~(WSRoute.handler (Array.unsafe-nth ws-routes
                                                                      route-idx))
                                   &(WSEvent.Binary @(WSFrame.payload &frame))
