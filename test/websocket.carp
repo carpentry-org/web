@@ -237,6 +237,35 @@
         (Maybe.Nothing) -1))
     "decode pong frame opcode")
 
+  ; RFC 6455 §5.2/§5.5 control-frame validation (close/ping/pong = 8/9/10).
+  (assert-false test
+    (WebSocket.control-frame-protocol-error? 8 true 0)
+    "a well-formed close frame is not a protocol error")
+
+  (assert-false test
+    (WebSocket.control-frame-protocol-error? 9 true 125)
+    "a ping frame with a full 125-byte payload is allowed")
+
+  (assert-false test
+    (WebSocket.control-frame-protocol-error? 10 true 0)
+    "a well-formed pong frame is not a protocol error")
+
+  (assert-true test
+    (WebSocket.control-frame-protocol-error? 8 false 0)
+    "a fragmented control frame (FIN=0) is a protocol error (§5.5)")
+
+  (assert-true test
+    (WebSocket.control-frame-protocol-error? 9 true 126)
+    "a control frame with >125 payload bytes is a protocol error (§5.5)")
+
+  (assert-true test
+    (WebSocket.control-frame-protocol-error? 11 true 0)
+    "reserved control opcode 0xB is a protocol error (§5.2)")
+
+  (assert-true test
+    (WebSocket.control-frame-protocol-error? 15 true 0)
+    "reserved control opcode 0xF is a protocol error (§5.2)")
+
   (assert-equal test
     "/"
     &(let [req (Result.unsafe-from-success

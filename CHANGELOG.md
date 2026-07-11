@@ -7,6 +7,13 @@
   RFC 6455 §8.1, incoming text payloads (and reassembled fragmented text
   messages) are validated as UTF-8; malformed data fails the connection
   with close code 1007 instead of being passed to the handler.
+- **WebSocket control frames are now fully validated per RFC 6455 §5.2/§5.5.**
+  A control frame that is fragmented (FIN=0), carries more than 125 payload
+  bytes, or uses a reserved opcode (0xB–0xF) fails the connection with close
+  code 1002. The 0.6.0 "unknown opcodes close 1002" change reached the reserved
+  data opcodes (0x3–0x7) but not the control range: the ping/pong/close fast
+  path (opcode ≥ 8) still silently consumed 0xB–0xF. The FIN and payload-size
+  checks are new.
 
 ## 0.7.0 (2026-07-06)
 
