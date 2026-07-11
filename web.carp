@@ -760,6 +760,57 @@ or `Nothing` if no subprotocol was negotiated.")
           (Byte.from-int (bit-and (bit-shift-right code 8) 255))
           (Byte.from-int (bit-and code 255))]))
 
+  (hidden frame-len-exceeds?)
+  ; Whether the frame at `offset` declares a payload longer than `cap`, decided
+  ; without ever overflowing Int (a 64-bit length in [2^31, 2^32) would wrap to a
+  ; negative Int). Returns false while the length field isn't fully buffered yet,
+  ; so the caller keeps waiting for more bytes.
+  (defn frame-len-exceeds? [buf offset cap]
+    (let [avail (- (Array.length buf) offset)]
+      (if (< avail 2)
+        false
+        (let [plen0 (bit-and
+                (Byte.to-int @(Array.unsafe-nth buf (+ offset 1)))
+                127)]
+          (cond
+            (< plen0 126)
+            false
+            (= plen0 126)
+            (if (< avail 4)
+              false
+              (>
+                (+
+                  (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 2))) 256)
+                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 3))))
+                cap))
+            ; 64-bit length in bytes offset+2..offset+9, big-endian
+            (< avail 10)
+            false
+            ; any high-32 bit set => >= 2^32, far past any cap
+            (>
+              (bit-or
+                (bit-or
+                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 2)))
+                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 3))))
+                (bit-or
+                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 4)))
+                  (Byte.to-int @(Array.unsafe-nth buf (+ offset 5)))))
+              0)
+            true
+            ; low word's top byte >= 128 => >= 2^31, which would overflow Int
+            (>= (Byte.to-int @(Array.unsafe-nth buf (+ offset 6))) 128)
+            true
+            ; remaining value is < 2^31, so computing and comparing it is safe
+            (>
+              (+
+                (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 6))) 16777216)
+                (+
+                  (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 7))) 65536)
+                  (+
+                    (* (Byte.to-int @(Array.unsafe-nth buf (+ offset 8))) 256)
+                    (Byte.to-int @(Array.unsafe-nth buf (+ offset 9))))))
+              cap))))))
+
   (hidden decode-frame)
   (defn decode-frame [buf offset]
     (let [len (Array.length buf)
@@ -793,15 +844,19 @@ or `Nothing` if no subprotocol was negotiated.")
                 (set! ok false)
                 (do
                   (set! hdr-size 10)
-                  (if (>
-                      (bit-or
+                  (if (or
+                      (>
                         (bit-or
-                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 2)))
-                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 3))))
-                        (bit-or
-                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 4)))
-                          (Byte.to-int @(Array.unsafe-nth buf (+ offset 5)))))
-                      0)
+                          (bit-or
+                            (Byte.to-int @(Array.unsafe-nth buf (+ offset 2)))
+                            (Byte.to-int @(Array.unsafe-nth buf (+ offset 3))))
+                          (bit-or
+                            (Byte.to-int @(Array.unsafe-nth buf (+ offset 4)))
+                            (Byte.to-int @(Array.unsafe-nth buf (+ offset 5)))))
+                        0)
+                      ; a low-word top byte >= 128 makes the length >= 2^31, which
+                      ; would overflow Int to a negative payload length
+                      (>= (Byte.to-int @(Array.unsafe-nth buf (+ offset 6))) 128))
                     (set! ok false)
                     (set! plen
                           (+
@@ -1646,7 +1701,17 @@ fallback.")
                        ws (WebSocket.init fd proto [])
                        offset 0
                        should-close false]
-                (while (< offset (Array.length &buf))
+                (while-do (< offset (Array.length &buf))
+                  ; reject a frame whose declared length exceeds the cap before
+                  ; buffering or decoding it — a 64-bit length would otherwise
+                  ; overflow Int to a negative length and crash the decoder
+                  (when-do (WebSocket.frame-len-exceeds? &buf
+                                                         offset
+                                                         App.max-request-size)
+                    (Array.push-back! (WebSocket.outbox &ws)
+                                      (WebSocket.encode-close-with-code 1009))
+                    (set! should-close true)
+                    (break))
                   (match (WebSocket.decode-frame &buf offset)
                     (Maybe.Nothing) (break)
                     (Maybe.Just frame)

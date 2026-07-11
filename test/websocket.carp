@@ -72,6 +72,26 @@
                                                                    (Int.mod i 4)))))))
     frame))
 
+; Build a masked text frame with an explicit 8-byte (64-bit) declared length.
+; No payload bytes follow — these exercise header length handling only.
+(defn make-64bit-len-frame [b2 b3 b4 b5 b6 b7 b8 b9]
+  (let-do [frame (the (Array Byte) [])]
+    (Array.push-back! &frame (Byte.from-int 129))
+    ; FIN + text
+    (Array.push-back! &frame (Byte.from-int (+ 128 127)))
+    ; MASK bit + len=127
+    (Array.push-back! &frame (Byte.from-int b2))
+    (Array.push-back! &frame (Byte.from-int b3))
+    (Array.push-back! &frame (Byte.from-int b4))
+    (Array.push-back! &frame (Byte.from-int b5))
+    (Array.push-back! &frame (Byte.from-int b6))
+    (Array.push-back! &frame (Byte.from-int b7))
+    (Array.push-back! &frame (Byte.from-int b8))
+    (Array.push-back! &frame (Byte.from-int b9))
+    (for [i 0 4] (Array.push-back! &frame (Byte.from-int 0)))
+    ; mask key
+    frame))
+
 (deftest test
   (assert-equal test "" &(Base64.encode &(String.to-bytes &@"")) "Base64 empty")
 
@@ -960,4 +980,31 @@
   (assert-equal test
     1048576
     App.ws-max-frag-size
-    "ws-max-frag-size defaults to 1 MiB"))
+    "ws-max-frag-size defaults to 1 MiB")
+  ; A 64-bit declared length of 2^31 overflows a 32-bit Int to a negative length.
+  ; frame-len-exceeds? must flag it (so the server closes with 1009) and
+  ; decode-frame must reject it rather than return a negative-length frame that
+  ; later crashes String.from-bytes.
+  (assert-true test
+    (WebSocket.frame-len-exceeds?
+      &(make-64bit-len-frame 0 0 0 0 128 0 0 0)
+      0
+      App.max-request-size)
+    "frame-len-exceeds? flags a 2^31 declared length")
+  (assert-true test
+    (Maybe.nothing?
+      &(WebSocket.decode-frame &(make-64bit-len-frame 0 0 0 0 128 0 0 0) 0))
+    "decode-frame rejects a 2^31 length instead of overflowing to a negative frame")
+  ; A length one byte over the cap (0x00100001) is rejected too.
+  (assert-true test
+    (WebSocket.frame-len-exceeds? &(make-64bit-len-frame 0 0 0 0 0 16 0 1)
+                                  0
+                                  App.max-request-size)
+    "frame-len-exceeds? flags a length one byte past the cap")
+  ; A normal small frame is not flagged.
+  (assert-equal test
+    false
+    (WebSocket.frame-len-exceeds? &(make-masked-text-frame "hello")
+                                  0
+                                  App.max-request-size)
+    "frame-len-exceeds? passes a normal frame"))
