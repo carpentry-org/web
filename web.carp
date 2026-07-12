@@ -897,6 +897,16 @@ or `Nothing` if no subprotocol was negotiated.")
                       (Array.aset! &payload k unmasked)))
                   (Maybe.Just (WSFrame.init fin opcode rsv masked payload total))))))))))
 
+  (hidden control-frame-protocol-error?)
+  ; RFC 6455 constraints a control frame (opcode >= 8) must satisfy, checked
+  ; before it is acted on. Violating any one fails the connection with 1002:
+  ;   §5.5 control frames MUST NOT be fragmented (FIN must be set),
+  ;   §5.5 their payload MUST be <= 125 bytes,
+  ;   §5.2 only close (8), ping (9) and pong (10) are defined — the reserved
+  ;        control opcodes 0xB-0xF must be rejected, not silently ignored.
+  (defn control-frame-protocol-error? [opcode fin plen]
+    (or (not fin) (> plen 125) (and (/= opcode 8) (/= opcode 9) (/= opcode 10))))
+
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
 
@@ -1737,28 +1747,38 @@ fallback.")
                             (break))
                           ; Control frames: always process immediately (RFC 6455 §5.4)
                           is-control
-                          (do
-                            (cond
-                              (= op 9)
-                              ; ping -> pong
+                          ; but first reject the ones that violate §5.2/§5.5
+                          ; (fragmented, oversized, or a reserved opcode)
+                          (if (WebSocket.control-frame-protocol-error? op
+                                                                       fin
+                                                                       plen)
+                            (do
                               (Array.push-back! (WebSocket.outbox &ws)
-                                                (WebSocket.encode-pong (WSFrame.payload &frame)))
-                              (= op 10)
-                              ; pong — reset server-initiated ping counter
-                              (Map.put! (ConnState.ws-ping-count cs) &fd &0)
-                              (= op 8)
-                              ; close
-                              (do
-                                (~(WSRoute.handler (Array.unsafe-nth ws-routes
-                                                                     route-idx)) &(WSEvent.Close)
-                                                                                 &params
-                                                                                 &ws)
+                                                (WebSocket.encode-close-with-code 1002))
+                              (set! should-close true)
+                              (break))
+                            (do
+                              (cond
+                                (= op 9)
+                                ; ping -> pong
                                 (Array.push-back! (WebSocket.outbox &ws)
-                                                  (WebSocket.encode-close))
-                                (set! should-close true)
-                                (break))
-                              ())
-                            (set! offset (+ offset consumed)))
+                                                  (WebSocket.encode-pong (WSFrame.payload &frame)))
+                                (= op 10)
+                                ; pong — reset server-initiated ping counter
+                                (Map.put! (ConnState.ws-ping-count cs) &fd &0)
+                                (= op 8)
+                                ; close
+                                (do
+                                  (~(WSRoute.handler (Array.unsafe-nth ws-routes
+                                                                       route-idx)) &(WSEvent.Close)
+                                                                                   &params
+                                                                                   &ws)
+                                  (Array.push-back! (WebSocket.outbox &ws)
+                                                    (WebSocket.encode-close))
+                                  (set! should-close true)
+                                  (break))
+                                ())
+                              (set! offset (+ offset consumed))))
                           ; Single data frame too large
                           (> plen App.max-request-size)
                           (do
