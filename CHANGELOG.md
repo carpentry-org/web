@@ -2,7 +2,24 @@
 
 ## Unreleased
 
+### Changed
+- **`WebSocket.send-now` / `send-binary-now` now return a `Bool`.** `true`
+  means the whole frame was written; `false` means the connection is dead or
+  the client stopped draining, and the handler should stop sending. Callers
+  that discarded the old `()` result need an `ignore`.
+
 ### Fixed
+- **`send-now` no longer tears frames under backpressure.** Connection
+  sockets are non-blocking, so when the kernel send buffer filled mid-frame,
+  the old write loop dropped the rest of the frame (and silently discarded
+  whole frames). The remainder desynchronized the client's WebSocket parser:
+  later frames (including server pings) were swallowed as payload bytes of
+  the incomplete frame, the client could never answer a ping again, and the
+  server eventually closed the connection as dead. The write loop now polls
+  for writability on `EAGAIN` and resumes (bounded by a 30s stall timeout),
+  retries on `EINTR`, and suppresses `SIGPIPE` (`MSG_NOSIGNAL`/
+  `SO_NOSIGPIPE`), so a streaming handler gets natural backpressure and a
+  frame on the wire is always complete.
 - **WebSocket text frames with invalid UTF-8 now close with 1007.** Per
   RFC 6455 §8.1, incoming text payloads (and reassembled fragmented text
   messages) are validated as UTF-8; malformed data fails the connection

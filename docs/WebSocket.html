@@ -343,7 +343,7 @@ or <code>Nothing</code> if no subprotocol was negotiated.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WebSocket a), (Ref (Array Byte) b)] ())
+                        (Fn [(Ref WebSocket a), (Ref (Array Byte) b)] Bool)
                     </p>
                     <pre class="args">
                         (send-binary-now ws data)
@@ -364,16 +364,20 @@ Like <a href="#send-now"><code>send-now</code></a> but for binary data.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WebSocket a), (Ref String b)] ())
+                        (Fn [(Ref WebSocket a), (Ref String b)] Bool)
                     </p>
                     <pre class="args">
                         (send-now ws msg)
                     </pre>
                     <p class="doc">
                         <p>sends a text message immediately, bypassing the outbox.
-Writes the WebSocket frame directly to the socket. Use this inside handlers
-that block for a long time (e.g. LLM streaming) so that each message reaches
-the client without waiting for the handler to return.</p>
+Writes the WebSocket frame directly to the socket, waiting for the socket to
+drain if the kernel send buffer is full. Use this inside handlers that block
+for a long time (e.g. LLM streaming) so that each message reaches the client
+without waiting for the handler to return.</p>
+<p>Returns <code>true</code> when the whole frame was written. Returns <code>false</code> when the
+connection is dead or the client stopped draining; the caller should stop
+sending on this connection.</p>
 
                     </p>
                 </div>

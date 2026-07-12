@@ -921,19 +921,24 @@ or `Nothing` if no subprotocol was negotiated.")
   (register ws-write-fd- (Fn [Int &(Array Byte)] Int) "ws_write_fd")
 
   (doc send-now "sends a text message immediately, bypassing the outbox.
-Writes the WebSocket frame directly to the socket. Use this inside handlers
-that block for a long time (e.g. LLM streaming) so that each message reaches
-the client without waiting for the handler to return.")
+Writes the WebSocket frame directly to the socket, waiting for the socket to
+drain if the kernel send buffer is full. Use this inside handlers that block
+for a long time (e.g. LLM streaming) so that each message reaches the client
+without waiting for the handler to return.
+
+Returns `true` when the whole frame was written. Returns `false` when the
+connection is dead or the client stopped draining; the caller should stop
+sending on this connection.")
   (defn send-now [ws msg]
     (let [frame (encode-text msg)]
-      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame))))
+      (= (ws-write-fd- @(WebSocket.fd ws) &frame) (Array.length &frame))))
 
   (doc send-binary-now
     "sends a binary message immediately, bypassing the outbox.
 Like [`send-now`](#send-now) but for binary data.")
   (defn send-binary-now [ws data]
     (let [frame (encode-binary data)]
-      (ignore (ws-write-fd- @(WebSocket.fd ws) &frame)))))
+      (= (ws-write-fd- @(WebSocket.fd ws) &frame) (Array.length &frame)))))
 
 (hidden ws-magic-guid)
 (def ws-magic-guid @"258EAFA5-E914-47DA-95CA-C5AB0DC85B11")

@@ -92,6 +92,81 @@
     ; mask key
     frame))
 
+; Retry non-blocking reads until n bytes arrive (or we give up).
+(defn read-n-bytes [stream n]
+  (let-do [buf (the (Array Byte) [])
+           tries 0]
+    (while-do (and (< (Array.length &buf) n) (< tries 200))
+      (match (TcpStream.read-append-nb stream &buf)
+        (Result.Success _) ()
+        (Result.Error _) ())
+      (set! tries (Int.inc tries))
+      (System.sleep-micros 2000))
+    buf))
+
+; send-now writes one complete text frame over a real socket pair and
+; reports success.
+(defn send-now-delivers-intact-frame []
+  (match (TcpListener.bind "127.0.0.1" 0)
+    (Result.Error _) false
+    (Result.Success listener)
+      (let [port (TcpListener.local-port &listener)]
+        (match (TcpStream.connect "127.0.0.1" port)
+          (Result.Error _) (do (TcpListener.close listener) false)
+          (Result.Success client)
+            (match (TcpListener.accept &listener)
+              (Result.Error _)
+                (do (TcpStream.close client) (TcpListener.close listener) false)
+              (Result.Success conn)
+                (let-do [ws (WebSocket.init (TcpStream.poll-fd &conn)
+                                            (Maybe.Nothing)
+                                            [])
+                         ok false]
+                  (TcpStream.set-nonblocking &conn)
+                  (TcpStream.set-nonblocking &client)
+                  (when (WebSocket.send-now &ws "hello")
+                    ; 0x81 (FIN+text), len 5, then the payload
+                    (let [got (read-n-bytes &client 7)
+                          expected [(Byte.from-int 129) (Byte.from-int 5)
+                                    (Byte.from-int 104) (Byte.from-int 101)
+                                    (Byte.from-int 108) (Byte.from-int 108)
+                                    (Byte.from-int 111)]]
+                      (set! ok (= &got &expected))))
+                  (TcpStream.close conn)
+                  (TcpStream.close client)
+                  (TcpListener.close listener)
+                  ok))))))
+
+; send-now reports failure (rather than dying on SIGPIPE or pretending
+; success) once the peer is gone.
+(defn send-now-reports-dead-peer []
+  (match (TcpListener.bind "127.0.0.1" 0)
+    (Result.Error _) false
+    (Result.Success listener)
+      (let [port (TcpListener.local-port &listener)]
+        (match (TcpStream.connect "127.0.0.1" port)
+          (Result.Error _) (do (TcpListener.close listener) false)
+          (Result.Success client)
+            (match (TcpListener.accept &listener)
+              (Result.Error _)
+                (do (TcpStream.close client) (TcpListener.close listener) false)
+              (Result.Success conn)
+                (let-do [ws (WebSocket.init (TcpStream.poll-fd &conn)
+                                            (Maybe.Nothing)
+                                            [])
+                         failed false
+                         i 0]
+                  (TcpStream.set-nonblocking &conn)
+                  (TcpStream.close client)
+                  (while-do (and (not failed) (< i 100))
+                    (unless (WebSocket.send-now &ws "are you there?")
+                      (set! failed true))
+                    (set! i (Int.inc i))
+                    (System.sleep-micros 10000))
+                  (TcpStream.close conn)
+                  (TcpListener.close listener)
+                  failed))))))
+
 (deftest test
   (assert-equal test "" &(Base64.encode &(String.to-bytes &@"")) "Base64 empty")
 
@@ -1036,4 +1111,11 @@
     (WebSocket.frame-len-exceeds? &(make-masked-text-frame "hello")
                                   0
                                   App.max-request-size)
-    "frame-len-exceeds? passes a normal frame"))
+    "frame-len-exceeds? passes a normal frame")
+
+  (assert-true test
+    (send-now-delivers-intact-frame)
+    "send-now writes a complete frame and returns true")
+  (assert-true test
+    (send-now-reports-dead-peer)
+    "send-now returns false once the peer is gone"))
