@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.8.0 (2026-07-12)
 
 ### Changed
 - **`WebSocket.send-now` / `send-binary-now` now return a `Bool`.** `true`
