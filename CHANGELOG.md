@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Handlers no longer receive truncated request bodies.** The server
+  dispatched as soon as it had seen the end of the headers, so any request
+  whose body did not arrive in the same 4KB read reached the handler with the
+  body cut short — form and multipart parsing silently lost data, file uploads
+  over ~4KB were broken, and the leftover bytes were then misread as a second
+  request, answering a bogus `400` after the wrong `200`. The server now waits
+  for the whole body (`Content-Length`, or the terminating chunk for
+  `Transfer-Encoding: chunked`) before dispatching, and answers `400` for
+  requests whose framing is ambiguous.
+
 ## 0.8.0 (2026-07-12)
 
 ### Changed

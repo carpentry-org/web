@@ -1015,8 +1015,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
    ws-routes (Array WSRoute)
    error-handler (Fn [&Request Int String] Response)])
 
-(defn web-has-header-end [buf]
-  (let-do [found false
+; Index of the CR opening the CRLFCRLF that ends the header block, or -1.
+(hidden web-header-end-index)
+(defn web-header-end-index [buf]
+  (let-do [found -1
            len (Array.length buf)]
     (when (>= len 4)
       (for [i 0 (- len 3)]
@@ -1027,9 +1029,150 @@ responses. The `protocols` field lists the subprotocols that this route supports
               (and
                 (= @(Array.unsafe-nth buf (+ i 2)) (Char.to-byte \return))
                 (= @(Array.unsafe-nth buf (+ i 3)) (Char.to-byte \newline)))))
-          (set! found true)
+          (set! found i)
           (break))))
     found))
+
+(defn web-has-header-end [buf] (>= (web-header-end-index buf) 0))
+
+; Index of the first CRLF at or after `start`, searching below `limit`, or -1.
+(hidden web-crlf-index)
+(defn web-crlf-index [buf start limit]
+  (let-do [found -1]
+    (when (and (>= start 0) (>= (- limit start) 2))
+      (for [i start (- limit 1)]
+        (when-do (and
+            (= @(Array.unsafe-nth buf i) (Char.to-byte \return))
+            (= @(Array.unsafe-nth buf (+ i 1)) (Char.to-byte \newline)))
+          (set! found i)
+          (break))))
+    found))
+
+(hidden web-ows?)
+(defn web-ows? [b] (or (= b (Char.to-byte \space)) (= b (Char.to-byte \tab))))
+
+(hidden web-byte-lower)
+(defn web-byte-lower [b] (if (and (>= b 65b) (<= b 90b)) (Byte.+ b 32b) b))
+
+; Whether `buf` at `pos` case-insensitively matches the lowercase ASCII `name`,
+; without reading at or beyond `limit`.
+(hidden web-bytes-match?)
+(defn web-bytes-match? [buf pos limit name]
+  (let-do [nl (Array.length name)
+           ok (and (>= pos 0) (<= (+ pos nl) limit))]
+    (when ok
+      (for [i 0 nl]
+        (unless-do (=
+            (web-byte-lower @(Array.unsafe-nth buf (+ pos i)))
+            @(Array.unsafe-nth name i))
+          (set! ok false)
+          (break))))
+    ok))
+
+; Parses a Content-Length value spanning [pos, limit). Returns -1 if it is not
+; a bare run of digits surrounded by optional whitespace. Accumulation
+; saturates well above App.max-request-size so an absurd length can never
+; overflow into a negative Int.
+(hidden web-parse-content-length)
+(defn web-parse-content-length [buf pos limit]
+  (let-do [i pos
+           v 0
+           digits 0]
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (while-do (and (< i limit)
+                   (and (>= @(Array.unsafe-nth buf i) 48b)
+                        (<= @(Array.unsafe-nth buf i) 57b)))
+      (set! digits (+ digits 1))
+      (when (< v 100000000)
+        (set! v (+ (* v 10) (- (Byte.to-int @(Array.unsafe-nth buf i)) 48))))
+      (set! i (+ i 1)))
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (if (and (> digits 0) (= i limit)) v -1)))
+
+; Whether the Transfer-Encoding value spanning [pos, limit) ends in `chunked`,
+; i.e. whether chunked is the final coding (RFC 7230 §3.3.3).
+(hidden web-chunked-value?)
+(defn web-chunked-value? [buf pos limit]
+  (let-do [e limit]
+    (while (and (> e pos) (web-ows? @(Array.unsafe-nth buf (- e 1))))
+      (set! e (- e 1)))
+    (and (>= (- e pos) 7)
+         (web-bytes-match? buf (- e 7) e &(String.to-bytes "chunked")))))
+
+; Whether a chunked body starting at `body-start` has reached its terminating
+; zero-length chunk. This is a framing check, not a decode: a body whose chunk
+; data happens to contain the terminator bytes ends the wait early.
+(hidden web-chunked-end?)
+(defn web-chunked-end? [buf body-start]
+  (let-do [len (Array.length buf)
+           term &(String.to-bytes "\r\n0\r\n\r\n")
+           found (web-bytes-match? buf
+                                   body-start
+                                   len
+                                   &(String.to-bytes "0\r\n\r\n"))]
+    (unless found
+      (when (>= (- len body-start) 7)
+        (for [i body-start (- len 6)]
+          (when-do (web-bytes-match? buf i len term) (set! found true) (break)))))
+    found))
+
+; Whether the raw bytes in buf hold a whole HTTP request, so that a handler is
+; never dispatched on a body that is still in flight. Returns 1 when the
+; request is complete, 0 when more bytes are needed, and -1 when the framing is
+; unrecoverable and the connection should get a 400 (RFC 7230 §3.3.3):
+; Content-Length together with Transfer-Encoding, a Content-Length that repeats
+; with a different value or is not a plain number, or a Transfer-Encoding whose
+; final coding is not chunked. A request carrying neither header has no body
+; and is complete as soon as its headers are.
+(hidden web-request-complete?)
+(defn web-request-complete? [buf]
+  (let [hdr-end (web-header-end-index buf)]
+    (if (< hdr-end 0)
+      0
+      (let-do [len (Array.length buf)
+               body-start (+ hdr-end 4)
+               cl -2
+               bad false
+               te false
+               chunked false
+               cl-name &(String.to-bytes "content-length:")
+               te-name &(String.to-bytes "transfer-encoding:")
+               line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
+        ; line-start is 1 only when the request line has no CRLF below hdr-end,
+        ; i.e. when there are no header lines to scan at all.
+        (when (> line-start 1)
+          (while (< line-start hdr-end)
+            (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
+                     line-end (if (< nl 0) hdr-end nl)]
+              (cond
+                (web-bytes-match? buf line-start line-end cl-name)
+                  (let [v (web-parse-content-length buf
+                                                    (+ line-start
+                                                       (Array.length cl-name))
+                                                    line-end)]
+                    (cond
+                      (< v 0) (set! bad true)
+                      (= cl -2) (set! cl v)
+                      (/= cl v) (set! bad true)
+                      ()))
+                (web-bytes-match? buf line-start line-end te-name)
+                  (do
+                    (set! te true)
+                    (set! chunked
+                          (web-chunked-value? buf
+                                              (+ line-start
+                                                 (Array.length te-name))
+                                              line-end)))
+                ())
+              (set! line-start (+ line-end 2)))))
+        (cond
+          bad -1
+          (and te (/= cl -2)) -1
+          te (if chunked (if (web-chunked-end? buf body-start) 1 0) -1)
+          (= cl -2) 1
+          (if (>= (- len body-start) cl) 1 0))))))
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
@@ -1996,20 +2139,28 @@ fallback.")
                                               false)]
                   (if too-big
                     (queue-close cs fd)
-                    (let [ready (Map.value-ref! (ConnState.read-bufs cs)
+                    (let-do [status (Map.value-ref! (ConnState.read-bufs cs)
+                                                    &fd
+                                                    &(fn [buf]
+                                                      (web-request-complete? buf))
+                                                    0)]
+                      ; The header timeout covers the header block only — a body
+                      ; may still be arriving after the headers are complete.
+                      (when (Map.value-ref! (ConnState.read-bufs cs)
+                                            &fd
+                                            &(fn [buf] (web-has-header-end buf))
+                                            false)
+                        (Map.put! (ConnState.read-start cs) &fd &0))
+                      (when-do (/= status 0)
+                        ; Validate request line before parsing
+                        (let [bad-req (if (< status 0)
+                                (Maybe.Just (Response.bad-request))
+                                (Map.value-ref! (ConnState.read-bufs cs)
                                                 &fd
                                                 &(fn [buf]
-                                                  (web-has-header-end buf))
-                                                false)]
-                      (when-do ready
-                        (Map.put! (ConnState.read-start cs) &fd &0)
-                        ; Validate request line before parsing
-                        (let [bad-req (Map.value-ref! (ConnState.read-bufs cs)
-                                                      &fd
-                                                      &(fn [buf]
-                                                        (web-validate-request-line buf))
-                                                      (the (Maybe Response)
-                                                           (Maybe.Nothing)))]
+                                                  (web-validate-request-line buf))
+                                                (the (Maybe Response)
+                                                     (Maybe.Nothing))))]
                           (match bad-req
                             ; Malformed request — send 400 and close
                             (Maybe.Just bad-resp)

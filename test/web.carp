@@ -786,6 +786,188 @@
       @(Response.code (Pair.a &pair)))
     "build-response returns 400 for garbage input")
 
+  ; -- has-header-end --
+  (assert-false test
+    (web-has-header-end &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n"))
+    "has-header-end is false while headers are still arriving")
+
+  (assert-true test
+    (web-has-header-end &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "has-header-end is true once the blank line lands")
+
+  (assert-equal test
+    23
+    (web-header-end-index
+      &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\nbody"))
+    "header-end-index points at the CRLFCRLF")
+
+  ; -- request-complete?: requests without a body --
+  (assert-equal test
+    0
+    (web-request-complete? &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n"))
+    "incomplete headers need more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "GET without a body is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "HEAD / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "HEAD without a body is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Key: k\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+    "WebSocket upgrade request is complete")
+
+  ; -- request-complete?: Content-Length --
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"))
+    "Content-Length: 0 is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab"))
+    "a partial body needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nabcde"))
+    "an exact body is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nContent-Length: 3\r\n\r\n"))
+    "a GET that declares a body waits for it")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\ncontent-length: 5\r\n\r\nab"))
+    "header names are matched case-insensitively")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nX-Content-Length: 99\r\n\r\n"))
+    "a header merely ending in content-length is not Content-Length")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 20\r\n\r\nab\r\n\r\ncd"))
+    "a CRLFCRLF inside the body does not end the wait")
+
+  (assert-true test
+    (let [full (String.append
+            "POST /u HTTP/1.1\r\nContent-Length: 12\r\n\r\n"
+            "hello world!")]
+      (and
+        (= 0
+           (web-request-complete? &(String.to-bytes &(String.prefix &full 30))))
+        (and
+          (= 0
+             (web-request-complete? &(String.to-bytes &(String.prefix &full 45))))
+          (and
+            (= 0
+               (web-request-complete?
+                 &(String.to-bytes &(String.prefix &full 50))))
+            (= 1 (web-request-complete? &(String.to-bytes &full)))))))
+    "a body arriving across three reads only completes on the last")
+
+  (assert-true test
+    (let [full (String.append
+            &(String.append
+              "POST / HTTP/1.1\r\nContent-Length: 5000\r\n\r\n"
+              &(String.repeat 4056 "x"))
+            &(String.repeat 944 "y"))]
+      (and
+        (= 0
+           (web-request-complete? &(String.to-bytes &(String.prefix &full 4096))))
+        (= 1 (web-request-complete? &(String.to-bytes &full)))))
+    "a body straddling the 4096-byte read boundary is not truncated")
+
+  ; -- request-complete?: malformed framing --
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: abc\r\n\r\n"))
+    "a non-numeric Content-Length is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: -5\r\n\r\n"))
+    "a negative Content-Length is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nabcde"))
+    "a conflicting duplicate Content-Length is malformed")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nabcde"))
+    "an identical duplicate Content-Length is accepted")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nabcde"))
+    "Content-Length together with Transfer-Encoding is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n"))
+    "a Transfer-Encoding not ending in chunked is malformed")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 99999999999999\r\n\r\nx"))
+    "an absurd Content-Length saturates instead of overflowing")
+
+  ; -- request-complete?: chunked --
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n"))
+    "a chunked body without its terminator needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n0\r\n\r\n"))
+    "a chunked body with its terminator is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n"))
+    "chunked as the final coding is honoured")
+
   ; -- StaticFile.exists? --
   (assert-true test
     (StaticFile.exists? "test/static-fixtures/index.html")
