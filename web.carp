@@ -1142,7 +1142,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
 
 ; Whether the trailer section that follows the last chunk (RFC 7230 §4.1.2) is
 ; fully present from `pos` on: 1 once its terminating blank line has arrived, 0
-; while more bytes are needed.
+; while more bytes are needed. Paired with the start of the first trailer line
+; that is not yet complete, so a later event can resume there.
 (hidden web-trailer-status)
 (defn web-trailer-status [buf pos limit]
   (let-do [p pos
@@ -1154,33 +1155,51 @@ responses. The `protocols` field lists the subprotocols that this route supports
           (< nl 0) (set! done true)
           (= nl p) (do (set! status 1) (set! done true))
           (set! p (+ nl 2)))))
-    status))
+    (Pair.init status p)))
 
 ; Walks the chunk framing of the body starting at `body-start` (RFC 7230 §4.1):
 ; read a chunk-size line, skip that many data bytes plus their CRLF, repeat,
 ; and on the zero-size chunk consume the trailer section. Returns 1 when the
 ; whole body is present, 0 while more bytes are needed, and -1 when the framing
 ; is malformed. Skipping over chunk data rather than searching it is what keeps
-; this O(number of chunks) instead of O(body bytes), and is also why data that
-; happens to contain the terminator bytes cannot end the wait early.
+; a single walk O(number of chunks) instead of O(body bytes), and is also why
+; data that happens to contain the terminator bytes cannot end the wait early.
+;
+; The walk resumes where the previous one stopped, so that a body arriving over
+; many reads costs O(chunks) in total rather than O(chunks) per read. The
+; status is therefore paired with a cursor to hand back on the next call: a
+; positive one is the start of a chunk-size line, a negative one the negated
+; start of a trailer line, and 0 means start over from the body. Only a
+; boundary whose chunk has been fully verified — size line, data bytes and
+; their CRLF all present — is ever recorded, and a cursor that does not land
+; inside the current body is ignored, so a stale one cannot skip unread bytes.
 (hidden web-chunked-status)
-(defn web-chunked-status [buf body-start]
+(defn web-chunked-status [buf body-start cursor]
   (let-do [len (Array.length buf)
-           pos body-start
+           back (if (< cursor 0) (- 0 cursor) cursor)
+           usable (and (>= back body-start) (<= back len))
+           pos (if usable back body-start)
            status 0
-           done false]
+           next-cursor 0
+           done (and usable (< cursor 0))]
+    (when done
+      (let-do [t (web-trailer-status buf pos len)]
+        (set! status @(Pair.a &t))
+        (set! next-cursor (- 0 @(Pair.b &t)))))
     (while-do (not done)
       (let [nl (web-crlf-index buf pos len)]
         (if (< nl 0)
-          (set! done true)
+          (do (set! next-cursor pos) (set! done true))
           (let [size (web-parse-chunk-size buf pos nl)]
             (cond
               (< size 0) (do (set! status -1) (set! done true))
               (= size 0)
-                (do
-                  (set! status (web-trailer-status buf (+ nl 2) len))
+                (let-do [t (web-trailer-status buf (+ nl 2) len)]
+                  (set! status @(Pair.a &t))
+                  (set! next-cursor (- 0 @(Pair.b &t)))
                   (set! done true))
-              (< (- len (+ nl 2)) (+ size 2)) (set! done true)
+              (< (- len (+ nl 2)) (+ size 2))
+                (do (set! next-cursor pos) (set! done true))
               (let [after (+ (+ nl 2) size)]
                 (if (and
                     (= @(Array.unsafe-nth buf after) (Char.to-byte \return))
@@ -1188,7 +1207,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
                        (Char.to-byte \newline)))
                   (set! pos (+ after 2))
                   (do (set! status -1) (set! done true)))))))))
-    status))
+    (Pair.init status next-cursor)))
 
 ; Index of the first colon in [start, limit), or -1.
 (hidden web-colon-index)
@@ -1217,11 +1236,16 @@ responses. The `protocols` field lists the subprotocols that this route supports
 ; final coding is not chunked, chunk framing that does not parse, or whitespace
 ; between a field name and its colon (§3.2.4). A request carrying neither
 ; header has no body and is complete as soon as its headers are.
-(hidden web-request-complete?)
-(defn web-request-complete? [buf]
+;
+; The status is paired with the chunk cursor described on `web-chunked-status`,
+; which the caller keeps per connection and hands back on the next read. It is
+; 0 for every framing but chunked, so it can only ever be non-zero while one
+; chunked body is being read.
+(hidden web-request-status)
+(defn web-request-status [buf cursor]
   (let [hdr-end (web-header-end-index buf)]
     (if (< hdr-end 0)
-      0
+      (Pair.init 0 0)
       (let-do [len (Array.length buf)
                body-start (+ hdr-end 4)
                cl -2
@@ -1261,11 +1285,17 @@ responses. The `protocols` field lists the subprotocols that this route supports
                 ())
               (set! line-start (+ line-end 2)))))
         (cond
-          bad -1
-          (and te (/= cl -2)) -1
-          te (if chunked (web-chunked-status buf body-start) -1)
-          (= cl -2) 1
-          (if (>= (- len body-start) cl) 1 0))))))
+          bad (Pair.init -1 0)
+          (and te (/= cl -2)) (Pair.init -1 0)
+          te
+            (if chunked
+              (web-chunked-status buf body-start cursor)
+              (Pair.init -1 0))
+          (= cl -2) (Pair.init 1 0)
+          (Pair.init (if (>= (- len body-start) cl) 1 0) 0))))))
+
+(hidden web-request-complete?)
+(defn web-request-complete? [buf] @(Pair.a &(web-request-status buf 0)))
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
@@ -1637,6 +1667,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
    keep-alives (Map Int Bool)
    last-active (Map Int Int)
    read-start (Map Int Int)
+   chunk-cursor (Map Int Int)
    sf-fds (Map Int Int)
    sf-offsets (Map Int Long)
    sf-sizes (Map Int Long)
@@ -1762,6 +1793,7 @@ fallback.")
                                &fd
                                &(fn [b] (TcpStream.clear-buf b))))
           (Map.put! (ConnState.read-start cs) &fd &0)
+          (Map.put! (ConnState.chunk-cursor cs) &fd &0)
           (ignore (Poll.modify poll fd poll-read)))
         (queue-close cs fd))))
 
@@ -1788,6 +1820,7 @@ fallback.")
       (Map.remove! (ConnState.keep-alives cs) &fd)
       (Map.remove! (ConnState.last-active cs) &fd)
       (Map.remove! (ConnState.read-start cs) &fd)
+      (Map.remove! (ConnState.chunk-cursor cs) &fd)
       (when-do (Map.contains? (ConnState.sf-fds cs) &fd)
         (ignore (IO.Raw.close-fd (Map.get (ConnState.sf-fds cs) &fd)))
         (Map.remove! (ConnState.sf-fds cs) &fd)
@@ -1814,7 +1847,8 @@ fallback.")
           (Map.put! (ConnState.streams cs) &cfd &client)
           (Map.put! (ConnState.read-bufs cs) &cfd &(the (Array Byte) []))
           (Map.put! (ConnState.last-active cs) &cfd &(System.time))
-          (Map.put! (ConnState.read-start cs) &cfd &0))))
+          (Map.put! (ConnState.read-start cs) &cfd &0)
+          (Map.put! (ConnState.chunk-cursor cs) &cfd &0))))
 
   (hidden handle-writable)
   (defn handle-writable [cs poll fd]
@@ -2232,11 +2266,16 @@ fallback.")
                                               false)]
                   (if too-big
                     (queue-close cs fd)
-                    (let-do [status (Map.value-ref! (ConnState.read-bufs cs)
-                                                    &fd
-                                                    &(fn [buf]
-                                                      (web-request-complete? buf))
-                                                    0)]
+                    (let-do [cursor (Map.get (ConnState.chunk-cursor cs) &fd)
+                             st (Map.value-ref! (ConnState.read-bufs cs)
+                                                &fd
+                                                &(fn [buf]
+                                                  (web-request-status buf cursor))
+                                                (Pair.init 0 0))
+                             status @(Pair.a &st)]
+                      ; Resume the next chunk walk where this one stopped, so a
+                      ; chunked body costs one walk in total, not one per read.
+                      (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
                       ; The header timeout covers the header block only — a body
                       ; may still be arriving after the headers are complete.
                       (when (Map.value-ref! (ConnState.read-bufs cs)
@@ -2574,6 +2613,7 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
           (Result.Success poll)
             (let-do [lfd (TcpListener.poll-fd &listener)
                      cs (ConnState.init {}
+                                        {}
                                         {}
                                         {}
                                         {}

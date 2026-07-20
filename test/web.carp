@@ -7,6 +7,25 @@
     (Result.Success r) r
     (Result.Error _) (Request.init @"GET" @"HTTP/1.1" (zero) [] {} @"")))
 
+; Feeds `s` to the gate in `read-size` byte reads, threading the chunk cursor
+; the way the event loop does, and returns the status after the last read.
+(defn replay-status [s read-size]
+  (let-do [all (String.to-bytes s)
+           n (Array.length &all)
+           buf (the (Array Byte) [])
+           cursor 0
+           status 0
+           i 0]
+    (while (< i n)
+      (let-do [stop (Int.min n (+ i read-size))]
+        (while-do (< i stop)
+          (Array.push-back! &buf @(Array.unsafe-nth &all i))
+          (set! i (+ i 1)))
+        (let-do [p (web-request-status &buf cursor)]
+          (set! status @(Pair.a &p))
+          (set! cursor @(Pair.b &p)))))
+    status))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -1055,6 +1074,68 @@
     (web-request-complete?
       &(String.to-bytes "GET / HTTP/1.1\r\nX-Note: a : b\r\n\r\n"))
     "a space before a colon inside a value is fine")
+
+  ; -- request-complete?: resuming the chunk walk across reads --
+  (assert-equal test
+    1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n1\r\nb\r\n0\r\n\r\n"
+      1)
+    "a chunked body arriving one byte at a time still completes")
+
+  (assert-equal test
+    1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nA: 1\r\nB: 2\r\n\r\n"
+      3)
+    "a trailer section arriving across reads still completes")
+
+  (assert-equal test
+    0
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nA: 1\r\n"
+      3)
+    "an unterminated trailer section keeps needing bytes across reads")
+
+  (assert-equal test
+    0
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n\r\n0\r\n\r\n"
+      1)
+    "resuming does not let terminator bytes in chunk data end the wait early")
+
+  (assert-equal test
+    -1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\nzz\r\n"
+      2)
+    "malformed framing is still caught when the walk resumes")
+
+  (assert-equal test
+    0
+    @(Pair.b
+      &(web-request-status
+        &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab")
+        0))
+    "a Content-Length request never records a chunk cursor")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+        9999))
+    "a cursor past the end of the buffer is ignored")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+        2))
+    "a cursor pointing before the body is ignored")
 
   ; -- StaticFile.exists? --
   (assert-true test
