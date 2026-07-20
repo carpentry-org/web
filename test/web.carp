@@ -968,6 +968,94 @@
         "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n"))
     "chunked as the final coding is honoured")
 
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nTransfer-Encoding: xchunked\r\n\r\n"))
+    "a coding merely ending in chunked is not chunked")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n3\r\nxyz\r\n0\r\n\r\n"))
+    "a chunked body of several chunks is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabc"))
+    "a chunk whose data has not all arrived needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nExpires: x\r\n\r\n"))
+    "a chunked body with a trailer section is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nExpires: x\r\n"))
+    "a trailer section without its blank line needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0;n=v\r\n\r\n"))
+    "a chunk extension on the last chunk is skipped")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n\r\n0\r\n\r\n0\r\n\r\n"))
+    "chunk data holding the terminator bytes does not end the wait early")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nabcde\r\n0\r\n\r\n"))
+    "a non-hexadecimal chunk size is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcdeXX0\r\n\r\n"))
+    "chunk data not followed by CRLF is malformed")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nx\r\n0\r\n\r\n"))
+    "an absurd chunk size saturates instead of overflowing")
+
+  ; -- request-complete?: whitespace before a colon (RFC 7230 §3.2.4) --
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length : 5\r\n\r\nabcde"))
+    "whitespace between a field name and its colon is malformed")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET http://h:80/p HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a colon in the request line is not a header colon")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nX-Note: a : b\r\n\r\n"))
+    "a space before a colon inside a value is fine")
+
   ; -- StaticFile.exists? --
   (assert-true test
     (StaticFile.exists? "test/static-fixtures/index.html")

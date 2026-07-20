@@ -1092,40 +1092,131 @@ responses. The `protocols` field lists the subprotocols that this route supports
     (if (and (> digits 0) (= i limit)) v -1)))
 
 ; Whether the Transfer-Encoding value spanning [pos, limit) ends in `chunked`,
-; i.e. whether chunked is the final coding (RFC 7230 §3.3.3).
+; i.e. whether chunked is the final coding (RFC 7230 §3.3.3). The match has to
+; begin the value or follow a delimiter, so `xchunked` is a coding of its own.
 (hidden web-chunked-value?)
 (defn web-chunked-value? [buf pos limit]
   (let-do [e limit]
     (while (and (> e pos) (web-ows? @(Array.unsafe-nth buf (- e 1))))
       (set! e (- e 1)))
     (and (>= (- e pos) 7)
-         (web-bytes-match? buf (- e 7) e &(String.to-bytes "chunked")))))
+         (and
+           (web-bytes-match? buf (- e 7) e &(String.to-bytes "chunked"))
+           (or (= (- e 7) pos)
+               (let [b @(Array.unsafe-nth buf (- e 8))]
+                 (or (= b (Char.to-byte \,)) (web-ows? b))))))))
 
-; Whether a chunked body starting at `body-start` has reached its terminating
-; zero-length chunk. This is a framing check, not a decode: a body whose chunk
-; data happens to contain the terminator bytes ends the wait early.
-(hidden web-chunked-end?)
-(defn web-chunked-end? [buf body-start]
+; The value of a single hexadecimal digit, or -1.
+(hidden web-hex-digit)
+(defn web-hex-digit [b]
+  (cond
+    (and (>= b 48b) (<= b 57b)) (- (Byte.to-int b) 48)
+    (and (>= b 97b) (<= b 102b)) (- (Byte.to-int b) 87)
+    (and (>= b 65b) (<= b 70b)) (- (Byte.to-int b) 55)
+    -1))
+
+; Parses the chunk-size line spanning [pos, limit), which is a run of hex
+; digits optionally followed by a chunk extension. Returns -1 if it is not.
+; Accumulation saturates well above App.max-request-size so an absurd size can
+; never overflow into a negative Int.
+(hidden web-parse-chunk-size)
+(defn web-parse-chunk-size [buf pos limit]
+  (let-do [i pos
+           v 0
+           digits 0
+           hex true]
+    (while-do (and (< i limit) hex)
+      (let [d (web-hex-digit @(Array.unsafe-nth buf i))]
+        (if (< d 0)
+          (set! hex false)
+          (do
+            (set! digits (+ digits 1))
+            (when (< v 100000000) (set! v (+ (* v 16) d)))
+            (set! i (+ i 1))))))
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (if (and (> digits 0)
+             (or (= i limit) (= @(Array.unsafe-nth buf i) (Char.to-byte \;))))
+      v
+      -1)))
+
+; Whether the trailer section that follows the last chunk (RFC 7230 §4.1.2) is
+; fully present from `pos` on: 1 once its terminating blank line has arrived, 0
+; while more bytes are needed.
+(hidden web-trailer-status)
+(defn web-trailer-status [buf pos limit]
+  (let-do [p pos
+           status 0
+           done false]
+    (while-do (not done)
+      (let [nl (web-crlf-index buf p limit)]
+        (cond
+          (< nl 0) (set! done true)
+          (= nl p) (do (set! status 1) (set! done true))
+          (set! p (+ nl 2)))))
+    status))
+
+; Walks the chunk framing of the body starting at `body-start` (RFC 7230 §4.1):
+; read a chunk-size line, skip that many data bytes plus their CRLF, repeat,
+; and on the zero-size chunk consume the trailer section. Returns 1 when the
+; whole body is present, 0 while more bytes are needed, and -1 when the framing
+; is malformed. Skipping over chunk data rather than searching it is what keeps
+; this O(number of chunks) instead of O(body bytes), and is also why data that
+; happens to contain the terminator bytes cannot end the wait early.
+(hidden web-chunked-status)
+(defn web-chunked-status [buf body-start]
   (let-do [len (Array.length buf)
-           term &(String.to-bytes "\r\n0\r\n\r\n")
-           found (web-bytes-match? buf
-                                   body-start
-                                   len
-                                   &(String.to-bytes "0\r\n\r\n"))]
-    (unless found
-      (when (>= (- len body-start) 7)
-        (for [i body-start (- len 6)]
-          (when-do (web-bytes-match? buf i len term) (set! found true) (break)))))
+           pos body-start
+           status 0
+           done false]
+    (while-do (not done)
+      (let [nl (web-crlf-index buf pos len)]
+        (if (< nl 0)
+          (set! done true)
+          (let [size (web-parse-chunk-size buf pos nl)]
+            (cond
+              (< size 0) (do (set! status -1) (set! done true))
+              (= size 0)
+                (do
+                  (set! status (web-trailer-status buf (+ nl 2) len))
+                  (set! done true))
+              (< (- len (+ nl 2)) (+ size 2)) (set! done true)
+              (let [after (+ (+ nl 2) size)]
+                (if (and
+                    (= @(Array.unsafe-nth buf after) (Char.to-byte \return))
+                    (= @(Array.unsafe-nth buf (+ after 1))
+                       (Char.to-byte \newline)))
+                  (set! pos (+ after 2))
+                  (do (set! status -1) (set! done true)))))))))
+    status))
+
+; Index of the first colon in [start, limit), or -1.
+(hidden web-colon-index)
+(defn web-colon-index [buf start limit]
+  (let-do [found -1]
+    (when (>= start 0)
+      (for [i start limit]
+        (when-do (= @(Array.unsafe-nth buf i) (Char.to-byte \:))
+          (set! found i)
+          (break))))
     found))
+
+; Whether a header line spanning [start, limit) has whitespace between its
+; field name and the colon, which RFC 7230 §3.2.4 requires a server to reject.
+(hidden web-space-before-colon?)
+(defn web-space-before-colon? [buf start limit]
+  (let [c (web-colon-index buf start limit)]
+    (and (> c start) (web-ows? @(Array.unsafe-nth buf (- c 1))))))
 
 ; Whether the raw bytes in buf hold a whole HTTP request, so that a handler is
 ; never dispatched on a body that is still in flight. Returns 1 when the
 ; request is complete, 0 when more bytes are needed, and -1 when the framing is
 ; unrecoverable and the connection should get a 400 (RFC 7230 §3.3.3):
 ; Content-Length together with Transfer-Encoding, a Content-Length that repeats
-; with a different value or is not a plain number, or a Transfer-Encoding whose
-; final coding is not chunked. A request carrying neither header has no body
-; and is complete as soon as its headers are.
+; with a different value or is not a plain number, a Transfer-Encoding whose
+; final coding is not chunked, chunk framing that does not parse, or whitespace
+; between a field name and its colon (§3.2.4). A request carrying neither
+; header has no body and is complete as soon as its headers are.
 (hidden web-request-complete?)
 (defn web-request-complete? [buf]
   (let [hdr-end (web-header-end-index buf)]
@@ -1146,6 +1237,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
           (while (< line-start hdr-end)
             (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
                      line-end (if (< nl 0) hdr-end nl)]
+              (when (web-space-before-colon? buf line-start line-end)
+                (set! bad true))
               (cond
                 (web-bytes-match? buf line-start line-end cl-name)
                   (let [v (web-parse-content-length buf
@@ -1170,7 +1263,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
         (cond
           bad -1
           (and te (/= cl -2)) -1
-          te (if chunked (if (web-chunked-end? buf body-start) 1 0) -1)
+          te (if chunked (web-chunked-status buf body-start) -1)
           (= cl -2) 1
           (if (>= (- len body-start) cl) 1 0))))))
 
