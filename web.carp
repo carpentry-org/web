@@ -1171,8 +1171,19 @@ responses. The `protocols` field lists the subprotocols that this route supports
 ; positive one is the start of a chunk-size line, a negative one the negated
 ; start of a trailer line, and 0 means start over from the body. Only a
 ; boundary whose chunk has been fully verified — size line, data bytes and
-; their CRLF all present — is ever recorded, and a cursor that does not land
-; inside the current body is ignored, so a stale one cannot skip unread bytes.
+; their CRLF all present — is ever recorded.
+;
+; The cursor is trusted rather than validated: `usable` is only a range check,
+; so a stale cursor that happens to fall inside the current body is resumed
+; from as-is and the answer is then simply wrong — including reporting a
+; truncated body as complete, the bug this gate exists to prevent. What rules
+; that out is the caller, not this check: `chunk-cursor` is reset in
+; `conn-done-writing`, removed in `conn-cleanup` and initialised in
+; `handle-accept`, and the paths that clear `read-bufs` without touching it
+; either close the connection or hand the fd to the WebSocket loop, which never
+; consults it. Validating a cursor would mean walking to it from `body-start`,
+; the cost it exists to avoid, so any future path that carries bytes across
+; requests on one fd — HTTP pipelining, say — has to reset the cursor itself.
 (hidden web-chunked-status)
 (defn web-chunked-status [buf body-start cursor]
   (let-do [len (Array.length buf)

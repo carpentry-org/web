@@ -1137,6 +1137,42 @@
         2))
     "a cursor pointing before the body is ignored")
 
+  ; Both cursors above are out of range, which is the only case the check in
+  ; web-chunked-status covers. These three pin what it does with an in-range
+  ; one: nothing. The body below is truncated — one chunk, no terminator — so
+  ; the answer from a fresh cursor is 0, but a stale cursor landing anywhere
+  ; inside it is resumed from unvalidated and answers wrongly. Index 51 is the
+  ; CRLF closing the chunk data, so as a trailer resume point it reads as a
+  ; blank line and the truncated body is reported complete. Safety comes from
+  ; every fd that reaches this gate carrying a cursor reset alongside its
+  ; buffer, not from these bounds.
+  (assert-equal test
+    0
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        0))
+    "a truncated chunked body is incomplete from a fresh cursor")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        -51))
+    "an in-range stale trailer cursor reports that truncated body as complete")
+
+  (assert-equal test
+    -1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        48))
+    "an in-range stale chunk cursor reports that truncated body as malformed")
+
   ; -- StaticFile.exists? --
   (assert-true test
     (StaticFile.exists? "test/static-fixtures/index.html")
