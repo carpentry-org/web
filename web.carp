@@ -26,7 +26,7 @@
   (WS  \"/ws/echo\" echo))
 ```")
 
-(load "git@github.com:carpentry-org/http@0.1.4")
+(load "git@github.com:carpentry-org/http@0.2.0")
 (load "git@github.com:carpentry-org/socket@0.2.3")
 (load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.1.2")
@@ -437,17 +437,6 @@ file contents.")
                   (with-header @"X-Sendfile" @path)
                   (with-header @"ETag" etag)))))))))
 
-(doc FormPart "represents a single part from a `multipart/form-data` request.
-
-Each part has a `name` (from the Content-Disposition header), an optional
-`filename` for file uploads, a `content-type` (defaults to `text/plain`),
-and the part `body`.")
-(deftype FormPart
-  [name String
-   filename (Maybe String)
-   content-type String
-   body String])
-
 (doc Form "provides helpers for parsing `application/x-www-form-urlencoded`
 and `multipart/form-data` request bodies.")
 (defmodule Form
@@ -551,14 +540,15 @@ map if the content type is not `application/x-www-form-urlencoded`.")
                   filename-result (extract-header-param disp-val "filename")
                   ct-pos (find-substring headers-lower "content-type:" 0)
                   ct (if (< ct-pos 0)
-                    @"text/plain"
+                    (Maybe.Just @"text/plain")
                     (let [ct-start (+ ct-pos 13)
                           ct-eol (find-substring headers-str "\r\n" ct-start)
                           ct-end (if (< ct-eol 0)
                             (String.length headers-str)
                             ct-eol)]
-                      (String.trim
-                        &(String.byte-slice headers-str ct-start ct-end))))]
+                      (Maybe.Just
+                        (String.trim
+                          &(String.byte-slice headers-str ct-start ct-end)))))]
               (match name-result
                 (Maybe.Nothing) (Maybe.Nothing)
                 (Maybe.Just name)
@@ -1610,10 +1600,20 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Maybe.Just (Response.bad-request))
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
+; Replace a chunked request body with its decoded bytes. The framing headers
+; are left as they arrived, so `Request.chunked?` still reports the wire format.
+(hidden web-decode-body)
+(defn web-decode-body [req]
+  (if (Request.chunked? &req)
+    (match (TransferEncoding.dechunk (Request.body &req))
+      (Result.Error e) (Result.Error e)
+      (Result.Success decoded) (Result.Success (Request.set-body req decoded)))
+    (Result.Success req)))
+
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)]
-    (match (Request.parse raw)
+    (match (Result.and-then (Request.parse raw) &web-decode-body)
       (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
         (let [ka (web-keep-alive? &req)

@@ -2,7 +2,17 @@
 
 ## Unreleased
 
+### Changed
+- **`FormPart.content-type` is now a `(Maybe String)`.** A part that carries no
+  `Content-Type` header still reports `text/plain`, so callers only need to
+  unwrap the value.
+
 ### Fixed
+- **Chunked request bodies now reach handlers decoded.** A request sent with
+  `Transfer-Encoding: chunked` handed the handler the raw chunk framing — size
+  lines, CRLFs and all — as its body, so form, multipart and JSON parsing all
+  saw garbage. The body is now decoded before dispatch, and one whose framing
+  cannot be decoded is answered with `400`.
 - **Handlers no longer receive truncated request bodies.** The server
   dispatched as soon as it had seen the end of the headers, so any request
   whose body did not arrive in the same 4KB read reached the handler with the

@@ -328,23 +328,25 @@
 
   (assert-equal test
     "text/plain"
-    (FormPart.content-type
-      (Array.unsafe-nth
-        &(Form.decode-multipart
-          "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
-          "abc")
-        0))
+    &(Maybe.unsafe-from
+      @(FormPart.content-type
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
+            "abc")
+          0)))
     "decode-multipart extracts content-type")
 
   ; -- decode-multipart: default content-type --
   (assert-equal test
     "text/plain"
-    (FormPart.content-type
-      (Array.unsafe-nth
-        &(Form.decode-multipart
-          "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
-          "abc")
-        0))
+    &(Maybe.unsafe-from
+      @(FormPart.content-type
+        (Array.unsafe-nth
+          &(Form.decode-multipart
+            "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
+            "abc")
+          0)))
     "decode-multipart defaults content-type to text/plain")
 
   ; -- decode-multipart: no filename for text field --
@@ -621,6 +623,60 @@
           pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
       (String.empty? (Response.body (Pair.a &pair))))
     "HEAD + chunked has empty body")
+
+  ; -- chunked request body reaches the handler decoded --
+  (assert-equal test
+    "hello world"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "chunked request body is dechunked before dispatch")
+
+  ; -- a non-chunked body is handed through untouched --
+  (assert-equal test
+    "6\r\nhello \r\n0\r\n\r\n"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 15\r\n\r\n6\r\nhello \r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "Content-Length body is not dechunked")
+
+  ; -- malformed chunk framing --
+  (assert-equal test
+    400
+    @(Response.code
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "undecodable chunked body is a 400")
 
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
