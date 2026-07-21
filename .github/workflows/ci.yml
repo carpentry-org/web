@@ -25,5 +25,13 @@ jobs:
           carp -x test/web.carp
           carp -x test/websocket.carp
 
+      - name: Smoke test
+        timeout-minutes: 15
+        run: ./test/smoke.sh
+
+      - name: Smoke server log
+        if: always()
+        run: cat smoke-server.log 2>/dev/null || echo "no server log"
+
       - name: Generate docs
         run: carp -x gendocs.carp

@@ -26,7 +26,7 @@
   (WS  \"/ws/echo\" echo))
 ```")
 
-(load "git@github.com:carpentry-org/http@0.1.4")
+(load "git@github.com:carpentry-org/http@0.2.0")
 (load "git@github.com:carpentry-org/socket@0.2.3")
 (load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.1.2")
@@ -437,17 +437,6 @@ file contents.")
                   (with-header @"X-Sendfile" @path)
                   (with-header @"ETag" etag)))))))))
 
-(doc FormPart "represents a single part from a `multipart/form-data` request.
-
-Each part has a `name` (from the Content-Disposition header), an optional
-`filename` for file uploads, a `content-type` (defaults to `text/plain`),
-and the part `body`.")
-(deftype FormPart
-  [name String
-   filename (Maybe String)
-   content-type String
-   body String])
-
 (doc Form "provides helpers for parsing `application/x-www-form-urlencoded`
 and `multipart/form-data` request bodies.")
 (defmodule Form
@@ -491,153 +480,21 @@ map if the content type is not `application/x-www-form-urlencoded`.")
         (decode (Request.body req))
         (the (Map String String) {}))))
 
-  (hidden find-substring)
-  (defn find-substring [haystack needle start]
-    (let-do [h-len (String.length haystack)
-             n-len (String.length needle)
-             result -1]
-      (when (and (> n-len 0) (<= (+ start n-len) h-len))
-        (for [i start (+ (- h-len n-len) 1)]
-          (let-do [matched true]
-            (for [j 0 n-len]
-              (when-do (/= (String.char-at haystack (+ i j))
-                           (String.char-at needle j))
-                (set! matched false)
-                (break)))
-            (when-do matched (set! result i) (break)))))
-      result))
-
-  (hidden extract-header-param)
-  (defn extract-header-param [s key]
-    (let-do [parts &(String.split-by s &[\;])
-             result (the (Maybe String) (Maybe.Nothing))
-             search (String.append key "=")]
-      (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))
-              part-lower &(String.ascii-to-lower part)]
-          (when (String.starts-with? part-lower &search)
-            (let-do [val-start (String.length &search)
-                     val-str &(String.byte-slice part
-                                                 val-start
-                                                 (String.length part))]
-              (if (and (> (String.length val-str) 0)
-                       (= (String.char-at val-str 0) \"))
-                (let [end-quote (String.index-of-from val-str \" 1)]
-                  (when (> end-quote 0)
-                    (set! result
-                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
-                (set! result (Maybe.Just @val-str)))
-              (break)))))
-      result))
-
-  (hidden parse-multipart-part)
-  (defn parse-multipart-part [raw]
-    (let [hdr-end (find-substring raw "\r\n\r\n" 0)]
-      (if (< hdr-end 0)
-        (the (Maybe FormPart) (Maybe.Nothing))
-        (let [headers-str &(String.byte-slice raw 0 hdr-end)
-              headers-lower &(String.ascii-to-lower headers-str)
-              body (String.byte-slice raw (+ hdr-end 4) (String.length raw))
-              disp-pos (find-substring headers-lower "content-disposition:" 0)]
-          (if (< disp-pos 0)
-            (Maybe.Nothing)
-            (let [disp-start (+ disp-pos 20)
-                  disp-eol (find-substring headers-str "\r\n" disp-start)
-                  disp-end (if (< disp-eol 0)
-                    (String.length headers-str)
-                    disp-eol)
-                  disp-val &(String.byte-slice headers-str disp-start disp-end)
-                  name-result (extract-header-param disp-val "name")
-                  filename-result (extract-header-param disp-val "filename")
-                  ct-pos (find-substring headers-lower "content-type:" 0)
-                  ct (if (< ct-pos 0)
-                    @"text/plain"
-                    (let [ct-start (+ ct-pos 13)
-                          ct-eol (find-substring headers-str "\r\n" ct-start)
-                          ct-end (if (< ct-eol 0)
-                            (String.length headers-str)
-                            ct-eol)]
-                      (String.trim
-                        &(String.byte-slice headers-str ct-start ct-end))))]
-              (match name-result
-                (Maybe.Nothing) (Maybe.Nothing)
-                (Maybe.Just name)
-                  (Maybe.Just (FormPart.init name filename-result ct body)))))))))
-
-  (hidden extract-boundary)
-  (defn extract-boundary [content-type]
-    (let-do [parts &(String.split-by content-type &[\;])
-             result (the (Maybe String) (Maybe.Nothing))]
-      (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))
-              part-lower &(String.ascii-to-lower part)]
-          (when (String.starts-with? part-lower "boundary=")
-            (let-do [val-str &(String.byte-slice part 9 (String.length part))]
-              (if (and (> (String.length val-str) 0)
-                       (= (String.char-at val-str 0) \"))
-                (let [end-quote (String.index-of-from val-str \" 1)]
-                  (when (> end-quote 0)
-                    (set! result
-                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
-                (set! result (Maybe.Just @val-str)))
-              (break)))))
-      result))
-
-  (hidden skip-lwsp)
-  (defn skip-lwsp [s pos]
-    (let-do [p pos
-             len (String.length s)]
-      (while (and (< p len)
-                  (or (= (String.char-at s p) \space)
-                      (= (String.char-at s p) \tab)))
-        (set! p (+ p 1)))
-      p))
-
-  (doc decode-multipart "parses a `multipart/form-data` body given the
-boundary string. Returns an array of [`FormPart`](#FormPart) values.
+  (doc decode-multipart "decodes a `multipart/form-data` body given the
+boundary string, via http’s `Multipart.parse`. Returns
+`(Result (Array FormPart) String)`; fails when the opening boundary
+delimiter is absent.
 
 ```
-(let [parts (Form.decode-multipart body \"boundary123\")]
-  (Array.nth &parts 0))
+(match (Form.decode-multipart body \"boundary123\")
+  (Result.Success parts) (Array.nth &parts 0)
+  (Result.Error _) (Maybe.Nothing))
 ```
 
-Each part’s `name`, optional `filename`, and `content-type` are extracted
-from its MIME headers. The `body` field is the raw content between the
-part headers and the next boundary delimiter.")
-  (defn decode-multipart [body boundary]
-    (let-do [delim (String.append "--" boundary)
-             crlf-delim (String.append "\r\n" &delim)
-             parts (the (Array FormPart) [])
-             body-len (String.length body)
-             start (find-substring body &delim 0)]
-      (when (>= start 0)
-        (let-do [pos (+ start (String.length &delim))]
-          (set! pos (skip-lwsp body pos))
-          (when (and (< (+ pos 1) body-len)
-                     (= (String.char-at body pos) \return)
-                     (= (String.char-at body (+ pos 1)) \newline))
-            (set! pos (+ pos 2)))
-          (while (< pos body-len)
-            (let [next (find-substring body &crlf-delim pos)]
-              (if (< next 0)
-                (break)
-                (let-do [part-str &(String.byte-slice body pos next)]
-                  (match (parse-multipart-part part-str)
-                    (Maybe.Just part) (Array.push-back! &parts part)
-                    (Maybe.Nothing) ())
-                  (let-do [after (+ next (String.length &crlf-delim))]
-                    (set! after (skip-lwsp body after))
-                    (cond
-                      (and (<= (+ after 2) body-len)
-                           (= (String.char-at body after) \-)
-                           (= (String.char-at body (+ after 1)) \-))
-                        (break)
-                      (and (< (+ after 1) body-len)
-                           (= (String.char-at body after) \return)
-                           (= (String.char-at body (+ after 1)) \newline))
-                        (set! pos (+ after 2))
-                      (set! pos after)))))))))
-      parts))
+Each part’s `name`, optional `filename`, and optional `content-type` are
+extracted from its MIME headers. The `body` field is the raw content between
+the part headers and the next boundary delimiter.")
+  (defn decode-multipart [body boundary] (Multipart.parse body boundary))
 
   (doc multipart? "checks whether a request has a `multipart/form-data`
 content type.")
@@ -646,28 +503,19 @@ content type.")
       (Maybe.Just ct) (String.starts-with? &ct "multipart/form-data")
       (Maybe.Nothing) false))
 
-  (doc decode-multipart-request "parses the multipart form body from a
-request. Returns an array of [`FormPart`](#FormPart) values, or an empty
-array if the content type is not `multipart/form-data` or the boundary
-is missing.
+  (doc decode-multipart-request "decodes the multipart form body of a
+request, taking the boundary from its `Content-Type` header, via http’s
+`Request.multipart-data`. Returns `(Result (Array FormPart) String)`; fails
+when the request is not `multipart/form-data` or carries no boundary.
 
 ```
 (defn upload [req params]
-  (let [parts (Form.decode-multipart-request req)]
-    (if (> (Array.length &parts) 0)
+  (match (Form.decode-multipart-request req)
+    (Result.Success parts)
       (Response.text (fmt \"got %d parts\" (Array.length &parts)))
-      (Response.bad-request))))
+    (Result.Error _) (Response.bad-request)))
 ```")
-  (defn decode-multipart-request [req]
-    (match (Request.header req "Content-Type")
-      (Maybe.Nothing) (the (Array FormPart) [])
-      (Maybe.Just ct)
-        (if (not (String.starts-with? &ct "multipart/form-data"))
-          (the (Array FormPart) [])
-          (match (extract-boundary &ct)
-            (Maybe.Nothing) (the (Array FormPart) [])
-            (Maybe.Just boundary)
-              (decode-multipart (Request.body req) &boundary))))))
+  (defn decode-multipart-request [req] (Request.multipart-data req)))
 
 (doc WSEvent "represents an event on a WebSocket connection.
 
@@ -1015,8 +863,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
    ws-routes (Array WSRoute)
    error-handler (Fn [&Request Int String] Response)])
 
-(defn web-has-header-end [buf]
-  (let-do [found false
+; Index of the CR opening the CRLFCRLF that ends the header block, or -1.
+(hidden web-header-end-index)
+(defn web-header-end-index [buf]
+  (let-do [found -1
            len (Array.length buf)]
     (when (>= len 4)
       (for [i 0 (- len 3)]
@@ -1027,9 +877,294 @@ responses. The `protocols` field lists the subprotocols that this route supports
               (and
                 (= @(Array.unsafe-nth buf (+ i 2)) (Char.to-byte \return))
                 (= @(Array.unsafe-nth buf (+ i 3)) (Char.to-byte \newline)))))
-          (set! found true)
+          (set! found i)
           (break))))
     found))
+
+(defn web-has-header-end [buf] (>= (web-header-end-index buf) 0))
+
+; Index of the first CRLF at or after `start`, searching below `limit`, or -1.
+(hidden web-crlf-index)
+(defn web-crlf-index [buf start limit]
+  (let-do [found -1]
+    (when (and (>= start 0) (>= (- limit start) 2))
+      (for [i start (- limit 1)]
+        (when-do (and
+            (= @(Array.unsafe-nth buf i) (Char.to-byte \return))
+            (= @(Array.unsafe-nth buf (+ i 1)) (Char.to-byte \newline)))
+          (set! found i)
+          (break))))
+    found))
+
+(hidden web-ows?)
+(defn web-ows? [b] (or (= b (Char.to-byte \space)) (= b (Char.to-byte \tab))))
+
+(hidden web-byte-lower)
+(defn web-byte-lower [b] (if (and (>= b 65b) (<= b 90b)) (Byte.+ b 32b) b))
+
+; Case-insensitive match of lowercase ASCII `name` at `pos`, bounded by `limit`.
+(hidden web-bytes-match?)
+(defn web-bytes-match? [buf pos limit name]
+  (let-do [nl (Array.length name)
+           ok (and (>= pos 0) (<= (+ pos nl) limit))]
+    (when ok
+      (for [i 0 nl]
+        (unless-do (=
+            (web-byte-lower @(Array.unsafe-nth buf (+ pos i)))
+            @(Array.unsafe-nth name i))
+          (set! ok false)
+          (break))))
+    ok))
+
+; Parses a Content-Length value in [pos, limit); -1 if malformed. Saturating.
+(hidden web-parse-content-length)
+(defn web-parse-content-length [buf pos limit]
+  (let-do [i pos
+           v 0
+           digits 0]
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (while-do (and (< i limit)
+                   (and (>= @(Array.unsafe-nth buf i) 48b)
+                        (<= @(Array.unsafe-nth buf i) 57b)))
+      (set! digits (+ digits 1))
+      (when (< v 100000000)
+        (set! v (+ (* v 10) (- (Byte.to-int @(Array.unsafe-nth buf i)) 48))))
+      (set! i (+ i 1)))
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (if (and (> digits 0) (= i limit)) v -1)))
+
+; Whether the final Transfer-Encoding coding in [pos, limit) is chunked (§3.3.3).
+(hidden web-chunked-value?)
+(defn web-chunked-value? [buf pos limit]
+  (let-do [e limit]
+    (while (and (> e pos) (web-ows? @(Array.unsafe-nth buf (- e 1))))
+      (set! e (- e 1)))
+    (and (>= (- e pos) 7)
+         (and
+           (web-bytes-match? buf (- e 7) e &(String.to-bytes "chunked"))
+           (or (= (- e 7) pos)
+               (let [b @(Array.unsafe-nth buf (- e 8))]
+                 (or (= b (Char.to-byte \,)) (web-ows? b))))))))
+
+; The value of a single hexadecimal digit, or -1.
+(hidden web-hex-digit)
+(defn web-hex-digit [b]
+  (cond
+    (and (>= b 48b) (<= b 57b)) (- (Byte.to-int b) 48)
+    (and (>= b 97b) (<= b 102b)) (- (Byte.to-int b) 87)
+    (and (>= b 65b) (<= b 70b)) (- (Byte.to-int b) 55)
+    -1))
+
+; Parses a chunk-size line in [pos, limit); -1 if malformed. Saturating.
+(hidden web-parse-chunk-size)
+(defn web-parse-chunk-size [buf pos limit]
+  (let-do [i pos
+           v 0
+           digits 0
+           hex true]
+    (while-do (and (< i limit) hex)
+      (let [d (web-hex-digit @(Array.unsafe-nth buf i))]
+        (if (< d 0)
+          (set! hex false)
+          (do
+            (set! digits (+ digits 1))
+            (when (< v 100000000) (set! v (+ (* v 16) d)))
+            (set! i (+ i 1))))))
+    (while (and (< i limit) (web-ows? @(Array.unsafe-nth buf i)))
+      (set! i (+ i 1)))
+    (if (and (> digits 0)
+             (or (= i limit) (= @(Array.unsafe-nth buf i) (Char.to-byte \;))))
+      v
+      -1)))
+
+; Whether the trailer section at `pos` is complete: (Pair status resume-pos).
+(hidden web-trailer-status)
+(defn web-trailer-status [buf pos limit]
+  (let-do [p pos
+           status 0
+           done false]
+    (while-do (not done)
+      (let [nl (web-crlf-index buf p limit)]
+        (cond
+          (< nl 0) (set! done true)
+          (= nl p) (do (set! status 1) (set! done true))
+          (set! p (+ nl 2)))))
+    (Pair.init status p)))
+
+; Walks the chunk framing at `body-start` (RFC 7230 §4.1), skipping over data
+; bytes: 1 complete, 0 needs more bytes, -1 malformed. Resumes from `cursor`
+; (positive: chunk-size line, negative: negated trailer line, 0: start over),
+; which is range-checked, not validated — every path that clears the read
+; buffer must reset it.
+(hidden web-chunked-status)
+(defn web-chunked-status [buf body-start cursor]
+  (let-do [len (Array.length buf)
+           back (if (< cursor 0) (- 0 cursor) cursor)
+           usable (and (>= back body-start) (<= back len))
+           pos (if usable back body-start)
+           status 0
+           next-cursor 0
+           done (and usable (< cursor 0))]
+    (when done
+      (let-do [t (web-trailer-status buf pos len)]
+        (set! status @(Pair.a &t))
+        (set! next-cursor (- 0 @(Pair.b &t)))))
+    (while-do (not done)
+      (let [nl (web-crlf-index buf pos len)]
+        (if (< nl 0)
+          (do (set! next-cursor pos) (set! done true))
+          (let [size (web-parse-chunk-size buf pos nl)]
+            (cond
+              (< size 0) (do (set! status -1) (set! done true))
+              (= size 0)
+                (let-do [t (web-trailer-status buf (+ nl 2) len)]
+                  (set! status @(Pair.a &t))
+                  (set! next-cursor (- 0 @(Pair.b &t)))
+                  (set! done true))
+              (< (- len (+ nl 2)) (+ size 2))
+                (do (set! next-cursor pos) (set! done true))
+              (let [after (+ (+ nl 2) size)]
+                (if (and
+                    (= @(Array.unsafe-nth buf after) (Char.to-byte \return))
+                    (= @(Array.unsafe-nth buf (+ after 1))
+                       (Char.to-byte \newline)))
+                  (set! pos (+ after 2))
+                  (do (set! status -1) (set! done true)))))))))
+    (Pair.init status next-cursor)))
+
+; Index of the first colon in [start, limit), or -1.
+(hidden web-colon-index)
+(defn web-colon-index [buf start limit]
+  (let-do [found -1]
+    (when (>= start 0)
+      (for [i start limit]
+        (when-do (= @(Array.unsafe-nth buf i) (Char.to-byte \:))
+          (set! found i)
+          (break))))
+    found))
+
+; Whether a header line in [start, limit) has whitespace before its colon (§3.2.4).
+(hidden web-space-before-colon?)
+(defn web-space-before-colon? [buf start limit]
+  (let [c (web-colon-index buf start limit)]
+    (and (> c start) (web-ows? @(Array.unsafe-nth buf (- c 1))))))
+
+; The framing of one request, read once from the raw header block; the gate
+; and the body decoder both consume it. `malformed` covers everything RFC 7230
+; §3.3.3 and §3.2.4 require a 400 for.
+(hidden WebFraming)
+(deftype WebFraming
+  [body-start Int
+   content-length (Maybe Int)
+   chunked Bool
+   expects-continue Bool
+   malformed Bool])
+
+; Reads the framing of the request in `buf`; Nothing while headers are incomplete.
+(hidden web-parse-framing)
+(defn web-parse-framing [buf]
+  (let [hdr-end (web-header-end-index buf)]
+    (if (< hdr-end 0)
+      (the (Maybe WebFraming) (Maybe.Nothing))
+      (let-do [cl -2
+               bad false
+               te false
+               chunked false
+               expects false
+               cl-name &(String.to-bytes "content-length:")
+               te-name &(String.to-bytes "transfer-encoding:")
+               ex-name &(String.to-bytes "expect:")
+               line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
+        ; line-start 1 means no header lines below hdr-end at all
+        (when (> line-start 1)
+          (while (< line-start hdr-end)
+            (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
+                     line-end (if (< nl 0) hdr-end nl)]
+              (when (web-space-before-colon? buf line-start line-end)
+                (set! bad true))
+              (cond
+                (web-bytes-match? buf line-start line-end cl-name)
+                  (let [v (web-parse-content-length buf
+                                                    (+ line-start
+                                                       (Array.length cl-name))
+                                                    line-end)]
+                    (cond
+                      (< v 0) (set! bad true)
+                      (= cl -2) (set! cl v)
+                      (/= cl v) (set! bad true)
+                      ()))
+                (web-bytes-match? buf line-start line-end te-name)
+                  (do
+                    (set! te true)
+                    (set! chunked
+                          (web-chunked-value? buf
+                                              (+ line-start
+                                                 (Array.length te-name))
+                                              line-end)))
+                (web-bytes-match? buf line-start line-end ex-name)
+                  (let-do [vs (+ line-start (Array.length ex-name))
+                           ve line-end]
+                    (while (and (< vs ve) (web-ows? @(Array.unsafe-nth buf vs)))
+                      (set! vs (+ vs 1)))
+                    (while (and (> ve vs)
+                                (web-ows? @(Array.unsafe-nth buf (- ve 1))))
+                      (set! ve (- ve 1)))
+                    (set! expects
+                          (and (= (- ve vs) 12)
+                               (web-bytes-match? buf
+                                                 vs
+                                                 ve
+                                                 &(String.to-bytes "100-continue")))))
+                ())
+              (set! line-start (+ line-end 2)))))
+        (when (and te (or (not chunked) (/= cl -2))) (set! bad true))
+        (Maybe.Just
+          (WebFraming.init (+ hdr-end 4)
+                           (if (= cl -2)
+                             (the (Maybe Int) (Maybe.Nothing))
+                             (Maybe.Just cl))
+                           (and te (and chunked (not bad)))
+                           expects
+                           bad))))))
+
+; Whether `buf` holds a whole HTTP request: 1 complete, 0 needs more bytes,
+; -1 malformed (400). Paired with the chunk cursor for `web-chunked-status`.
+(hidden web-request-status)
+(defn web-request-status [buf cursor]
+  (match (web-parse-framing buf)
+    (Maybe.Nothing) (Pair.init 0 0)
+    (Maybe.Just f)
+      (cond
+        @(WebFraming.malformed &f) (Pair.init -1 0)
+        @(WebFraming.chunked &f)
+          (web-chunked-status buf @(WebFraming.body-start &f) cursor)
+        (match-ref (WebFraming.content-length &f)
+          (Maybe.Just cl)
+            (Pair.init
+              (if (>= (- (Array.length buf) @(WebFraming.body-start &f)) @cl)
+                1
+                0)
+              0)
+          (Maybe.Nothing) (Pair.init 1 0)))))
+
+(hidden web-request-complete?)
+(defn web-request-complete? [buf] @(Pair.a &(web-request-status buf 0)))
+
+; Whether the request asks for a 100 Continue: HTTP/1.1 plus Expect: 100-continue.
+(hidden web-wants-continue?)
+(defn web-wants-continue? [buf]
+  (match (web-parse-framing buf)
+    (Maybe.Nothing) false
+    (Maybe.Just f)
+      (and @(WebFraming.expects-continue &f)
+           (let [nl (web-crlf-index buf 0 (Array.length buf))]
+             (and (>= nl 8)
+                  (web-bytes-match? buf
+                                    (- nl 8)
+                                    nl
+                                    &(String.to-bytes "http/1.1")))))))
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
@@ -1333,10 +1468,38 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Maybe.Just (Response.bad-request))
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
+; Dechunk a chunked request body and normalize its framing headers:
+; Transfer-Encoding removed, Content-Length set, trailers discarded.
+(hidden web-decode-body)
+(defn web-decode-body [chunked? req]
+  (if chunked?
+    (match (TransferEncoding.dechunk (Request.body &req))
+      (Result.Error e) (Result.Error e)
+      (Result.Success decoded)
+        (let [cl-v [(Int.str (String.length &decoded))]
+              hdrs (Map.kv-reduce
+                &(fn [acc k v]
+                  (if (= &(String.ascii-to-lower k) "transfer-encoding")
+                    acc
+                    (Map.put acc k v)))
+                {}
+                (Request.headers &req))]
+          (Result.Success
+            (-> req
+                (Request.set-body decoded)
+                (Request.set-headers (Map.put hdrs &@"Content-Length" &cl-v))))))
+    (Result.Success req)))
+
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
-  (let [raw &(String.from-bytes buf)]
-    (match (Request.parse raw)
+  (let [raw &(String.from-bytes buf)
+        chunked (match (web-parse-framing buf)
+          (Maybe.Just f) @(WebFraming.chunked &f)
+          (Maybe.Nothing) false)
+        decoded (match (Request.parse raw)
+          (Result.Success parsed) (web-decode-body chunked parsed)
+          (Result.Error e) (Result.Error e))]
+    (match decoded
       (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
         (let [ka (web-keep-alive? &req)
@@ -1401,6 +1564,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
    keep-alives (Map Int Bool)
    last-active (Map Int Int)
    read-start (Map Int Int)
+   chunk-cursor (Map Int Int)
    sf-fds (Map Int Int)
    sf-offsets (Map Int Long)
    sf-sizes (Map Int Long)
@@ -1504,6 +1668,7 @@ fallback.")
   (def max-request-size 1048576)
   (def idle-timeout 60)
   (def header-timeout 15)
+  (def request-timeout 60)
   (def ws-ping-interval 30)
   (def ws-max-missed-pongs 3)
   (def ws-frag-ttl 30)
@@ -1526,6 +1691,7 @@ fallback.")
                                &fd
                                &(fn [b] (TcpStream.clear-buf b))))
           (Map.put! (ConnState.read-start cs) &fd &0)
+          (Map.put! (ConnState.chunk-cursor cs) &fd &0)
           (ignore (Poll.modify poll fd poll-read)))
         (queue-close cs fd))))
 
@@ -1552,6 +1718,7 @@ fallback.")
       (Map.remove! (ConnState.keep-alives cs) &fd)
       (Map.remove! (ConnState.last-active cs) &fd)
       (Map.remove! (ConnState.read-start cs) &fd)
+      (Map.remove! (ConnState.chunk-cursor cs) &fd)
       (when-do (Map.contains? (ConnState.sf-fds cs) &fd)
         (ignore (IO.Raw.close-fd (Map.get (ConnState.sf-fds cs) &fd)))
         (Map.remove! (ConnState.sf-fds cs) &fd)
@@ -1578,7 +1745,8 @@ fallback.")
           (Map.put! (ConnState.streams cs) &cfd &client)
           (Map.put! (ConnState.read-bufs cs) &cfd &(the (Array Byte) []))
           (Map.put! (ConnState.last-active cs) &cfd &(System.time))
-          (Map.put! (ConnState.read-start cs) &cfd &0))))
+          (Map.put! (ConnState.read-start cs) &cfd &0)
+          (Map.put! (ConnState.chunk-cursor cs) &cfd &0))))
 
   (hidden handle-writable)
   (defn handle-writable [cs poll fd]
@@ -1996,20 +2164,51 @@ fallback.")
                                               false)]
                   (if too-big
                     (queue-close cs fd)
-                    (let [ready (Map.value-ref! (ConnState.read-bufs cs)
+                    (let-do [cursor (Map.get (ConnState.chunk-cursor cs) &fd)
+                             st (Map.value-ref! (ConnState.read-bufs cs)
                                                 &fd
                                                 &(fn [buf]
-                                                  (web-has-header-end buf))
-                                                false)]
-                      (when-do ready
-                        (Map.put! (ConnState.read-start cs) &fd &0)
-                        ; Validate request line before parsing
-                        (let [bad-req (Map.value-ref! (ConnState.read-bufs cs)
+                                                  (web-request-status buf cursor))
+                                                (Pair.init 0 0))
+                             status @(Pair.a &st)]
+                      (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
+                      ; headers complete: negate read-start (see http-timeout-close?)
+                      (let [rs (Map.get (ConnState.read-start cs) &fd)]
+                        (when-do (and (> rs 0)
+                                      (Map.value-ref! (ConnState.read-bufs cs)
                                                       &fd
                                                       &(fn [buf]
-                                                        (web-validate-request-line buf))
-                                                      (the (Maybe Response)
-                                                           (Maybe.Nothing)))]
+                                                        (web-has-header-end buf))
+                                                      false))
+                          (Map.put! (ConnState.read-start cs) &fd &(- 0 rs))
+                          ; 100 Continue goes out directly — the write path
+                          ; would clear the partly read request
+                          (when (and (= status 0)
+                                     (Map.value-ref! (ConnState.read-bufs cs)
+                                                     &fd
+                                                     &(fn [buf]
+                                                       (web-wants-continue? buf))
+                                                     false))
+                            (let [cbuf (String.to-bytes "HTTP/1.1 100 Continue\r\n\r\n")
+                                  n (match (TcpStream.send-nb &stream2 &cbuf 0)
+                                    (Result.Success k) k
+                                    (Result.Error _) -1)]
+                              (cond
+                                (< n 0) (queue-close cs fd)
+                                (and (> n 0) (< n (Array.length &cbuf)))
+                                  (queue-close cs fd)
+                                ())))))
+                      (when-do (/= status 0)
+                        (Map.put! (ConnState.read-start cs) &fd &0)
+                        ; Validate request line before parsing
+                        (let [bad-req (if (< status 0)
+                                (Maybe.Just (Response.bad-request))
+                                (Map.value-ref! (ConnState.read-bufs cs)
+                                                &fd
+                                                &(fn [buf]
+                                                  (web-validate-request-line buf))
+                                                (the (Maybe Response)
+                                                     (Maybe.Nothing))))]
                           (match bad-req
                             ; Malformed request — send 400 and close
                             (Maybe.Just bad-resp)
@@ -2205,6 +2404,15 @@ fallback.")
         1
       0))
 
+  (doc http-timeout-close? "Decides whether an HTTP connection timed out.
+    `rs` is positive while headers arrive (header-timeout), negated once they
+    are complete (request-timeout), and 0 between requests (idle-timeout).")
+  (defn http-timeout-close? [rs now header-to request-to idle idle-to]
+    (cond
+      (and (> rs 0) (> (- now rs) header-to)) true
+      (and (< rs 0) (> (+ now rs) request-to)) true
+      (> idle idle-to)))
+
   (hidden sweep-idle)
   (defn sweep-idle [cs poll]
     (let [now (System.time)
@@ -2252,13 +2460,15 @@ fallback.")
                     (Map.remove! (ConnState.ws-frag-bufs cs) &rfd)
                     (Map.remove! (ConnState.ws-frag-opcodes cs) &rfd)
                     (queue-close cs rfd)))))
-            ; HTTP: header accumulation timeout (slow loris) + idle timeout
+            ; HTTP: slow-loris headers, slow-drip bodies, and idle connections
             (let [rs (Map.get (ConnState.read-start cs) &rfd)]
-              (cond
-                (and (> rs 0) (> (- now rs) App.header-timeout))
-                  (queue-close cs rfd)
-                (> idle App.idle-timeout) (queue-close cs rfd)
-                ())))))))
+              (when (http-timeout-close? rs
+                                         now
+                                         App.header-timeout
+                                         App.request-timeout
+                                         idle
+                                         App.idle-timeout)
+                (queue-close cs rfd))))))))
 
   (hidden flush-closed)
   (defn flush-closed [cs poll]
@@ -2330,6 +2540,7 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
           (Result.Success poll)
             (let-do [lfd (TcpListener.poll-fd &listener)
                      cs (ConnState.init {}
+                                        {}
                                         {}
                                         {}
                                         {}

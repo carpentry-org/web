@@ -1,0 +1,22 @@
+; minimal server for the end-to-end smoke test (test/smoke.sh)
+(load "../web.carp")
+
+(Project.config "title" "smoke-server")
+
+(defn main []
+  (let [app (-> (App.create)
+                (App.GET @"/ok" (fn [r p] (Response.text @"ok")))
+                (App.POST @"/echo" (fn [r p] (Response.text @(Request.body r))))
+                (App.POST @"/meta"
+                          (fn [r p]
+                            (Response.text
+                              (fmt "%s %s"
+                                   (if (Request.chunked? r) "chunked" "plain")
+                                   &(match (Request.header r "Content-Length")
+                                     (Maybe.Just v) v
+                                     (Maybe.Nothing) @"none"))))))
+        bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
+        ah (the
+          (Array (Fn [&Request &(Map String String) Response] Response))
+          [])]
+    (App.serve &app &bh &ah "127.0.0.1" 8437)))

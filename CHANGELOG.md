@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **`Form.decode-multipart` / `decode-multipart-request` return
+  `(Result (Array FormPart) String)`** and delegate to http's multipart
+  parser instead of shipping a second one.
+- **`FormPart.content-type` is now a `(Maybe String)`**, `Nothing` when the
+  part carries no `Content-Type` header (previously `text/plain`).
+
+### Added
+- **`App.request-timeout` (60s)** bounds first byte to complete request, so a
+  slow-dripping body can no longer hold a connection open.
+- **`Expect: 100-continue` is answered** with the interim response once the
+  headers are complete.
+- **An end-to-end smoke test** (`test/smoke.sh`, in CI) drives a real server
+  with curl: large, chunked, and 100-continue uploads, keep-alive, 400s.
+
+### Fixed
+- **Handlers no longer receive truncated request bodies.** The server
+  dispatched at the end of the headers, so any body not in the same 4KB read
+  arrived cut short, and the leftover bytes were misread as a second request.
+  It now waits for the whole body (`Content-Length`, or the terminating
+  chunk) and answers `400` for ambiguous framing (RFC 7230 §3.3.3).
+- **Chunked bodies reach handlers decoded and normalized**: body dechunked,
+  `Transfer-Encoding` removed, `Content-Length` set, trailers discarded.
+
 ## 0.8.0 (2026-07-12)
 
 ### Changed

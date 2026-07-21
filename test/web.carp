@@ -7,6 +7,28 @@
     (Result.Success r) r
     (Result.Error _) (Request.init @"GET" @"HTTP/1.1" (zero) [] {} @"")))
 
+; unwraps a multipart decode the test expects to succeed
+(defn parts-of [body boundary]
+  (Result.unsafe-from-success (Form.decode-multipart body boundary)))
+
+; feeds `s` to the gate in `read-size` byte reads, threading the chunk cursor
+(defn replay-status [s read-size]
+  (let-do [all (String.to-bytes s)
+           n (Array.length &all)
+           buf (the (Array Byte) [])
+           cursor 0
+           status 0
+           i 0]
+    (while (< i n)
+      (let-do [stop (Int.min n (+ i read-size))]
+        (while-do (< i stop)
+          (Array.push-back! &buf @(Array.unsafe-nth &all i))
+          (set! i (+ i 1)))
+        (let-do [p (web-request-status &buf cursor)]
+          (set! status @(Pair.a &p))
+          (set! cursor @(Pair.b &p)))))
+    status))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -241,7 +263,7 @@
   (assert-equal test
     1
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
         "abc"))
     "decode-multipart parses single part")
@@ -250,7 +272,7 @@
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
           "abc")
         0))
@@ -260,7 +282,7 @@
     "value1"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
           "abc")
         0))
@@ -270,7 +292,7 @@
   (assert-equal test
     2
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
         "abc"))
     "decode-multipart parses two parts")
@@ -279,7 +301,7 @@
     "val-b"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
           "abc")
         1))
@@ -290,7 +312,7 @@
     (Maybe.just?
       (FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
             "abc")
           0)))
@@ -301,7 +323,7 @@
     &(Maybe.unsafe-from
       @(FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
             "abc")
           0)))
@@ -309,48 +331,48 @@
 
   (assert-equal test
     "text/plain"
-    (FormPart.content-type
-      (Array.unsafe-nth
-        &(Form.decode-multipart
-          "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
-          "abc")
-        0))
+    &(Maybe.unsafe-from
+      @(FormPart.content-type
+        (Array.unsafe-nth
+          &(parts-of
+            "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
+            "abc")
+          0)))
     "decode-multipart extracts content-type")
 
-  ; -- decode-multipart: default content-type --
-  (assert-equal test
-    "text/plain"
-    (FormPart.content-type
-      (Array.unsafe-nth
-        &(Form.decode-multipart
-          "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
-          "abc")
-        0))
-    "decode-multipart defaults content-type to text/plain")
+  ; -- decode-multipart: a part without Content-Type reports none --
+  (assert-true test
+    (Maybe.nothing?
+      (FormPart.content-type
+        (Array.unsafe-nth
+          &(parts-of
+            "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
+            "abc")
+          0)))
+    "decode-multipart reports no content-type when the part carries none")
 
   ; -- decode-multipart: no filename for text field --
   (assert-true test
     (Maybe.nothing?
       (FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
             "abc")
           0)))
     "decode-multipart has no filename for text field")
 
   ; -- decode-multipart: empty body --
-  (assert-equal test
-    0
-    (Array.length &(Form.decode-multipart "" "abc"))
-    "decode-multipart returns empty for empty body")
+  (assert-true test
+    (Result.error? &(Form.decode-multipart "" "abc"))
+    "decode-multipart fails for empty body")
 
   ; -- decode-multipart: case-insensitive headers --
   (assert-equal test
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\ncontent-disposition: form-data; name=\"field1\"\r\n\r\nval\r\n--abc--"
           "abc")
         0))
@@ -361,7 +383,7 @@
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; Name=\"field1\"\r\n\r\nval\r\n--abc--"
           "abc")
         0))
@@ -372,7 +394,7 @@
     &(Maybe.unsafe-from
       @(FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"f\"; Filename=\"test.txt\"\r\n\r\ndata\r\n--abc--"
             "abc")
           0)))
@@ -382,7 +404,7 @@
   (assert-equal test
     1
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc  \r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nval\r\n--abc--"
         "abc"))
     "decode-multipart tolerates padding after initial boundary")
@@ -390,7 +412,7 @@
   (assert-equal test
     2
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc \t\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
         "abc"))
     "decode-multipart tolerates padding between parts")
@@ -400,11 +422,20 @@
     "hello"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart-request
-          &(parse-req
-            "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
+        &(Result.unsafe-from-success
+          (Form.decode-multipart-request
+            &(parse-req
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
         0))
     "decode-multipart-request handles uppercase Boundary param")
+
+  ; -- decode-multipart-request: non-multipart request fails --
+  (assert-true test
+    (Result.error?
+      &(Form.decode-multipart-request
+        &(parse-req
+          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
+    "decode-multipart-request fails for non-multipart content type")
 
   ; -- multipart? --
   (assert-true test
@@ -427,19 +458,12 @@
     "hello"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart-request
-          &(parse-req
-            "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
+        &(Result.unsafe-from-success
+          (Form.decode-multipart-request
+            &(parse-req
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
         0))
     "decode-multipart-request parses from request")
-
-  (assert-equal test
-    0
-    (Array.length
-      &(Form.decode-multipart-request
-        &(parse-req
-          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
-    "decode-multipart-request empty for non-multipart")
 
   (assert-equal test
     "OK"
@@ -602,6 +626,121 @@
           pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
       (String.empty? (Response.body (Pair.a &pair))))
     "HEAD + chunked has empty body")
+
+  ; -- chunked request body reaches the handler decoded --
+  (assert-equal test
+    "hello world"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "chunked request body is dechunked before dispatch")
+
+  ; -- a non-chunked body is handed through untouched --
+  (assert-equal test
+    "6\r\nhello \r\n0\r\n\r\n"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 15\r\n\r\n6\r\nhello \r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "Content-Length body is not dechunked")
+
+  ; -- malformed chunk framing --
+  (assert-equal test
+    400
+    @(Response.code
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "undecodable chunked body is a 400")
+
+  (assert-equal test
+    "hello"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a duplicate Transfer-Encoding with chunked last is decoded")
+
+  (assert-equal test
+    "hello"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a mixed-case repeated Transfer-Encoding with chunked last is decoded")
+
+  ; -- a decoded chunked request is normalized --
+  (assert-equal test
+    "plain 11"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p]
+                                   (Response.text
+                                     (fmt "%s %s"
+                                          (if (Request.chunked? r)
+                                            "chunked"
+                                            "plain")
+                                          &(match (Request.header r
+                                                                  "Content-Length")
+                                            (Maybe.Just v) v
+                                            (Maybe.Nothing) @"none"))))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a decoded chunked request drops Transfer-Encoding and gains Content-Length")
 
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
@@ -785,6 +924,431 @@
                                    &(String.to-bytes "INVALID\r\n\r\n"))]
       @(Response.code (Pair.a &pair)))
     "build-response returns 400 for garbage input")
+
+  ; -- has-header-end --
+  (assert-false test
+    (web-has-header-end &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n"))
+    "has-header-end is false while headers are still arriving")
+
+  (assert-true test
+    (web-has-header-end &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "has-header-end is true once the blank line lands")
+
+  (assert-equal test
+    23
+    (web-header-end-index
+      &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\nbody"))
+    "header-end-index points at the CRLFCRLF")
+
+  ; -- request-complete?: requests without a body --
+  (assert-equal test
+    0
+    (web-request-complete? &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n"))
+    "incomplete headers need more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "GET without a body is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "HEAD / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "HEAD without a body is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "GET /ws HTTP/1.1\r\nUpgrade: websocket\r\nSec-WebSocket-Key: k\r\nSec-WebSocket-Version: 13\r\n\r\n"))
+    "WebSocket upgrade request is complete")
+
+  ; -- request-complete?: Content-Length --
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 0\r\n\r\n"))
+    "Content-Length: 0 is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab"))
+    "a partial body needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nabcde"))
+    "an exact body is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nContent-Length: 3\r\n\r\n"))
+    "a GET that declares a body waits for it")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\ncontent-length: 5\r\n\r\nab"))
+    "header names are matched case-insensitively")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nX-Content-Length: 99\r\n\r\n"))
+    "a header merely ending in content-length is not Content-Length")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 20\r\n\r\nab\r\n\r\ncd"))
+    "a CRLFCRLF inside the body does not end the wait")
+
+  (assert-true test
+    (let [full (String.append
+            "POST /u HTTP/1.1\r\nContent-Length: 12\r\n\r\n"
+            "hello world!")]
+      (and
+        (= 0
+           (web-request-complete? &(String.to-bytes &(String.prefix &full 30))))
+        (and
+          (= 0
+             (web-request-complete? &(String.to-bytes &(String.prefix &full 45))))
+          (and
+            (= 0
+               (web-request-complete?
+                 &(String.to-bytes &(String.prefix &full 50))))
+            (= 1 (web-request-complete? &(String.to-bytes &full)))))))
+    "a body arriving across three reads only completes on the last")
+
+  (assert-true test
+    (let [full (String.append
+            &(String.append
+              "POST / HTTP/1.1\r\nContent-Length: 5000\r\n\r\n"
+              &(String.repeat 4056 "x"))
+            &(String.repeat 944 "y"))]
+      (and
+        (= 0
+           (web-request-complete? &(String.to-bytes &(String.prefix &full 4096))))
+        (= 1 (web-request-complete? &(String.to-bytes &full)))))
+    "a body straddling the 4096-byte read boundary is not truncated")
+
+  ; -- request-complete?: malformed framing --
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: abc\r\n\r\n"))
+    "a non-numeric Content-Length is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: -5\r\n\r\n"))
+    "a negative Content-Length is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 6\r\n\r\nabcde"))
+    "a conflicting duplicate Content-Length is malformed")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nContent-Length: 5\r\n\r\nabcde"))
+    "an identical duplicate Content-Length is accepted")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 5\r\nTransfer-Encoding: chunked\r\n\r\nabcde"))
+    "Content-Length together with Transfer-Encoding is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\n"))
+    "a Transfer-Encoding not ending in chunked is malformed")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nContent-Length: 99999999999999\r\n\r\nx"))
+    "an absurd Content-Length saturates instead of overflowing")
+
+  ; -- request-complete?: chunked --
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n"))
+    "a chunked body without its terminator needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n0\r\n\r\n"))
+    "a chunked body with its terminator is complete")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n"))
+    "chunked as the final coding is honoured")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nTransfer-Encoding: xchunked\r\n\r\n"))
+    "a coding merely ending in chunked is not chunked")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcde\r\n3\r\nxyz\r\n0\r\n\r\n"))
+    "a chunked body of several chunks is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabc"))
+    "a chunk whose data has not all arrived needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nExpires: x\r\n\r\n"))
+    "a chunked body with a trailer section is complete")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nExpires: x\r\n"))
+    "a trailer section without its blank line needs more bytes")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0;n=v\r\n\r\n"))
+    "a chunk extension on the last chunk is skipped")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n\r\n0\r\n\r\n0\r\n\r\n"))
+    "chunk data holding the terminator bytes does not end the wait early")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nabcde\r\n0\r\n\r\n"))
+    "a non-hexadecimal chunk size is malformed")
+
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nabcdeXX0\r\n\r\n"))
+    "chunk data not followed by CRLF is malformed")
+
+  (assert-equal test
+    0
+    (web-request-complete?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffff\r\nx\r\n0\r\n\r\n"))
+    "an absurd chunk size saturates instead of overflowing")
+
+  ; -- request-complete?: whitespace before a colon (RFC 7230 §3.2.4) --
+  (assert-equal test
+    -1
+    (web-request-complete?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length : 5\r\n\r\nabcde"))
+    "whitespace between a field name and its colon is malformed")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET http://h:80/p HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a colon in the request line is not a header colon")
+
+  (assert-equal test
+    1
+    (web-request-complete?
+      &(String.to-bytes "GET / HTTP/1.1\r\nX-Note: a : b\r\n\r\n"))
+    "a space before a colon inside a value is fine")
+
+  ; -- request-complete?: resuming the chunk walk across reads --
+  (assert-equal test
+    1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n1\r\nb\r\n0\r\n\r\n"
+      1)
+    "a chunked body arriving one byte at a time still completes")
+
+  (assert-equal test
+    1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nA: 1\r\nB: 2\r\n\r\n"
+      3)
+    "a trailer section arriving across reads still completes")
+
+  (assert-equal test
+    0
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nhi\r\n0\r\nA: 1\r\n"
+      3)
+    "an unterminated trailer section keeps needing bytes across reads")
+
+  (assert-equal test
+    0
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n\r\n0\r\n\r\n"
+      1)
+    "resuming does not let terminator bytes in chunk data end the wait early")
+
+  (assert-equal test
+    -1
+    (replay-status
+      "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n2\r\nab\r\nzz\r\n"
+      2)
+    "malformed framing is still caught when the walk resumes")
+
+  (assert-equal test
+    0
+    @(Pair.b
+      &(web-request-status
+        &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\nab")
+        0))
+    "a Content-Length request never records a chunk cursor")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+        9999))
+    "a cursor past the end of the buffer is ignored")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n")
+        2))
+    "a cursor pointing before the body is ignored")
+
+  ; tripwires: in-range stale cursors answer wrongly by design — safety is
+  ; the caller's cursor resets, not this range check
+  (assert-equal test
+    0
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        0))
+    "a truncated chunked body is incomplete from a fresh cursor")
+
+  (assert-equal test
+    1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        -51))
+    "an in-range stale trailer cursor reports that truncated body as complete")
+
+  (assert-equal test
+    -1
+    @(Pair.a
+      &(web-request-status
+        &(String.to-bytes
+          "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n")
+        48))
+    "an in-range stale chunk cursor reports that truncated body as malformed")
+
+  ; -- wants-continue?: the 100 Continue gate (RFC 7231 §5.1.1) --
+  (assert-true test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"))
+    "an HTTP/1.1 request with Expect: 100-continue wants a 100")
+
+  (assert-true test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nexpect: 100-Continue\r\nContent-Length: 5\r\n\r\n"))
+    "the Expect header and its value are matched case-insensitively")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\n"))
+    "a request without Expect wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.0\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"))
+    "an HTTP/1.0 request wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nExpect: 200-ok\r\nContent-Length: 5\r\n\r\n"))
+    "an unknown expectation wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes "POST / HTTP/1.1\r\nExpect: 100-continue\r\n"))
+    "incomplete headers want no 100 yet")
+
+  ; -- http-timeout-close?: the request lifecycle timeouts --
+  (assert-false test
+    (App.http-timeout-close? 1000 1010 15 60 10 60)
+    "headers still arriving inside header-timeout stay open")
+
+  (assert-true test
+    (App.http-timeout-close? 1000 1016 15 60 10 60)
+    "headers still arriving past header-timeout close")
+
+  (assert-false test
+    (App.http-timeout-close? -1000 1050 15 60 10 60)
+    "a body still arriving inside request-timeout stays open")
+
+  (assert-true test
+    (App.http-timeout-close? -1000 1061 15 60 10 60)
+    "a body dripping past request-timeout closes")
+
+  (assert-false test
+    (App.http-timeout-close? -1000 1020 15 60 10 60)
+    "the header-timeout does not apply once the headers are complete")
+
+  (assert-true test
+    (App.http-timeout-close? 0 1000 15 60 61 60)
+    "an idle connection with no request in flight closes")
+
+  (assert-false test
+    (App.http-timeout-close? 0 1000 15 60 59 60)
+    "a connection inside idle-timeout stays open")
 
   ; -- StaticFile.exists? --
   (assert-true test
@@ -1041,7 +1605,7 @@
                                                  86400)
           vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
           hdr (Array.unsafe-first &vals)]
-      (>= (Form.find-substring hdr "Max-Age=86400" 0) 0))
+      (>= (String.index-of-string hdr "Max-Age=86400") 0))
     "set-cookie-with-max-age includes Max-Age attribute")
 
   ; -- Response.clear-cookie --
@@ -1050,5 +1614,5 @@
           vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
           hdr (Array.unsafe-first &vals)]
       (and (String.starts-with? hdr "session=;")
-           (>= (Form.find-substring hdr "Max-Age=0" 0) 0)))
+           (>= (String.index-of-string hdr "Max-Age=0") 0)))
     "clear-cookie sets empty value and Max-Age=0"))
