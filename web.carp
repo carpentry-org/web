@@ -34,48 +34,60 @@
 (load "git@github.com:carpentry-org/utf8.carp@0.1.0")
 
 (defmodule SHA1
-  (hidden mask32)
-  (defn mask32 [x] (bit-and x 4294967295l))
+  (hidden of-int)
+  (defn of-int [x] (Uint32.from-long (Long.from-int x)))
+
+  (hidden shl)
+  (defn shl [x k] (Uint32.bit-shift-left x (of-int k)))
+
+  (hidden shr)
+  (defn shr [x k] (Uint32.bit-shift-right x (of-int k)))
+
+  (hidden u32)
+  (defn u32 [hi lo]
+    (Uint32.bit-or
+      (Uint32.bit-shift-left (Uint32.from-long hi) (of-int 16))
+      (Uint32.from-long lo)))
 
   (hidden rotl32)
-  (defn rotl32 [x n]
-    (let [m (mask32 x)]
-      (mask32 (bit-or (bit-shift-left m n) (bit-shift-right m (- 32l n))))))
+  (defn rotl32 [x n] (Uint32.bit-or (shl x n) (shr x (- 32 n))))
 
   (hidden word32)
   (defn word32 [b0 b1 b2 b3]
-    (mask32
-      (bit-or
-        (bit-or (bit-shift-left (Long.from-int b0) 24l)
-                (bit-shift-left (Long.from-int b1) 16l))
-        (bit-or (bit-shift-left (Long.from-int b2) 8l) (Long.from-int b3)))))
+    (Uint32.bit-or
+      (Uint32.bit-or (shl (of-int b0) 24) (shl (of-int b1) 16))
+      (Uint32.bit-or (shl (of-int b2) 8) (of-int b3))))
 
   (doc digest "computes the SHA-1 digest of a byte array, returning 20 bytes.")
   (defn digest [data]
     (let-do [msg-len (Array.length data)
-             bit-len (* (Long.from-int msg-len) 8l)
+             bit-len (Uint64.*
+               (Uint64.from-long (Long.from-int msg-len))
+               (Uint64.from-long 8l))
              pad-len (let [r (Int.mod (+ msg-len 9) 64)]
                (+ (+ msg-len 9) (if (= r 0) 0 (- 64 r))))
              buf (Array.replicate pad-len &(Byte.from-int 0))]
       (for [i 0 msg-len] (Array.aset! &buf i @(Array.unsafe-nth data i)))
       (Array.aset! &buf msg-len (Byte.from-int 128))
       (for [i 0 8]
-        (Array.aset! &buf
-                     (+ (- pad-len 8) i)
-                     (Byte.from-int
-                       (Long.to-int
-                         (bit-and
-                           (bit-shift-right bit-len
-                                            (* (Long.from-int (- 7 i)) 8l))
-                           255l)))))
-      (let-do [h0 1732584193l
-               h1 4023233417l
-               h2 2562383102l
-               h3 271733878l
-               h4 3285377520l]
+        (let [sh (Uint64.from-long (Long.from-int (* (- 7 i) 8)))
+              by (Uint64.bit-and (Uint64.bit-shift-right bit-len sh)
+                                 (Uint64.from-long 255l))]
+          (Array.aset! &buf
+                       (+ (- pad-len 8) i)
+                       (Byte.from-int (Long.to-int (Uint64.to-long by))))))
+      (let-do [h0 (u32 26437l 8961l)
+               h1 (u32 61389l 43913l)
+               h2 (u32 39098l 56574l)
+               h3 (u32 4146l 21622l)
+               h4 (u32 50130l 57840l)
+               kc0 (u32 23170l 31129l)
+               kc1 (u32 28377l 60321l)
+               kc2 (u32 36635l 48348l)
+               kc3 (u32 51810l 49622l)]
         (for [blk 0 (/ pad-len 64)]
           (let-do [off (* blk 64)
-                   w (Array.replicate 80 &0l)]
+                   w (Array.replicate 80 &(Uint32.zero))]
             (for [j 0 16]
               (let [bi (+ off (* j 4))]
                 (Array.aset! &w
@@ -89,12 +101,12 @@
               (Array.aset! &w
                            j
                            (rotl32
-                             (bit-xor
-                               (bit-xor @(Array.unsafe-nth &w (- j 3))
-                                        @(Array.unsafe-nth &w (- j 8)))
-                               (bit-xor @(Array.unsafe-nth &w (- j 14))
-                                        @(Array.unsafe-nth &w (- j 16))))
-                             1l)))
+                             (Uint32.bit-xor
+                               (Uint32.bit-xor @(Array.unsafe-nth &w (- j 3))
+                                               @(Array.unsafe-nth &w (- j 8)))
+                               (Uint32.bit-xor @(Array.unsafe-nth &w (- j 14))
+                                               @(Array.unsafe-nth &w (- j 16))))
+                             1)))
             (let-do [a h0
                      b h1
                      c h2
@@ -103,33 +115,29 @@
               (for [j 0 80]
                 (let-do [f (cond
                            (< j 20)
-                             (mask32
-                               (bit-or (bit-and b c)
-                                       (bit-and (mask32 (bit-not b)) d)))
-                           (< j 40) (mask32 (bit-xor b (bit-xor c d)))
+                             (Uint32.bit-or (Uint32.bit-and b c)
+                                            (Uint32.bit-and (Uint32.bit-not b) d))
+                           (< j 40) (Uint32.bit-xor b (Uint32.bit-xor c d))
                            (< j 60)
-                             (mask32
-                               (bit-or (bit-or (bit-and b c) (bit-and b d))
-                                       (bit-and c d)))
-                           (mask32 (bit-xor b (bit-xor c d))))
-                         k (cond
-                           (< j 20) 1518500249l
-                           (< j 40) 1859775393l
-                           (< j 60) 2400959708l
-                           3395469782l)
-                         temp (mask32
-                           (+ (+ (+ (+ (rotl32 a 5l) f) e) k)
-                              @(Array.unsafe-nth &w j)))]
+                             (Uint32.bit-or
+                               (Uint32.bit-or (Uint32.bit-and b c)
+                                              (Uint32.bit-and b d))
+                               (Uint32.bit-and c d))
+                           (Uint32.bit-xor b (Uint32.bit-xor c d)))
+                         k (cond (< j 20) kc0 (< j 40) kc1 (< j 60) kc2 kc3)
+                         temp (Uint32.+
+                           (Uint32.+ (Uint32.+ (Uint32.+ (rotl32 a 5) f) e) k)
+                           @(Array.unsafe-nth &w j))]
                   (set! e d)
                   (set! d c)
-                  (set! c (rotl32 b 30l))
+                  (set! c (rotl32 b 30))
                   (set! b a)
                   (set! a temp)))
-              (set! h0 (mask32 (+ h0 a)))
-              (set! h1 (mask32 (+ h1 b)))
-              (set! h2 (mask32 (+ h2 c)))
-              (set! h3 (mask32 (+ h3 d)))
-              (set! h4 (mask32 (+ h4 e))))))
+              (set! h0 (Uint32.+ h0 a))
+              (set! h1 (Uint32.+ h1 b))
+              (set! h2 (Uint32.+ h2 c))
+              (set! h3 (Uint32.+ h3 d))
+              (set! h4 (Uint32.+ h4 e)))))
         (let-do [result (Array.replicate 20 &(Byte.from-int 0))]
           (for [i 0 5]
             (let [h (cond (= i 0) h0 (= i 1) h1 (= i 2) h2 (= i 3) h3 h4)
@@ -139,11 +147,9 @@
                              (+ base j)
                              (Byte.from-int
                                (Long.to-int
-                                 (bit-and
-                                   (bit-shift-right h
-                                                    (* (Long.from-int (- 3 j))
-                                                       8l))
-                                   255l)))))))
+                                 (Uint32.to-long
+                                   (Uint32.bit-and (shr h (* (- 3 j) 8))
+                                                   (of-int 255)))))))))
           result))))
 
   (doc hex-digest "computes the SHA-1 digest of a byte array and returns it
