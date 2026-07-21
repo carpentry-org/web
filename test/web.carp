@@ -1291,6 +1291,70 @@
         48))
     "an in-range stale chunk cursor reports that truncated body as malformed")
 
+  ; -- wants-continue?: the 100 Continue gate (RFC 7231 §5.1.1) --
+  (assert-true test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"))
+    "an HTTP/1.1 request with Expect: 100-continue wants a 100")
+
+  (assert-true test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nexpect: 100-Continue\r\nContent-Length: 5\r\n\r\n"))
+    "the Expect header and its value are matched case-insensitively")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes "POST / HTTP/1.1\r\nContent-Length: 5\r\n\r\n"))
+    "a request without Expect wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.0\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n"))
+    "an HTTP/1.0 request wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes
+        "POST / HTTP/1.1\r\nExpect: 200-ok\r\nContent-Length: 5\r\n\r\n"))
+    "an unknown expectation wants no 100")
+
+  (assert-false test
+    (web-wants-continue?
+      &(String.to-bytes "POST / HTTP/1.1\r\nExpect: 100-continue\r\n"))
+    "incomplete headers want no 100 yet")
+
+  ; -- http-timeout-close?: the request lifecycle timeouts --
+  (assert-false test
+    (App.http-timeout-close? 1000 1010 15 60 10 60)
+    "headers still arriving inside header-timeout stay open")
+
+  (assert-true test
+    (App.http-timeout-close? 1000 1016 15 60 10 60)
+    "headers still arriving past header-timeout close")
+
+  (assert-false test
+    (App.http-timeout-close? -1000 1050 15 60 10 60)
+    "a body still arriving inside request-timeout stays open")
+
+  (assert-true test
+    (App.http-timeout-close? -1000 1061 15 60 10 60)
+    "a body dripping past request-timeout closes")
+
+  (assert-false test
+    (App.http-timeout-close? -1000 1020 15 60 10 60)
+    "the header-timeout does not apply once the headers are complete")
+
+  (assert-true test
+    (App.http-timeout-close? 0 1000 15 60 61 60)
+    "an idle connection with no request in flight closes")
+
+  (assert-false test
+    (App.http-timeout-close? 0 1000 15 60 59 60)
+    "a connection inside idle-timeout stays open")
+
   ; -- StaticFile.exists? --
   (assert-true test
     (StaticFile.exists? "test/static-fixtures/index.html")

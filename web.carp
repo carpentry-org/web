@@ -1868,6 +1868,7 @@ fallback.")
   (def max-request-size 1048576)
   (def idle-timeout 60)
   (def header-timeout 15)
+  (def request-timeout 60)
   (def ws-ping-interval 30)
   (def ws-max-missed-pongs 3)
   (def ws-frag-ttl 30)
@@ -2373,14 +2374,45 @@ fallback.")
                       ; Resume the next chunk walk where this one stopped, so a
                       ; chunked body costs one walk in total, not one per read.
                       (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
-                      ; The header timeout covers the header block only — a body
-                      ; may still be arriving after the headers are complete.
-                      (when (Map.value-ref! (ConnState.read-bufs cs)
-                                            &fd
-                                            &(fn [buf] (web-has-header-end buf))
-                                            false)
-                        (Map.put! (ConnState.read-start cs) &fd &0))
+                      ; Phase transition: read-start flips to its negation the
+                      ; first time the header block is complete, so the sweep
+                      ; can bound the header phase and the body phase
+                      ; separately (see http-timeout-close?).
+                      (let [rs (Map.get (ConnState.read-start cs) &fd)]
+                        (when-do (and (> rs 0)
+                                      (Map.value-ref! (ConnState.read-bufs cs)
+                                                      &fd
+                                                      &(fn [buf]
+                                                        (web-has-header-end buf))
+                                                      false))
+                          (Map.put! (ConnState.read-start cs) &fd &(- 0 rs))
+                          ; RFC 7231 §5.1.1: the client may be waiting for
+                          ; permission to send the body we now wait for. An
+                          ; interim response cannot use the normal write path
+                          ; (conn-done-writing would clear the partly read
+                          ; request), so it is a single direct send: skipped
+                          ; when the socket is not writable (the client
+                          ; proceeds after its own timeout), fatal when it
+                          ; would tear the interim response.
+                          (when (and (= status 0)
+                                     (Map.value-ref! (ConnState.read-bufs cs)
+                                                     &fd
+                                                     &(fn [buf]
+                                                       (web-wants-continue? buf))
+                                                     false))
+                            (let [cbuf (String.to-bytes "HTTP/1.1 100 Continue\r\n\r\n")
+                                  n (match (TcpStream.send-nb &stream2 &cbuf 0)
+                                    (Result.Success k) k
+                                    (Result.Error _) -1)]
+                              (cond
+                                (< n 0) (queue-close cs fd)
+                                (and (> n 0) (< n (Array.length &cbuf)))
+                                  (queue-close cs fd)
+                                ())))))
                       (when-do (/= status 0)
+                        ; The request is fully received (or hopeless): the
+                        ; receive clock stops here.
+                        (Map.put! (ConnState.read-start cs) &fd &0)
                         ; Validate request line before parsing
                         (let [bad-req (if (< status 0)
                                 (Maybe.Just (Response.bad-request))
@@ -2585,6 +2617,19 @@ fallback.")
         1
       0))
 
+  (doc http-timeout-close? "Decides whether an HTTP connection has exceeded a
+    timeout. `rs` encodes the phase of the request being received: a positive
+    value is the arrival time of a request whose headers are still incomplete
+    (`header-timeout` applies), a negative value is the negated arrival time
+    of one whose body is still arriving (`request-timeout` applies, bounding
+    first byte to complete request), and 0 means no request is in flight
+    (`idle-timeout` alone applies).")
+  (defn http-timeout-close? [rs now header-to request-to idle idle-to]
+    (cond
+      (and (> rs 0) (> (- now rs) header-to)) true
+      (and (< rs 0) (> (+ now rs) request-to)) true
+      (> idle idle-to)))
+
   (hidden sweep-idle)
   (defn sweep-idle [cs poll]
     (let [now (System.time)
@@ -2632,13 +2677,15 @@ fallback.")
                     (Map.remove! (ConnState.ws-frag-bufs cs) &rfd)
                     (Map.remove! (ConnState.ws-frag-opcodes cs) &rfd)
                     (queue-close cs rfd)))))
-            ; HTTP: header accumulation timeout (slow loris) + idle timeout
+            ; HTTP: slow-loris headers, slow-drip bodies, and idle connections
             (let [rs (Map.get (ConnState.read-start cs) &rfd)]
-              (cond
-                (and (> rs 0) (> (- now rs) App.header-timeout))
-                  (queue-close cs rfd)
-                (> idle App.idle-timeout) (queue-close cs rfd)
-                ())))))))
+              (when (http-timeout-close? rs
+                                         now
+                                         App.header-timeout
+                                         App.request-timeout
+                                         idle
+                                         App.idle-timeout)
+                (queue-close cs rfd))))))))
 
   (hidden flush-closed)
   (defn flush-closed [cs poll]
