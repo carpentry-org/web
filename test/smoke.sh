@@ -38,8 +38,12 @@ fi
 fail() { echo "FAIL: $1"; exit 1; }
 check() { echo "smoke: $1"; }
 
-# NUL-free payload: bodies pass through String, a pre-existing limitation
-(LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom || true) | head -c 100000 > "$WORK/body"
+# NUL-free payload (bodies pass through String). No pipe here may have an
+# early-closing reader: CI runners ignore SIGPIPE, and macOS tr/base64 spin
+# forever on EPIPE, which hung this step at the job timeout three times.
+head -c 75000 /dev/urandom | base64 > "$WORK/b64"
+head -c 100000 "$WORK/b64" > "$WORK/body"
+check "payload ready ($(wc -c < "$WORK/body") bytes)"
 
 # 1. basic GET
 check "GET /ok"
