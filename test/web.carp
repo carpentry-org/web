@@ -7,6 +7,10 @@
     (Result.Success r) r
     (Result.Error _) (Request.init @"GET" @"HTTP/1.1" (zero) [] {} @"")))
 
+; unwraps a multipart decode the test expects to succeed
+(defn parts-of [body boundary]
+  (Result.unsafe-from-success (Form.decode-multipart body boundary)))
+
 ; Feeds `s` to the gate in `read-size` byte reads, threading the chunk cursor
 ; the way the event loop does, and returns the status after the last read.
 (defn replay-status [s read-size]
@@ -260,7 +264,7 @@
   (assert-equal test
     1
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
         "abc"))
     "decode-multipart parses single part")
@@ -269,7 +273,7 @@
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
           "abc")
         0))
@@ -279,7 +283,7 @@
     "value1"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"field1\"\r\n\r\nvalue1\r\n--abc--"
           "abc")
         0))
@@ -289,7 +293,7 @@
   (assert-equal test
     2
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
         "abc"))
     "decode-multipart parses two parts")
@@ -298,7 +302,7 @@
     "val-b"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
           "abc")
         1))
@@ -309,7 +313,7 @@
     (Maybe.just?
       (FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
             "abc")
           0)))
@@ -320,7 +324,7 @@
     &(Maybe.unsafe-from
       @(FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
             "abc")
           0)))
@@ -331,47 +335,45 @@
     &(Maybe.unsafe-from
       @(FormPart.content-type
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"file1\"; filename=\"test.txt\"\r\nContent-Type: text/plain\r\n\r\nfile data\r\n--abc--"
             "abc")
           0)))
     "decode-multipart extracts content-type")
 
-  ; -- decode-multipart: default content-type --
-  (assert-equal test
-    "text/plain"
-    &(Maybe.unsafe-from
-      @(FormPart.content-type
+  ; -- decode-multipart: a part without Content-Type reports none --
+  (assert-true test
+    (Maybe.nothing?
+      (FormPart.content-type
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
             "abc")
           0)))
-    "decode-multipart defaults content-type to text/plain")
+    "decode-multipart reports no content-type when the part carries none")
 
   ; -- decode-multipart: no filename for text field --
   (assert-true test
     (Maybe.nothing?
       (FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nv\r\n--abc--"
             "abc")
           0)))
     "decode-multipart has no filename for text field")
 
   ; -- decode-multipart: empty body --
-  (assert-equal test
-    0
-    (Array.length &(Form.decode-multipart "" "abc"))
-    "decode-multipart returns empty for empty body")
+  (assert-true test
+    (Result.error? &(Form.decode-multipart "" "abc"))
+    "decode-multipart fails for empty body")
 
   ; -- decode-multipart: case-insensitive headers --
   (assert-equal test
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\ncontent-disposition: form-data; name=\"field1\"\r\n\r\nval\r\n--abc--"
           "abc")
         0))
@@ -382,7 +384,7 @@
     "field1"
     (FormPart.name
       (Array.unsafe-nth
-        &(Form.decode-multipart
+        &(parts-of
           "--abc\r\nContent-Disposition: form-data; Name=\"field1\"\r\n\r\nval\r\n--abc--"
           "abc")
         0))
@@ -393,7 +395,7 @@
     &(Maybe.unsafe-from
       @(FormPart.filename
         (Array.unsafe-nth
-          &(Form.decode-multipart
+          &(parts-of
             "--abc\r\nContent-Disposition: form-data; name=\"f\"; Filename=\"test.txt\"\r\n\r\ndata\r\n--abc--"
             "abc")
           0)))
@@ -403,7 +405,7 @@
   (assert-equal test
     1
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc  \r\nContent-Disposition: form-data; name=\"f\"\r\n\r\nval\r\n--abc--"
         "abc"))
     "decode-multipart tolerates padding after initial boundary")
@@ -411,7 +413,7 @@
   (assert-equal test
     2
     (Array.length
-      &(Form.decode-multipart
+      &(parts-of
         "--abc\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nval-a\r\n--abc \t\r\nContent-Disposition: form-data; name=\"b\"\r\n\r\nval-b\r\n--abc--"
         "abc"))
     "decode-multipart tolerates padding between parts")
@@ -421,11 +423,20 @@
     "hello"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart-request
-          &(parse-req
-            "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
+        &(Result.unsafe-from-success
+          (Form.decode-multipart-request
+            &(parse-req
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; Boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
         0))
     "decode-multipart-request handles uppercase Boundary param")
+
+  ; -- decode-multipart-request: non-multipart request fails --
+  (assert-true test
+    (Result.error?
+      &(Form.decode-multipart-request
+        &(parse-req
+          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
+    "decode-multipart-request fails for non-multipart content type")
 
   ; -- multipart? --
   (assert-true test
@@ -448,19 +459,12 @@
     "hello"
     (FormPart.body
       (Array.unsafe-nth
-        &(Form.decode-multipart-request
-          &(parse-req
-            "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--"))
+        &(Result.unsafe-from-success
+          (Form.decode-multipart-request
+            &(parse-req
+              "POST / HTTP/1.1\r\nContent-Type: multipart/form-data; boundary=xyz\r\n\r\n--xyz\r\nContent-Disposition: form-data; name=\"msg\"\r\n\r\nhello\r\n--xyz--")))
         0))
     "decode-multipart-request parses from request")
-
-  (assert-equal test
-    0
-    (Array.length
-      &(Form.decode-multipart-request
-        &(parse-req
-          "POST / HTTP/1.1\r\nContent-Type: application/json\r\n\r\n{}")))
-    "decode-multipart-request empty for non-multipart")
 
   (assert-equal test
     "OK"
@@ -1610,7 +1614,7 @@
                                                  86400)
           vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
           hdr (Array.unsafe-first &vals)]
-      (>= (Form.find-substring hdr "Max-Age=86400" 0) 0))
+      (>= (String.index-of-string hdr "Max-Age=86400") 0))
     "set-cookie-with-max-age includes Max-Age attribute")
 
   ; -- Response.clear-cookie --
@@ -1619,5 +1623,5 @@
           vals (Map.get-with-default (Response.headers &resp) "Set-Cookie" &[])
           hdr (Array.unsafe-first &vals)]
       (and (String.starts-with? hdr "session=;")
-           (>= (Form.find-substring hdr "Max-Age=0" 0) 0)))
+           (>= (String.index-of-string hdr "Max-Age=0") 0)))
     "clear-cookie sets empty value and Max-Age=0"))

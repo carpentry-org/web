@@ -3,18 +3,32 @@
 ## Unreleased
 
 ### Changed
-- **`FormPart.content-type` is now a `(Maybe String)`.** A part that carries no
-  `Content-Type` header still reports `text/plain`, so callers only need to
-  unwrap the value.
+- **`Form.decode-multipart` and `Form.decode-multipart-request` now return
+  `(Result (Array FormPart) String)`** and delegate to http's multipart
+  parser instead of shipping a second one. The new parser handles quoted
+  parameters and preambles per RFC, and failures (missing boundary,
+  non-multipart content type) are reported instead of silently yielding an
+  empty array.
+- **`FormPart.content-type` is now a `(Maybe String)`** (the type moved to
+  http) and reports `Nothing` when a part carries no `Content-Type` header,
+  where it previously defaulted to `text/plain`. Callers that want the RFC
+  default apply it themselves.
+
+### Added
+- **`App.request-timeout` (60s)** bounds the time from a request's first byte
+  to its completion, closing connections whose body drips in forever.
+  `App.header-timeout` still bounds the header block alone; `App.idle-timeout`
+  still bounds silent connections.
+- **`Expect: 100-continue` is answered.** When a request declares the
+  expectation and its body has not arrived yet, the server sends the
+  `100 Continue` interim response as soon as the headers are complete, so
+  clients that wait for permission (curl does, for large uploads) proceed
+  immediately instead of stalling into their own timeout.
+- **An end-to-end smoke test** (`test/smoke.sh`) drives a real server with
+  curl over TCP in CI: large uploads, chunked uploads, 100-continue,
+  keep-alive and malformed-framing rejection.
 
 ### Fixed
-- **Chunked request bodies now reach handlers decoded.** A request sent with
-  `Transfer-Encoding: chunked` handed the handler the raw chunk framing — size
-  lines, CRLFs and all — as its body, so form, multipart and JSON parsing all
-  saw garbage. The body is now decoded before dispatch, and one whose framing
-  cannot be decoded is answered with `400`.
-- **Chunked request bodies with a repeated `Transfer-Encoding` header are now
-  decoded** instead of reaching the handler as raw chunk framing.
 - **Handlers no longer receive truncated request bodies.** The server
   dispatched as soon as it had seen the end of the headers, so any request
   whose body did not arrive in the same 4KB read reached the handler with the
@@ -24,6 +38,14 @@
   for the whole body (`Content-Length`, or the terminating chunk for
   `Transfer-Encoding: chunked`) before dispatching, and answers `400` for
   requests whose framing is ambiguous.
+- **Chunked request bodies reach handlers decoded and normalized.** A request
+  sent with `Transfer-Encoding: chunked` (including via a repeated
+  `Transfer-Encoding` header) used to hand the handler the raw chunk framing
+  as its body. The body is now decoded before dispatch, the
+  `Transfer-Encoding` header is removed, `Content-Length` is set to the
+  decoded length (so `Request.chunked?` and the headers describe the request
+  the handler actually holds), trailer fields are discarded, and a body whose
+  framing cannot be decoded is answered with `400`.
 
 ## 0.8.0 (2026-07-12)
 

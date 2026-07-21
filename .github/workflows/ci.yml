@@ -25,5 +25,8 @@ jobs:
           carp -x test/web.carp
           carp -x test/websocket.carp
 
+      - name: Smoke test
+        run: ./test/smoke.sh
+
       - name: Generate docs
         run: carp -x gendocs.carp

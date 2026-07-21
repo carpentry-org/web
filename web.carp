@@ -480,154 +480,21 @@ map if the content type is not `application/x-www-form-urlencoded`.")
         (decode (Request.body req))
         (the (Map String String) {}))))
 
-  (hidden find-substring)
-  (defn find-substring [haystack needle start]
-    (let-do [h-len (String.length haystack)
-             n-len (String.length needle)
-             result -1]
-      (when (and (> n-len 0) (<= (+ start n-len) h-len))
-        (for [i start (+ (- h-len n-len) 1)]
-          (let-do [matched true]
-            (for [j 0 n-len]
-              (when-do (/= (String.char-at haystack (+ i j))
-                           (String.char-at needle j))
-                (set! matched false)
-                (break)))
-            (when-do matched (set! result i) (break)))))
-      result))
-
-  (hidden extract-header-param)
-  (defn extract-header-param [s key]
-    (let-do [parts &(String.split-by s &[\;])
-             result (the (Maybe String) (Maybe.Nothing))
-             search (String.append key "=")]
-      (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))
-              part-lower &(String.ascii-to-lower part)]
-          (when (String.starts-with? part-lower &search)
-            (let-do [val-start (String.length &search)
-                     val-str &(String.byte-slice part
-                                                 val-start
-                                                 (String.length part))]
-              (if (and (> (String.length val-str) 0)
-                       (= (String.char-at val-str 0) \"))
-                (let [end-quote (String.index-of-from val-str \" 1)]
-                  (when (> end-quote 0)
-                    (set! result
-                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
-                (set! result (Maybe.Just @val-str)))
-              (break)))))
-      result))
-
-  (hidden parse-multipart-part)
-  (defn parse-multipart-part [raw]
-    (let [hdr-end (find-substring raw "\r\n\r\n" 0)]
-      (if (< hdr-end 0)
-        (the (Maybe FormPart) (Maybe.Nothing))
-        (let [headers-str &(String.byte-slice raw 0 hdr-end)
-              headers-lower &(String.ascii-to-lower headers-str)
-              body (String.byte-slice raw (+ hdr-end 4) (String.length raw))
-              disp-pos (find-substring headers-lower "content-disposition:" 0)]
-          (if (< disp-pos 0)
-            (Maybe.Nothing)
-            (let [disp-start (+ disp-pos 20)
-                  disp-eol (find-substring headers-str "\r\n" disp-start)
-                  disp-end (if (< disp-eol 0)
-                    (String.length headers-str)
-                    disp-eol)
-                  disp-val &(String.byte-slice headers-str disp-start disp-end)
-                  name-result (extract-header-param disp-val "name")
-                  filename-result (extract-header-param disp-val "filename")
-                  ct-pos (find-substring headers-lower "content-type:" 0)
-                  ct (if (< ct-pos 0)
-                    (Maybe.Just @"text/plain")
-                    (let [ct-start (+ ct-pos 13)
-                          ct-eol (find-substring headers-str "\r\n" ct-start)
-                          ct-end (if (< ct-eol 0)
-                            (String.length headers-str)
-                            ct-eol)]
-                      (Maybe.Just
-                        (String.trim
-                          &(String.byte-slice headers-str ct-start ct-end)))))]
-              (match name-result
-                (Maybe.Nothing) (Maybe.Nothing)
-                (Maybe.Just name)
-                  (Maybe.Just (FormPart.init name filename-result ct body)))))))))
-
-  (hidden extract-boundary)
-  (defn extract-boundary [content-type]
-    (let-do [parts &(String.split-by content-type &[\;])
-             result (the (Maybe String) (Maybe.Nothing))]
-      (for [i 0 (Array.length parts)]
-        (let [part &(String.trim (Array.unsafe-nth parts i))
-              part-lower &(String.ascii-to-lower part)]
-          (when (String.starts-with? part-lower "boundary=")
-            (let-do [val-str &(String.byte-slice part 9 (String.length part))]
-              (if (and (> (String.length val-str) 0)
-                       (= (String.char-at val-str 0) \"))
-                (let [end-quote (String.index-of-from val-str \" 1)]
-                  (when (> end-quote 0)
-                    (set! result
-                          (Maybe.Just (String.byte-slice val-str 1 end-quote)))))
-                (set! result (Maybe.Just @val-str)))
-              (break)))))
-      result))
-
-  (hidden skip-lwsp)
-  (defn skip-lwsp [s pos]
-    (let-do [p pos
-             len (String.length s)]
-      (while (and (< p len)
-                  (or (= (String.char-at s p) \space)
-                      (= (String.char-at s p) \tab)))
-        (set! p (+ p 1)))
-      p))
-
-  (doc decode-multipart "parses a `multipart/form-data` body given the
-boundary string. Returns an array of [`FormPart`](#FormPart) values.
+  (doc decode-multipart "decodes a `multipart/form-data` body given the
+boundary string, via http’s `Multipart.parse`. Returns
+`(Result (Array FormPart) String)`; fails when the opening boundary
+delimiter is absent.
 
 ```
-(let [parts (Form.decode-multipart body \"boundary123\")]
-  (Array.nth &parts 0))
+(match (Form.decode-multipart body \"boundary123\")
+  (Result.Success parts) (Array.nth &parts 0)
+  (Result.Error _) (Maybe.Nothing))
 ```
 
-Each part’s `name`, optional `filename`, and `content-type` are extracted
-from its MIME headers. The `body` field is the raw content between the
-part headers and the next boundary delimiter.")
-  (defn decode-multipart [body boundary]
-    (let-do [delim (String.append "--" boundary)
-             crlf-delim (String.append "\r\n" &delim)
-             parts (the (Array FormPart) [])
-             body-len (String.length body)
-             start (find-substring body &delim 0)]
-      (when (>= start 0)
-        (let-do [pos (+ start (String.length &delim))]
-          (set! pos (skip-lwsp body pos))
-          (when (and (< (+ pos 1) body-len)
-                     (= (String.char-at body pos) \return)
-                     (= (String.char-at body (+ pos 1)) \newline))
-            (set! pos (+ pos 2)))
-          (while (< pos body-len)
-            (let [next (find-substring body &crlf-delim pos)]
-              (if (< next 0)
-                (break)
-                (let-do [part-str &(String.byte-slice body pos next)]
-                  (match (parse-multipart-part part-str)
-                    (Maybe.Just part) (Array.push-back! &parts part)
-                    (Maybe.Nothing) ())
-                  (let-do [after (+ next (String.length &crlf-delim))]
-                    (set! after (skip-lwsp body after))
-                    (cond
-                      (and (<= (+ after 2) body-len)
-                           (= (String.char-at body after) \-)
-                           (= (String.char-at body (+ after 1)) \-))
-                        (break)
-                      (and (< (+ after 1) body-len)
-                           (= (String.char-at body after) \return)
-                           (= (String.char-at body (+ after 1)) \newline))
-                        (set! pos (+ after 2))
-                      (set! pos after)))))))))
-      parts))
+Each part’s `name`, optional `filename`, and optional `content-type` are
+extracted from its MIME headers. The `body` field is the raw content between
+the part headers and the next boundary delimiter.")
+  (defn decode-multipart [body boundary] (Multipart.parse body boundary))
 
   (doc multipart? "checks whether a request has a `multipart/form-data`
 content type.")
@@ -636,28 +503,19 @@ content type.")
       (Maybe.Just ct) (String.starts-with? &ct "multipart/form-data")
       (Maybe.Nothing) false))
 
-  (doc decode-multipart-request "parses the multipart form body from a
-request. Returns an array of [`FormPart`](#FormPart) values, or an empty
-array if the content type is not `multipart/form-data` or the boundary
-is missing.
+  (doc decode-multipart-request "decodes the multipart form body of a
+request, taking the boundary from its `Content-Type` header, via http’s
+`Request.multipart-data`. Returns `(Result (Array FormPart) String)`; fails
+when the request is not `multipart/form-data` or carries no boundary.
 
 ```
 (defn upload [req params]
-  (let [parts (Form.decode-multipart-request req)]
-    (if (> (Array.length &parts) 0)
+  (match (Form.decode-multipart-request req)
+    (Result.Success parts)
       (Response.text (fmt \"got %d parts\" (Array.length &parts)))
-      (Response.bad-request))))
+    (Result.Error _) (Response.bad-request)))
 ```")
-  (defn decode-multipart-request [req]
-    (match (Request.header req "Content-Type")
-      (Maybe.Nothing) (the (Array FormPart) [])
-      (Maybe.Just ct)
-        (if (not (String.starts-with? &ct "multipart/form-data"))
-          (the (Array FormPart) [])
-          (match (extract-boundary &ct)
-            (Maybe.Nothing) (the (Array FormPart) [])
-            (Maybe.Just boundary)
-              (decode-multipart (Request.body req) &boundary))))))
+  (defn decode-multipart-request [req] (Request.multipart-data req)))
 
 (doc WSEvent "represents an event on a WebSocket connection.
 
