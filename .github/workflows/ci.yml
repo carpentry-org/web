@@ -26,6 +26,7 @@ jobs:
           carp -x test/websocket.carp
 
       - name: Smoke test
+        timeout-minutes: 15
         run: ./test/smoke.sh
 
       - name: Generate docs
