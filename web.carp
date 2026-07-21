@@ -1228,33 +1228,39 @@ responses. The `protocols` field lists the subprotocols that this route supports
   (let [c (web-colon-index buf start limit)]
     (and (> c start) (web-ows? @(Array.unsafe-nth buf (- c 1))))))
 
-; Whether the raw bytes in buf hold a whole HTTP request, so that a handler is
-; never dispatched on a body that is still in flight. Returns 1 when the
-; request is complete, 0 when more bytes are needed, and -1 when the framing is
-; unrecoverable and the connection should get a 400 (RFC 7230 §3.3.3):
-; Content-Length together with Transfer-Encoding, a Content-Length that repeats
-; with a different value or is not a plain number, a Transfer-Encoding whose
-; final coding is not chunked, chunk framing that does not parse, or whitespace
-; between a field name and its colon (§3.2.4). A request carrying neither
-; header has no body and is complete as soon as its headers are.
-;
-; The status is paired with the chunk cursor described on `web-chunked-status`,
-; which the caller keeps per connection and hands back on the next read. It is
-; 0 for every framing but chunked, so it can only ever be non-zero while one
-; chunked body is being read.
-(hidden web-request-status)
-(defn web-request-status [buf cursor]
+; The framing facts of one request, read once from its raw header block
+; (RFC 7230 §3.3.3). This record is the single definition of how the body is
+; delimited: the completeness gate and the body decoder both consume it, so
+; they cannot disagree. `malformed` covers everything §3.3.3 and §3.2.4
+; require a 400 for: Content-Length together with Transfer-Encoding, a
+; Content-Length that repeats with a different value or is not a plain
+; number, a Transfer-Encoding whose final coding is not chunked, and
+; whitespace between a field name and its colon. `chunked` is only ever true
+; when `malformed` is false, and `expects-continue` records an
+; `Expect: 100-continue` header (RFC 7231 §5.1.1).
+(hidden WebFraming)
+(deftype WebFraming
+  [body-start Int
+   content-length (Maybe Int)
+   chunked Bool
+   expects-continue Bool
+   malformed Bool])
+
+; Reads the framing of the request in `buf`. Nothing while the header block
+; is still incomplete.
+(hidden web-parse-framing)
+(defn web-parse-framing [buf]
   (let [hdr-end (web-header-end-index buf)]
     (if (< hdr-end 0)
-      (Pair.init 0 0)
-      (let-do [len (Array.length buf)
-               body-start (+ hdr-end 4)
-               cl -2
+      (the (Maybe WebFraming) (Maybe.Nothing))
+      (let-do [cl -2
                bad false
                te false
                chunked false
+               expects false
                cl-name &(String.to-bytes "content-length:")
                te-name &(String.to-bytes "transfer-encoding:")
+               ex-name &(String.to-bytes "expect:")
                line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
         ; line-start is 1 only when the request line has no CRLF below hdr-end,
         ; i.e. when there are no header lines to scan at all.
@@ -1283,20 +1289,79 @@ responses. The `protocols` field lists the subprotocols that this route supports
                                               (+ line-start
                                                  (Array.length te-name))
                                               line-end)))
+                (web-bytes-match? buf line-start line-end ex-name)
+                  (let-do [vs (+ line-start (Array.length ex-name))
+                           ve line-end]
+                    (while (and (< vs ve) (web-ows? @(Array.unsafe-nth buf vs)))
+                      (set! vs (+ vs 1)))
+                    (while (and (> ve vs)
+                                (web-ows? @(Array.unsafe-nth buf (- ve 1))))
+                      (set! ve (- ve 1)))
+                    (set! expects
+                          (and (= (- ve vs) 12)
+                               (web-bytes-match? buf
+                                                 vs
+                                                 ve
+                                                 &(String.to-bytes "100-continue")))))
                 ())
               (set! line-start (+ line-end 2)))))
-        (cond
-          bad (Pair.init -1 0)
-          (and te (/= cl -2)) (Pair.init -1 0)
-          te
-            (if chunked
-              (web-chunked-status buf body-start cursor)
-              (Pair.init -1 0))
-          (= cl -2) (Pair.init 1 0)
-          (Pair.init (if (>= (- len body-start) cl) 1 0) 0))))))
+        (when (and te (or (not chunked) (/= cl -2))) (set! bad true))
+        (Maybe.Just
+          (WebFraming.init (+ hdr-end 4)
+                           (if (= cl -2)
+                             (the (Maybe Int) (Maybe.Nothing))
+                             (Maybe.Just cl))
+                           (and te (and chunked (not bad)))
+                           expects
+                           bad))))))
+
+; Whether the raw bytes in buf hold a whole HTTP request, so that a handler is
+; never dispatched on a body that is still in flight. Returns 1 when the
+; request is complete, 0 when more bytes are needed, and -1 when the framing
+; is malformed per `web-parse-framing` and the connection should get a 400. A
+; request carrying neither framing header has no body and is complete as soon
+; as its headers are.
+;
+; The status is paired with the chunk cursor described on `web-chunked-status`,
+; which the caller keeps per connection and hands back on the next read. It is
+; 0 for every framing but chunked, so it can only ever be non-zero while one
+; chunked body is being read.
+(hidden web-request-status)
+(defn web-request-status [buf cursor]
+  (match (web-parse-framing buf)
+    (Maybe.Nothing) (Pair.init 0 0)
+    (Maybe.Just f)
+      (cond
+        @(WebFraming.malformed &f) (Pair.init -1 0)
+        @(WebFraming.chunked &f)
+          (web-chunked-status buf @(WebFraming.body-start &f) cursor)
+        (match-ref (WebFraming.content-length &f)
+          (Maybe.Just cl)
+            (Pair.init
+              (if (>= (- (Array.length buf) @(WebFraming.body-start &f)) @cl)
+                1
+                0)
+              0)
+          (Maybe.Nothing) (Pair.init 1 0)))))
 
 (hidden web-request-complete?)
 (defn web-request-complete? [buf] @(Pair.a &(web-request-status buf 0)))
+
+; Whether the request's headers ask for a `100 Continue` interim response: an
+; HTTP/1.1 request line together with an `Expect: 100-continue` header
+; (RFC 7231 §5.1.1).
+(hidden web-wants-continue?)
+(defn web-wants-continue? [buf]
+  (match (web-parse-framing buf)
+    (Maybe.Nothing) false
+    (Maybe.Just f)
+      (and @(WebFraming.expects-continue &f)
+           (let [nl (web-crlf-index buf 0 (Array.length buf))]
+             (and (>= nl 8)
+                  (web-bytes-match? buf
+                                    (- nl 8)
+                                    nl
+                                    &(String.to-bytes "http/1.1")))))))
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
@@ -1600,44 +1665,39 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Maybe.Just (Response.bad-request))
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
-; Whether the final Transfer-Encoding coding is chunked, by the same last-wins
-; header scan the gate applies (RFC 7230 §3.3.3).
-(hidden web-final-te-chunked?)
-(defn web-final-te-chunked? [buf]
-  (let [hdr-end (web-header-end-index buf)]
-    (if (< hdr-end 0)
-      false
-      (let-do [chunked false
-               te-name &(String.to-bytes "transfer-encoding:")
-               line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
-        (when (> line-start 1)
-          (while (< line-start hdr-end)
-            (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
-                     line-end (if (< nl 0) hdr-end nl)]
-              (when (web-bytes-match? buf line-start line-end te-name)
-                (set! chunked
-                      (web-chunked-value? buf
-                                          (+ line-start (Array.length te-name))
-                                          line-end)))
-              (set! line-start (+ line-end 2)))))
-        chunked))))
-
-; Replace a chunked request body with its decoded bytes. The framing headers
-; are left as they arrived, so `Request.chunked?` still reports the wire format.
+; Replace a chunked request body with its decoded bytes and normalize the
+; framing headers to match: every Transfer-Encoding header is removed and
+; Content-Length is set to the decoded length, so a handler sees an ordinary
+; request and `Request.chunked?` cannot claim a body that is already decoded.
+; Trailer fields after the last chunk are discarded.
 (hidden web-decode-body)
 (defn web-decode-body [chunked? req]
   (if chunked?
     (match (TransferEncoding.dechunk (Request.body &req))
       (Result.Error e) (Result.Error e)
-      (Result.Success decoded) (Result.Success (Request.set-body req decoded)))
+      (Result.Success decoded)
+        (let [cl-v [(Int.str (String.length &decoded))]
+              hdrs (Map.kv-reduce
+                &(fn [acc k v]
+                  (if (= &(String.ascii-to-lower k) "transfer-encoding")
+                    acc
+                    (Map.put acc k v)))
+                {}
+                (Request.headers &req))]
+          (Result.Success
+            (-> req
+                (Request.set-body decoded)
+                (Request.set-headers (Map.put hdrs &@"Content-Length" &cl-v))))))
     (Result.Success req)))
 
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
   (let [raw &(String.from-bytes buf)
+        chunked (match (web-parse-framing buf)
+          (Maybe.Just f) @(WebFraming.chunked &f)
+          (Maybe.Nothing) false)
         decoded (match (Request.parse raw)
-          (Result.Success parsed)
-            (web-decode-body (web-final-te-chunked? buf) parsed)
+          (Result.Success parsed) (web-decode-body chunked parsed)
           (Result.Error e) (Result.Error e))]
     (match decoded
       (Result.Error _) (Pair.init (Response.bad-request) false)

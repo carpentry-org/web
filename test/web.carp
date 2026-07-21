@@ -712,6 +712,34 @@
           (web-build-response &app &bh &ah &(String.to-bytes &req)))))
     "a mixed-case repeated Transfer-Encoding with chunked last is decoded")
 
+  ; -- a decoded chunked request is normalized: the Transfer-Encoding header
+  ; is gone and Content-Length reports the decoded length --
+  (assert-equal test
+    "plain 11"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p]
+                                   (Response.text
+                                     (fmt "%s %s"
+                                          (if (Request.chunked? r)
+                                            "chunked"
+                                            "plain")
+                                          &(match (Request.header r
+                                                                  "Content-Length")
+                                            (Maybe.Just v) v
+                                            (Maybe.Nothing) @"none"))))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n6\r\nhello \r\n5\r\nworld\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a decoded chunked request drops Transfer-Encoding and gains Content-Length")
+
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
     (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
