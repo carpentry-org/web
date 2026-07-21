@@ -3,49 +3,28 @@
 ## Unreleased
 
 ### Changed
-- **`Form.decode-multipart` and `Form.decode-multipart-request` now return
+- **`Form.decode-multipart` / `decode-multipart-request` return
   `(Result (Array FormPart) String)`** and delegate to http's multipart
-  parser instead of shipping a second one. The new parser handles quoted
-  parameters and preambles per RFC, and failures (missing boundary,
-  non-multipart content type) are reported instead of silently yielding an
-  empty array.
-- **`FormPart.content-type` is now a `(Maybe String)`** (the type moved to
-  http) and reports `Nothing` when a part carries no `Content-Type` header,
-  where it previously defaulted to `text/plain`. Callers that want the RFC
-  default apply it themselves.
+  parser instead of shipping a second one.
+- **`FormPart.content-type` is now a `(Maybe String)`**, `Nothing` when the
+  part carries no `Content-Type` header (previously `text/plain`).
 
 ### Added
-- **`App.request-timeout` (60s)** bounds the time from a request's first byte
-  to its completion, closing connections whose body drips in forever.
-  `App.header-timeout` still bounds the header block alone; `App.idle-timeout`
-  still bounds silent connections.
-- **`Expect: 100-continue` is answered.** When a request declares the
-  expectation and its body has not arrived yet, the server sends the
-  `100 Continue` interim response as soon as the headers are complete, so
-  clients that wait for permission (curl does, for large uploads) proceed
-  immediately instead of stalling into their own timeout.
-- **An end-to-end smoke test** (`test/smoke.sh`) drives a real server with
-  curl over TCP in CI: large uploads, chunked uploads, 100-continue,
-  keep-alive and malformed-framing rejection.
+- **`App.request-timeout` (60s)** bounds first byte to complete request, so a
+  slow-dripping body can no longer hold a connection open.
+- **`Expect: 100-continue` is answered** with the interim response once the
+  headers are complete.
+- **An end-to-end smoke test** (`test/smoke.sh`, in CI) drives a real server
+  with curl: large, chunked, and 100-continue uploads, keep-alive, 400s.
 
 ### Fixed
 - **Handlers no longer receive truncated request bodies.** The server
-  dispatched as soon as it had seen the end of the headers, so any request
-  whose body did not arrive in the same 4KB read reached the handler with the
-  body cut short — form and multipart parsing silently lost data, file uploads
-  over ~4KB were broken, and the leftover bytes were then misread as a second
-  request, answering a bogus `400` after the wrong `200`. The server now waits
-  for the whole body (`Content-Length`, or the terminating chunk for
-  `Transfer-Encoding: chunked`) before dispatching, and answers `400` for
-  requests whose framing is ambiguous.
-- **Chunked request bodies reach handlers decoded and normalized.** A request
-  sent with `Transfer-Encoding: chunked` (including via a repeated
-  `Transfer-Encoding` header) used to hand the handler the raw chunk framing
-  as its body. The body is now decoded before dispatch, the
-  `Transfer-Encoding` header is removed, `Content-Length` is set to the
-  decoded length (so `Request.chunked?` and the headers describe the request
-  the handler actually holds), trailer fields are discarded, and a body whose
-  framing cannot be decoded is answered with `400`.
+  dispatched at the end of the headers, so any body not in the same 4KB read
+  arrived cut short, and the leftover bytes were misread as a second request.
+  It now waits for the whole body (`Content-Length`, or the terminating
+  chunk) and answers `400` for ambiguous framing (RFC 7230 §3.3.3).
+- **Chunked bodies reach handlers decoded and normalized**: body dechunked,
+  `Transfer-Encoding` removed, `Content-Length` set, trailers discarded.
 
 ## 0.8.0 (2026-07-12)
 

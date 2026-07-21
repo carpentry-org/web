@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke test: builds and runs test/smoke-server.carp, then drives
-# it with curl over a real TCP connection. This is the level at which the
-# body-truncation bug lived; the unit suites cannot see it.
+# end-to-end smoke test: runs test/smoke-server.carp, drives it with curl
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -28,9 +26,7 @@ done
 
 fail() { echo "FAIL: $1"; exit 1; }
 
-# NUL-free payload: request bodies pass through String, which is
-# NUL-terminated, so binary-transparent bodies are a separate, pre-existing
-# limitation this test does not cover.
+# NUL-free payload: bodies pass through String, a pre-existing limitation
 (LC_ALL=C tr -dc 'a-zA-Z0-9' </dev/urandom || true) | head -c 100000 > "$WORK/body"
 
 # 1. basic GET

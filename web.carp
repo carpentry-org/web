@@ -902,8 +902,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-byte-lower)
 (defn web-byte-lower [b] (if (and (>= b 65b) (<= b 90b)) (Byte.+ b 32b) b))
 
-; Whether `buf` at `pos` case-insensitively matches the lowercase ASCII `name`,
-; without reading at or beyond `limit`.
+; Case-insensitive match of lowercase ASCII `name` at `pos`, bounded by `limit`.
 (hidden web-bytes-match?)
 (defn web-bytes-match? [buf pos limit name]
   (let-do [nl (Array.length name)
@@ -917,10 +916,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
           (break))))
     ok))
 
-; Parses a Content-Length value spanning [pos, limit). Returns -1 if it is not
-; a bare run of digits surrounded by optional whitespace. Accumulation
-; saturates well above App.max-request-size so an absurd length can never
-; overflow into a negative Int.
+; Parses a Content-Length value in [pos, limit); -1 if malformed. Saturating.
 (hidden web-parse-content-length)
 (defn web-parse-content-length [buf pos limit]
   (let-do [i pos
@@ -939,9 +935,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
       (set! i (+ i 1)))
     (if (and (> digits 0) (= i limit)) v -1)))
 
-; Whether the Transfer-Encoding value spanning [pos, limit) ends in `chunked`,
-; i.e. whether chunked is the final coding (RFC 7230 §3.3.3). The match has to
-; begin the value or follow a delimiter, so `xchunked` is a coding of its own.
+; Whether the final Transfer-Encoding coding in [pos, limit) is chunked (§3.3.3).
 (hidden web-chunked-value?)
 (defn web-chunked-value? [buf pos limit]
   (let-do [e limit]
@@ -963,10 +957,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
     (and (>= b 65b) (<= b 70b)) (- (Byte.to-int b) 55)
     -1))
 
-; Parses the chunk-size line spanning [pos, limit), which is a run of hex
-; digits optionally followed by a chunk extension. Returns -1 if it is not.
-; Accumulation saturates well above App.max-request-size so an absurd size can
-; never overflow into a negative Int.
+; Parses a chunk-size line in [pos, limit); -1 if malformed. Saturating.
 (hidden web-parse-chunk-size)
 (defn web-parse-chunk-size [buf pos limit]
   (let-do [i pos
@@ -988,10 +979,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
       v
       -1)))
 
-; Whether the trailer section that follows the last chunk (RFC 7230 §4.1.2) is
-; fully present from `pos` on: 1 once its terminating blank line has arrived, 0
-; while more bytes are needed. Paired with the start of the first trailer line
-; that is not yet complete, so a later event can resume there.
+; Whether the trailer section at `pos` is complete: (Pair status resume-pos).
 (hidden web-trailer-status)
 (defn web-trailer-status [buf pos limit]
   (let-do [p pos
@@ -1005,33 +993,11 @@ responses. The `protocols` field lists the subprotocols that this route supports
           (set! p (+ nl 2)))))
     (Pair.init status p)))
 
-; Walks the chunk framing of the body starting at `body-start` (RFC 7230 §4.1):
-; read a chunk-size line, skip that many data bytes plus their CRLF, repeat,
-; and on the zero-size chunk consume the trailer section. Returns 1 when the
-; whole body is present, 0 while more bytes are needed, and -1 when the framing
-; is malformed. Skipping over chunk data rather than searching it is what keeps
-; a single walk O(number of chunks) instead of O(body bytes), and is also why
-; data that happens to contain the terminator bytes cannot end the wait early.
-;
-; The walk resumes where the previous one stopped, so that a body arriving over
-; many reads costs O(chunks) in total rather than O(chunks) per read. The
-; status is therefore paired with a cursor to hand back on the next call: a
-; positive one is the start of a chunk-size line, a negative one the negated
-; start of a trailer line, and 0 means start over from the body. Only a
-; boundary whose chunk has been fully verified — size line, data bytes and
-; their CRLF all present — is ever recorded.
-;
-; The cursor is trusted rather than validated: `usable` is only a range check,
-; so a stale cursor that happens to fall inside the current body is resumed
-; from as-is and the answer is then simply wrong — including reporting a
-; truncated body as complete, the bug this gate exists to prevent. What rules
-; that out is the caller, not this check: `chunk-cursor` is reset in
-; `conn-done-writing`, removed in `conn-cleanup` and initialised in
-; `handle-accept`, and the paths that clear `read-bufs` without touching it
-; either close the connection or hand the fd to the WebSocket loop, which never
-; consults it. Validating a cursor would mean walking to it from `body-start`,
-; the cost it exists to avoid, so any future path that carries bytes across
-; requests on one fd — HTTP pipelining, say — has to reset the cursor itself.
+; Walks the chunk framing at `body-start` (RFC 7230 §4.1), skipping over data
+; bytes: 1 complete, 0 needs more bytes, -1 malformed. Resumes from `cursor`
+; (positive: chunk-size line, negative: negated trailer line, 0: start over),
+; which is range-checked, not validated — every path that clears the read
+; buffer must reset it.
 (hidden web-chunked-status)
 (defn web-chunked-status [buf body-start cursor]
   (let-do [len (Array.length buf)
@@ -1079,23 +1045,15 @@ responses. The `protocols` field lists the subprotocols that this route supports
           (break))))
     found))
 
-; Whether a header line spanning [start, limit) has whitespace between its
-; field name and the colon, which RFC 7230 §3.2.4 requires a server to reject.
+; Whether a header line in [start, limit) has whitespace before its colon (§3.2.4).
 (hidden web-space-before-colon?)
 (defn web-space-before-colon? [buf start limit]
   (let [c (web-colon-index buf start limit)]
     (and (> c start) (web-ows? @(Array.unsafe-nth buf (- c 1))))))
 
-; The framing facts of one request, read once from its raw header block
-; (RFC 7230 §3.3.3). This record is the single definition of how the body is
-; delimited: the completeness gate and the body decoder both consume it, so
-; they cannot disagree. `malformed` covers everything §3.3.3 and §3.2.4
-; require a 400 for: Content-Length together with Transfer-Encoding, a
-; Content-Length that repeats with a different value or is not a plain
-; number, a Transfer-Encoding whose final coding is not chunked, and
-; whitespace between a field name and its colon. `chunked` is only ever true
-; when `malformed` is false, and `expects-continue` records an
-; `Expect: 100-continue` header (RFC 7231 §5.1.1).
+; The framing of one request, read once from the raw header block; the gate
+; and the body decoder both consume it. `malformed` covers everything RFC 7230
+; §3.3.3 and §3.2.4 require a 400 for.
 (hidden WebFraming)
 (deftype WebFraming
   [body-start Int
@@ -1104,8 +1062,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
    expects-continue Bool
    malformed Bool])
 
-; Reads the framing of the request in `buf`. Nothing while the header block
-; is still incomplete.
+; Reads the framing of the request in `buf`; Nothing while headers are incomplete.
 (hidden web-parse-framing)
 (defn web-parse-framing [buf]
   (let [hdr-end (web-header-end-index buf)]
@@ -1120,8 +1077,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
                te-name &(String.to-bytes "transfer-encoding:")
                ex-name &(String.to-bytes "expect:")
                line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
-        ; line-start is 1 only when the request line has no CRLF below hdr-end,
-        ; i.e. when there are no header lines to scan at all.
+        ; line-start 1 means no header lines below hdr-end at all
         (when (> line-start 1)
           (while (< line-start hdr-end)
             (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
@@ -1173,17 +1129,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
                            expects
                            bad))))))
 
-; Whether the raw bytes in buf hold a whole HTTP request, so that a handler is
-; never dispatched on a body that is still in flight. Returns 1 when the
-; request is complete, 0 when more bytes are needed, and -1 when the framing
-; is malformed per `web-parse-framing` and the connection should get a 400. A
-; request carrying neither framing header has no body and is complete as soon
-; as its headers are.
-;
-; The status is paired with the chunk cursor described on `web-chunked-status`,
-; which the caller keeps per connection and hands back on the next read. It is
-; 0 for every framing but chunked, so it can only ever be non-zero while one
-; chunked body is being read.
+; Whether `buf` holds a whole HTTP request: 1 complete, 0 needs more bytes,
+; -1 malformed (400). Paired with the chunk cursor for `web-chunked-status`.
 (hidden web-request-status)
 (defn web-request-status [buf cursor]
   (match (web-parse-framing buf)
@@ -1205,9 +1152,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-request-complete?)
 (defn web-request-complete? [buf] @(Pair.a &(web-request-status buf 0)))
 
-; Whether the request's headers ask for a `100 Continue` interim response: an
-; HTTP/1.1 request line together with an `Expect: 100-continue` header
-; (RFC 7231 §5.1.1).
+; Whether the request asks for a 100 Continue: HTTP/1.1 plus Expect: 100-continue.
 (hidden web-wants-continue?)
 (defn web-wants-continue? [buf]
   (match (web-parse-framing buf)
@@ -1523,11 +1468,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Maybe.Just (Response.bad-request))
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
-; Replace a chunked request body with its decoded bytes and normalize the
-; framing headers to match: every Transfer-Encoding header is removed and
-; Content-Length is set to the decoded length, so a handler sees an ordinary
-; request and `Request.chunked?` cannot claim a body that is already decoded.
-; Trailer fields after the last chunk are discarded.
+; Dechunk a chunked request body and normalize its framing headers:
+; Transfer-Encoding removed, Content-Length set, trailers discarded.
 (hidden web-decode-body)
 (defn web-decode-body [chunked? req]
   (if chunked?
@@ -2229,13 +2171,8 @@ fallback.")
                                                   (web-request-status buf cursor))
                                                 (Pair.init 0 0))
                              status @(Pair.a &st)]
-                      ; Resume the next chunk walk where this one stopped, so a
-                      ; chunked body costs one walk in total, not one per read.
                       (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
-                      ; Phase transition: read-start flips to its negation the
-                      ; first time the header block is complete, so the sweep
-                      ; can bound the header phase and the body phase
-                      ; separately (see http-timeout-close?).
+                      ; headers complete: negate read-start (see http-timeout-close?)
                       (let [rs (Map.get (ConnState.read-start cs) &fd)]
                         (when-do (and (> rs 0)
                                       (Map.value-ref! (ConnState.read-bufs cs)
@@ -2244,14 +2181,8 @@ fallback.")
                                                         (web-has-header-end buf))
                                                       false))
                           (Map.put! (ConnState.read-start cs) &fd &(- 0 rs))
-                          ; RFC 7231 §5.1.1: the client may be waiting for
-                          ; permission to send the body we now wait for. An
-                          ; interim response cannot use the normal write path
-                          ; (conn-done-writing would clear the partly read
-                          ; request), so it is a single direct send: skipped
-                          ; when the socket is not writable (the client
-                          ; proceeds after its own timeout), fatal when it
-                          ; would tear the interim response.
+                          ; 100 Continue goes out directly — the write path
+                          ; would clear the partly read request
                           (when (and (= status 0)
                                      (Map.value-ref! (ConnState.read-bufs cs)
                                                      &fd
@@ -2268,8 +2199,6 @@ fallback.")
                                   (queue-close cs fd)
                                 ())))))
                       (when-do (/= status 0)
-                        ; The request is fully received (or hopeless): the
-                        ; receive clock stops here.
                         (Map.put! (ConnState.read-start cs) &fd &0)
                         ; Validate request line before parsing
                         (let [bad-req (if (< status 0)
@@ -2475,13 +2404,9 @@ fallback.")
         1
       0))
 
-  (doc http-timeout-close? "Decides whether an HTTP connection has exceeded a
-    timeout. `rs` encodes the phase of the request being received: a positive
-    value is the arrival time of a request whose headers are still incomplete
-    (`header-timeout` applies), a negative value is the negated arrival time
-    of one whose body is still arriving (`request-timeout` applies, bounding
-    first byte to complete request), and 0 means no request is in flight
-    (`idle-timeout` alone applies).")
+  (doc http-timeout-close? "Decides whether an HTTP connection timed out.
+    `rs` is positive while headers arrive (header-timeout), negated once they
+    are complete (request-timeout), and 0 between requests (idle-timeout).")
   (defn http-timeout-close? [rs now header-to request-to idle idle-to]
     (cond
       (and (> rs 0) (> (- now rs) header-to)) true

@@ -11,8 +11,7 @@
 (defn parts-of [body boundary]
   (Result.unsafe-from-success (Form.decode-multipart body boundary)))
 
-; Feeds `s` to the gate in `read-size` byte reads, threading the chunk cursor
-; the way the event loop does, and returns the status after the last read.
+; feeds `s` to the gate in `read-size` byte reads, threading the chunk cursor
 (defn replay-status [s read-size]
   (let-do [all (String.to-bytes s)
            n (Array.length &all)
@@ -716,8 +715,7 @@
           (web-build-response &app &bh &ah &(String.to-bytes &req)))))
     "a mixed-case repeated Transfer-Encoding with chunked last is decoded")
 
-  ; -- a decoded chunked request is normalized: the Transfer-Encoding header
-  ; is gone and Content-Length reports the decoded length --
+  ; -- a decoded chunked request is normalized --
   (assert-equal test
     "plain 11"
     (Response.body
@@ -1259,15 +1257,8 @@
         2))
     "a cursor pointing before the body is ignored")
 
-  ; Both cursors above are out of range, which is the only case the check in
-  ; web-chunked-status covers. These three pin what it does with an in-range
-  ; one: nothing. The body below is truncated — one chunk, no terminator — so
-  ; the answer from a fresh cursor is 0, but a stale cursor landing anywhere
-  ; inside it is resumed from unvalidated and answers wrongly. Index 51 is the
-  ; CRLF closing the chunk data, so as a trailer resume point it reads as a
-  ; blank line and the truncated body is reported complete. Safety comes from
-  ; every fd that reaches this gate carrying a cursor reset alongside its
-  ; buffer, not from these bounds.
+  ; tripwires: in-range stale cursors answer wrongly by design — safety is
+  ; the caller's cursor resets, not this range check
   (assert-equal test
     0
     @(Pair.a

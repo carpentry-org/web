@@ -1,6 +1,4 @@
-; Minimal server for the end-to-end smoke test (test/smoke.sh). Routes:
-; GET /ok — liveness; POST /echo — echoes the request body back; POST /meta —
-; reports what the handler sees of a request's framing after normalization.
+; minimal server for the end-to-end smoke test (test/smoke.sh)
 (load "../web.carp")
 
 (Project.config "title" "smoke-server")
