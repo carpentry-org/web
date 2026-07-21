@@ -13,6 +13,8 @@
   lines, CRLFs and all — as its body, so form, multipart and JSON parsing all
   saw garbage. The body is now decoded before dispatch, and one whose framing
   cannot be decoded is answered with `400`.
+- **Chunked request bodies with a repeated `Transfer-Encoding` header are now
+  decoded** instead of reaching the handler as raw chunk framing.
 - **Handlers no longer receive truncated request bodies.** The server
   dispatched as soon as it had seen the end of the headers, so any request
   whose body did not arrive in the same 4KB read reached the handler with the

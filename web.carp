@@ -1600,11 +1600,33 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (Maybe.Just (Response.bad-request))
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
+; Whether the final Transfer-Encoding coding is chunked, by the same last-wins
+; header scan the gate applies (RFC 7230 §3.3.3).
+(hidden web-final-te-chunked?)
+(defn web-final-te-chunked? [buf]
+  (let [hdr-end (web-header-end-index buf)]
+    (if (< hdr-end 0)
+      false
+      (let-do [chunked false
+               te-name &(String.to-bytes "transfer-encoding:")
+               line-start (+ (web-crlf-index buf 0 hdr-end) 2)]
+        (when (> line-start 1)
+          (while (< line-start hdr-end)
+            (let-do [nl (web-crlf-index buf line-start (+ hdr-end 2))
+                     line-end (if (< nl 0) hdr-end nl)]
+              (when (web-bytes-match? buf line-start line-end te-name)
+                (set! chunked
+                      (web-chunked-value? buf
+                                          (+ line-start (Array.length te-name))
+                                          line-end)))
+              (set! line-start (+ line-end 2)))))
+        chunked))))
+
 ; Replace a chunked request body with its decoded bytes. The framing headers
 ; are left as they arrived, so `Request.chunked?` still reports the wire format.
 (hidden web-decode-body)
-(defn web-decode-body [req]
-  (if (Request.chunked? &req)
+(defn web-decode-body [chunked? req]
+  (if chunked?
     (match (TransferEncoding.dechunk (Request.body &req))
       (Result.Error e) (Result.Error e)
       (Result.Success decoded) (Result.Success (Request.set-body req decoded)))
@@ -1612,8 +1634,12 @@ responses. The `protocols` field lists the subprotocols that this route supports
 
 ; Build the response for a complete request. Returns `(Pair Response Bool)`.
 (defn web-build-response [app before-hooks after-hooks buf]
-  (let [raw &(String.from-bytes buf)]
-    (match (Result.and-then (Request.parse raw) &web-decode-body)
+  (let [raw &(String.from-bytes buf)
+        decoded (match (Request.parse raw)
+          (Result.Success parsed)
+            (web-decode-body (web-final-te-chunked? buf) parsed)
+          (Result.Error e) (Result.Error e))]
+    (match decoded
       (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
         (let [ka (web-keep-alive? &req)

@@ -678,6 +678,40 @@
           (web-build-response &app &bh &ah &(String.to-bytes &req)))))
     "undecodable chunked body is a 400")
 
+  (assert-equal test
+    "hello"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a duplicate Transfer-Encoding with chunked last is decoded")
+
+  (assert-equal test
+    "hello"
+    (Response.body
+      (Pair.a
+        &(let [app (-> (App.create)
+                       (App.POST @"/echo"
+                                 (fn [r p] (Response.text @(Request.body r)))))
+               req @"POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\ntransfer-encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
+               bh (the
+                 (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+                 [])
+               ah (the
+                 (Array (Fn [&Request &(Map String String) Response] Response))
+                 [])]
+          (web-build-response &app &bh &ah &(String.to-bytes &req)))))
+    "a mixed-case repeated Transfer-Encoding with chunked last is decoded")
+
   ; -- web-etag-match? returns false without If-None-Match --
   (assert-false test
     (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
