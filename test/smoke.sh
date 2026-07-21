@@ -6,28 +6,34 @@ cd "$(dirname "$0")/.."
 PORT=8437
 BASE="http://127.0.0.1:$PORT"
 WORK=$(mktemp -d)
+LOG=smoke-server.log
 
-# the server must not inherit this script's stdout/stderr: a surviving child
-# holding them open keeps a CI step running until the job timeout
-carp -x test/smoke-server.carp > "$WORK/server.log" 2>&1 < /dev/null &
+echo "smoke: compiling server"
+carp -b test/smoke-server.carp
+
+./out/smoke-server > "$LOG" 2>&1 < /dev/null &
 SERVER_PID=$!
 cleanup() {
   kill "$SERVER_PID" 2>/dev/null || true
   pkill -f 'out/smoke-server' 2>/dev/null || true
-  echo "--- server log ---"
-  cat "$WORK/server.log" 2>/dev/null || true
   rm -rf "$WORK"
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
-echo "smoke: waiting for server (carp compiles first)"
+echo "smoke: waiting for server"
 up=0
-for _ in $(seq 1 300); do
+for _ in $(seq 1 90); do
   if curl -sf --max-time 2 "$BASE/ok" >/dev/null 2>&1; then up=1; break; fi
   if ! kill -0 "$SERVER_PID" 2>/dev/null; then break; fi
   sleep 1
 done
-[ "$up" = 1 ] || { echo "FAIL: server did not come up"; exit 1; }
+if [ "$up" != 1 ]; then
+  echo "FAIL: server did not answer; diagnostics follow"
+  curl -v --max-time 5 "$BASE/ok" 2>&1 || true
+  lsof -nP -i :$PORT 2>&1 || true
+  ps aux | grep -E 'smoke-server' | grep -v grep || true
+  exit 1
+fi
 
 fail() { echo "FAIL: $1"; exit 1; }
 check() { echo "smoke: $1"; }
