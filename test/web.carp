@@ -510,6 +510,11 @@
     (= 40 (String.length &(SHA1.hex-digest &(the (Array Byte) []))))
     "SHA1 hex-digest returns 40 chars")
 
+  (assert-equal test
+    "a9993e364706816aba3e25717850c26c9cd0d89d"
+    &(SHA1.hex-digest &(String.to-bytes "abc"))
+    "SHA1 hex-digest matches the known vector for 'abc'")
+
   ; hex-digest is deterministic (same input -> same output)
   (assert-true test
     (=

@@ -18,6 +18,11 @@
   with curl: large, chunked, and 100-continue uploads, keep-alive, 400s.
 
 ### Fixed
+- **`SHA1` is correct on platforms where Carp's `Long` is 32-bit.** Every
+  digest came out wrong there, so the WebSocket opening handshake failed
+  (`Sec-WebSocket-Accept` is a SHA1 hash), and `HMAC-SHA1` and signed cookies
+  were wrong too. 64-bit-`Long` platforms — including the macOS CI — were
+  unaffected, which is why it went unnoticed.
 - **Handlers no longer receive truncated request bodies.** The server
   dispatched at the end of the headers, so any body not in the same 4KB read
   arrived cut short, and the leftover bytes were misread as a second request.
