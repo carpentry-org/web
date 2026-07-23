@@ -480,11 +480,12 @@ Keys and values are URL-decoded. Duplicate keys keep the last value.")
   (doc parse-request "parses the form body from a request. Returns an empty
 map if the content type is not `application/x-www-form-urlencoded`.")
   (defn decode-request [req]
-    (let [ct (Map.get-with-default (Request.headers req) "Content-Type" &[@""])]
-      (if (String.starts-with? (Array.unsafe-first &ct)
-                               "application/x-www-form-urlencoded")
-        (decode (Request.body req))
-        (the (Map String String) {}))))
+    (if (match (Request.header req "Content-Type")
+        (Maybe.Just ct)
+          (String.starts-with? &ct "application/x-www-form-urlencoded")
+        (Maybe.Nothing) false)
+      (decode (Request.body req))
+      (the (Map String String) {})))
 
   (doc decode-multipart "decodes a `multipart/form-data` body given the
 boundary string, via http’s `Multipart.parse`. Returns
@@ -1174,9 +1175,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
 
 (defn web-keep-alive? [req]
   (let [http11 (= (Request.version req) "HTTP/1.1")
-        default (if http11 @"keep-alive" @"close")
-        conn (Map.get-with-default (Request.headers req) "Connection" &[default])]
-    (/= (Array.unsafe-first &conn) "close")))
+        conn (match (Request.header req "Connection")
+          (Maybe.Just v) v
+          (Maybe.Nothing) (if http11 @"keep-alive" @"close"))]
+    (/= &conn "close")))
 
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
