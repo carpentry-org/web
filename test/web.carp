@@ -453,6 +453,29 @@
     (Form.multipart? &(parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "multipart? false when no content-type")
 
+  ; -- case-insensitive request-header reads (RFC 7230 §3.2) --
+  (assert-equal test
+    "bar"
+    &(Map.get
+      &(Form.decode-request
+        &(parse-req
+          "POST / HTTP/1.1\r\ncontent-type: application/x-www-form-urlencoded\r\n\r\nfoo=bar"))
+      "foo")
+    "decode-request reads a lowercase content-type header")
+
+  (assert-false test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nconnection: close\r\n\r\n"))
+    "keep-alive? honors a lowercase connection: close")
+
+  (assert-true test
+    (web-keep-alive?
+      &(parse-req "GET / HTTP/1.1\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? true for Connection: keep-alive")
+
+  (assert-true test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "keep-alive? defaults to keep-alive on HTTP/1.1 without Connection")
+
   ; -- decode-multipart-request --
   (assert-equal test
     "hello"
