@@ -10,6 +10,13 @@
   part carries no `Content-Type` header (previously `text/plain`).
 
 ### Added
+- **HTTP `Range` requests on static files.** The static-file server answers a
+  single byte range (`bytes=A-B`, `bytes=A-`, `bytes=-N`) with `206 Partial
+  Content` and a `Content-Range` header, seeking directly via `sendfile(2)`, so
+  clients can resume interrupted downloads and seek within large assets. An
+  unsatisfiable range gets `416 Range Not Satisfiable`; every static response
+  now advertises `Accept-Ranges: bytes`. Multiple ranges and malformed specs
+  fall back to the full `200`.
 - **`App.request-timeout` (60s)** bounds first byte to complete request, so a
   slow-dripping body can no longer hold a connection open.
 - **`Expect: 100-continue` is answered** with the interim response once the

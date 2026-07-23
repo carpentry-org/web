@@ -423,7 +423,11 @@ server does not detect the `X-Sendfile` header.
 The `Content-Type` is inferred from the extension. The server sets
 `Content-Length` from the file size. An `ETag` header is computed from
 the file's modification time and size, avoiding a full read of the
-file contents.")
+file contents.
+
+The server advertises `Accept-Ranges: bytes` and honours a single
+`Range` request against the transfer, answering `206 Partial Content`
+with a `Content-Range` header (or `416` when unsatisfiable).")
   (defn sendfile [path]
     (let [fd (IO.Raw.open path IO.Raw.O-RDONLY)]
       (if (< fd 0)
@@ -1377,6 +1381,177 @@ responses. The `protocols` field lists the subprotocols that this route supports
       (set! r (~(Array.unsafe-nth hooks i) req params r)))
     r))
 
+(deftype RangeResolution
+  (Full [])
+  (Partial [Long Long])
+  (Unsatisfiable []))
+
+; Parse a decimal byte-range bound, saturating at total+1 once the value
+; exceeds the file size so oversized specs cannot overflow Long.
+(hidden web-parse-bound)
+(defn web-parse-bound [s total]
+  (let-do [bytes (String.to-bytes s)
+           n (Array.length &bytes)
+           acc 0l
+           ok (> n 0)
+           over false]
+    (for [i 0 n]
+      (let [b (Byte.to-int @(Array.unsafe-nth &bytes i))]
+        (if (and (>= b 48) (<= b 57))
+          (unless over
+            (let [d (Long.from-int (- b 48))]
+              (if (or (> acc (/ total 10l)) (> d (- total (* acc 10l))))
+                (do (set! over true) (set! acc (+ total 1l)))
+                (set! acc (+ (* acc 10l) d)))))
+          (set! ok false))))
+    (if ok (Maybe.Just acc) (Maybe.Nothing))))
+
+; Resolve a single byte-range spec against a file of `total` bytes into Full
+; (serve the whole file; also the fallback for malformed/multi-range specs),
+; Partial with an inclusive [start end], or Unsatisfiable (start at/past EOF).
+(defn web-resolve-range [spec total]
+  (if (not (String.starts-with? spec "bytes="))
+    (RangeResolution.Full)
+    (let [rest &(String.suffix spec 6)]
+      (if (String.contains? rest \,)
+        (RangeResolution.Full)
+        (let [dash (String.index-of rest \-)]
+          (if (< dash 0)
+            (RangeResolution.Full)
+            (let [start-s &(String.prefix rest dash)
+                  end-s &(String.suffix rest (+ dash 1))]
+              (cond
+                (String.empty? start-s)
+                  (match (web-parse-bound end-s total)
+                    (Maybe.Nothing) (RangeResolution.Full)
+                    (Maybe.Just n)
+                      (cond
+                        (<= n 0l) (RangeResolution.Unsatisfiable)
+                        (<= total 0l) (RangeResolution.Unsatisfiable)
+                        (>= n total) (RangeResolution.Partial 0l (- total 1l))
+                        (RangeResolution.Partial (- total n) (- total 1l))))
+                (String.empty? end-s)
+                  (match (web-parse-bound start-s total)
+                    (Maybe.Nothing) (RangeResolution.Full)
+                    (Maybe.Just a)
+                      (if (>= a total)
+                        (RangeResolution.Unsatisfiable)
+                        (RangeResolution.Partial a (- total 1l))))
+                (match (web-parse-bound start-s total)
+                  (Maybe.Nothing) (RangeResolution.Full)
+                  (Maybe.Just a)
+                    (match (web-parse-bound end-s total)
+                      (Maybe.Nothing) (RangeResolution.Full)
+                      (Maybe.Just b)
+                        (cond
+                          (> a b) (RangeResolution.Full)
+                          (>= a total) (RangeResolution.Unsatisfiable)
+                          (RangeResolution.Partial a
+                                                   (if (< b (- total 1l))
+                                                     b
+                                                     (- total 1l))))))))))))))
+
+; Read the internal X-Sendfile-Range marker carrying the request's raw Range.
+(hidden web-range-header)
+(defn web-range-header [resp]
+  (match (Map.get-maybe (Response.headers resp) "X-Sendfile-Range")
+    (Maybe.Just vals)
+      (if (> (Array.length &vals) 0)
+        (Maybe.Just @(Array.unsafe-first &vals))
+        (Maybe.Nothing))
+    (Maybe.Nothing) (Maybe.Nothing)))
+
+(hidden web-strip-range-marker)
+(defn web-strip-range-marker [resp]
+  (Response.set-headers resp
+                        (Map.remove @(Response.headers &resp)
+                                    &@"X-Sendfile-Range")))
+
+; Attach the request's Range header to a sendfile response as an internal
+; marker, resolved against the file size at transfer setup.
+(hidden web-mark-range)
+(defn web-mark-range [req resp]
+  (match (web-sendfile-path &resp)
+    (Maybe.Nothing) resp
+    (Maybe.Just _)
+      (match (Request.header req "Range")
+        (Maybe.Nothing) resp
+        (Maybe.Just rv)
+          (let [k @"X-Sendfile-Range"
+                v [rv]]
+            (Response.set-headers resp (Map.put @(Response.headers &resp) &k &v))))))
+
+; Resolve the marker attached by web-mark-range against a known file size.
+(hidden web-resolve-marker)
+(defn web-resolve-marker [resp total]
+  (match (web-range-header resp)
+    (Maybe.Nothing) (RangeResolution.Full)
+    (Maybe.Just rh) (web-resolve-range &rh total)))
+
+(hidden web-content-range)
+(defn web-content-range [start end total]
+  (fmt "bytes %s-%s/%s" &(Long.str start) &(Long.str end) &(Long.str total)))
+
+(hidden web-accept-ranges)
+(defn web-accept-ranges [resp]
+  (let [k @"Accept-Ranges"
+        v [@"bytes"]]
+    (Response.set-headers resp (Map.put @(Response.headers &resp) &k &v))))
+
+; A 416 Range Not Satisfiable response with Content-Range: bytes */total.
+(hidden web-range-not-satisfiable)
+(defn web-range-not-satisfiable [total]
+  (let [cr-k @"Content-Range"
+        cr-v [(fmt "bytes */%s" &(Long.str total))]
+        ar-k @"Accept-Ranges"
+        ar-v [@"bytes"]
+        hdrs (Map.put (Map.put {} &cr-k &cr-v) &ar-k &ar-v)]
+    (Response.init 416 @"Range Not Satisfiable" @"HTTP/1.1" [] hdrs @"")))
+
+; Turn a full sendfile response into a 206 with Content-Range and
+; Accept-Ranges. Content-Length and body are set by web-serialize-response.
+(hidden web-partial-headers)
+(defn web-partial-headers [resp start end total]
+  (let [cr-k @"Content-Range"
+        cr-v [(web-content-range start end total)]
+        ar-k @"Accept-Ranges"
+        ar-v [@"bytes"]
+        hdrs (Map.put
+          (Map.put @(Response.headers &resp) &cr-k &cr-v)
+          &ar-k
+          &ar-v)]
+    (Response.set-headers
+      (Response.with-status resp 206 @"Partial Content")
+      hdrs)))
+
+; HEAD variant: full-file sendfile response, body stripped, Accept-Ranges and
+; Content-Length set from the file size.
+(hidden web-head-full)
+(defn web-head-full [resp sz]
+  (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")
+        ar-k @"Accept-Ranges"
+        ar-v [@"bytes"]
+        cl-k @"Content-Length"
+        cl-v [(Long.str sz)]
+        h (Map.put (Map.put hdrs &ar-k &ar-v) &cl-k &cl-v)]
+    (-> resp (Response.set-body @"") (Response.set-headers h))))
+
+; HEAD variant: 206 with Content-Range and range-length Content-Length, no body.
+(hidden web-head-partial)
+(defn web-head-partial [resp start end total]
+  (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")
+        cr-k @"Content-Range"
+        cr-v [(web-content-range start end total)]
+        ar-k @"Accept-Ranges"
+        ar-v [@"bytes"]
+        cl-k @"Content-Length"
+        cl-v [(Long.str (+ (- end start) 1l))]
+        h (Map.put (Map.put (Map.put hdrs &cr-k &cr-v) &ar-k &ar-v) &cl-k &cl-v)]
+    (->
+      (Response.with-status resp 206 @"Partial Content")
+      (Response.set-body @"")
+      (Response.set-headers h))))
+
 ; Strip the response body for HEAD requests while preserving Content-Length.
 ; For sendfile responses, computes Content-Length from the file and removes
 ; X-Sendfile so the server does not attempt a file transfer.
@@ -1393,12 +1568,12 @@ responses. The `protocols` field lists the subprotocols that this route supports
             (ignore (IO.Raw.close-fd ffd))
             (if (< sz 0l)
               (Response.not-found)
-              (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")
-                    cl-k @"Content-Length"
-                    cl-v [(Long.str sz)]]
-                (-> resp
-                    (Response.set-body @"")
-                    (Response.set-headers (Map.put hdrs &cl-k &cl-v))))))))
+              (match (web-resolve-marker &resp sz)
+                (RangeResolution.Full)
+                  (web-head-full (web-strip-range-marker resp) sz)
+                (RangeResolution.Partial start end)
+                  (web-head-partial (web-strip-range-marker resp) start end sz)
+                (RangeResolution.Unsatisfiable) (web-range-not-satisfiable sz))))))
     (Maybe.Nothing)
       (if (Map.contains? (Response.headers &resp) "Transfer-Encoding")
         (Response.set-body resp @"")
@@ -1527,10 +1702,11 @@ responses. The `protocols` field lists the subprotocols that this route supports
                     (let [r (Array.unsafe-nth (App.routes app) handler-idx)]
                       (~(Route.handler r) &req &params))))
               after-resp (web-run-after after-hooks &req &params resp)
+              ranged (web-mark-range &req after-resp)
               ; ETag conditional: return 304 if If-None-Match matches
-              cond-resp (if (web-etag-match? &req &after-resp)
-                (web-not-modified after-resp)
-                after-resp)
+              cond-resp (if (web-etag-match? &req &ranged)
+                (web-not-modified ranged)
+                ranged)
               ; HEAD: strip body, preserve Content-Length
               final (if is-head (web-strip-head-body cond-resp) cond-resp)]
           (Pair.init final ka)))))
@@ -1711,6 +1887,51 @@ fallback.")
       (Map.remove! (ConnState.sf-offsets cs) &fd)
       (Map.remove! (ConnState.sf-sizes cs) &fd)
       (conn-done-writing cs poll fd)))
+
+  ; Open a sendfile response's target, resolve an optional byte range against
+  ; its size, and return the serialized head. A satisfiable range seeds the fd's
+  ; offset/size so the existing transfer loop sends exactly [start, end].
+  (hidden setup-sendfile)
+  (defn setup-sendfile [cs fd resp ka]
+    (match (web-sendfile-path &resp)
+      (Maybe.Nothing) (web-serialize-response resp ka -1l)
+      (Maybe.Just p)
+        (let [ffd (IO.Raw.open &p IO.Raw.O-RDONLY)]
+          (if (< ffd 0)
+            (web-serialize-response (Response.not-found) ka -1l)
+            (let [sz (IO.Raw.fstat-size ffd)]
+              (if (< sz 0l)
+                (do
+                  (ignore (IO.Raw.close-fd ffd))
+                  (web-serialize-response (Response.not-found) ka -1l))
+                (match (web-resolve-marker &resp sz)
+                  (RangeResolution.Full)
+                    (do
+                      (Map.put! (ConnState.sf-fds cs) &fd &ffd)
+                      (Map.put! (ConnState.sf-offsets cs) &fd &0l)
+                      (Map.put! (ConnState.sf-sizes cs) &fd &sz)
+                      (web-serialize-response
+                        (web-accept-ranges (web-strip-range-marker resp))
+                        ka
+                        sz))
+                  (RangeResolution.Partial start end)
+                    (do
+                      (Map.put! (ConnState.sf-fds cs) &fd &ffd)
+                      (Map.put! (ConnState.sf-offsets cs) &fd &start)
+                      (Map.put! (ConnState.sf-sizes cs) &fd &(+ end 1l))
+                      (web-serialize-response
+                        (web-partial-headers (web-strip-range-marker resp)
+                                             start
+                                             end
+                                             sz)
+                        ka
+                        (+ (- end start) 1l)))
+                  (RangeResolution.Unsatisfiable)
+                    (do
+                      (ignore (IO.Raw.close-fd ffd))
+                      (web-serialize-response (web-range-not-satisfiable sz)
+                                              ka
+                                              -1l)))))))))
 
   (hidden conn-cleanup)
   (defn conn-cleanup [cs poll fd]
@@ -2331,37 +2552,7 @@ fallback.")
                                                                            false))
                                            resp @(Pair.a &pair)
                                            ka @(Pair.b &pair)
-                                           sf-path (web-sendfile-path &resp)
-                                           sf-result (match-ref &sf-path
-                                             (Maybe.Just p)
-                                               (let [ffd (IO.Raw.open p
-                                                                      IO.Raw.O-RDONLY)]
-                                                 (if (< ffd 0)
-                                                   -1l
-                                                   (let [sz (IO.Raw.fstat-size ffd)]
-                                                     (if (< sz 0l)
-                                                       (do
-                                                         (ignore (IO.Raw.close-fd ffd))
-                                                         -1l)
-                                                       (do
-                                                         (Map.put! (ConnState.sf-fds cs)
-                                                                   &fd
-                                                                   &ffd)
-                                                         (Map.put! (ConnState.sf-offsets cs)
-                                                                   &fd
-                                                                   &0l)
-                                                         (Map.put! (ConnState.sf-sizes cs)
-                                                                   &fd
-                                                                   &sz)
-                                                         sz)))))
-                                             (Maybe.Nothing) -1l)
-                                           actual-resp (if (and (Maybe.just? &sf-path)
-                                                                (< sf-result 0l))
-                                             (Response.not-found)
-                                             resp)
-                                           wbuf (web-serialize-response actual-resp
-                                                                        ka
-                                                                        sf-result)]
+                                           wbuf (setup-sendfile cs fd resp ka)]
                                     (Map.put! (ConnState.write-bufs cs)
                                               &fd
                                               &wbuf)
