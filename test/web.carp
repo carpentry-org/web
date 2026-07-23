@@ -29,6 +29,39 @@
           (set! cursor @(Pair.b &p)))))
     status))
 
+(defn rr-tag [r]
+  (match-ref r
+    (RangeResolution.Full) 0
+    (RangeResolution.Partial _ _) 1
+    (RangeResolution.Unsatisfiable) 2))
+
+(defn rr-start [r]
+  (match-ref r
+    (RangeResolution.Partial s _) @s
+    (RangeResolution.Full) -1l
+    (RangeResolution.Unsatisfiable) -1l))
+
+(defn rr-end [r]
+  (match-ref r
+    (RangeResolution.Partial _ e) @e
+    (RangeResolution.Full) -1l
+    (RangeResolution.Unsatisfiable) -1l))
+
+; builds the response for the raw request `raw` against a static-file app
+; rooted at test/static-fixtures (index.html is 11 bytes)
+(defn static-resp [raw]
+  (let [app (StaticFile.mount (App.create) @"/static" @"test/static-fixtures")
+        bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
+        ah (the
+          (Array (Fn [&Request &(Map String String) Response] Response))
+          [])
+        pair (web-build-response &app &bh &ah &(String.to-bytes raw))]
+    @(Pair.a &pair)))
+
+(defn header-val [resp name]
+  @(Array.unsafe-first
+    &(Map.get-with-default (Response.headers resp) name &[@""])))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -654,6 +687,169 @@
           pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
       (String.empty? (Response.body (Pair.a &pair))))
     "HEAD + chunked has empty body")
+
+  ; -- Range resolution: bytes=A-B --
+  (assert-equal test
+    1
+    (rr-tag &(web-resolve-range "bytes=0-499" 1000l))
+    "bytes=0-499 is a partial range")
+  (assert-equal test
+    0l
+    (rr-start &(web-resolve-range "bytes=0-499" 1000l))
+    "bytes=0-499 starts at 0")
+  (assert-equal test
+    499l
+    (rr-end &(web-resolve-range "bytes=0-499" 1000l))
+    "bytes=0-499 ends at 499")
+
+  ; -- Range resolution: bytes=A- (open-ended) --
+  (assert-equal test
+    500l
+    (rr-start &(web-resolve-range "bytes=500-" 1000l))
+    "bytes=500- starts at 500")
+  (assert-equal test
+    999l
+    (rr-end &(web-resolve-range "bytes=500-" 1000l))
+    "bytes=500- runs to EOF")
+
+  ; -- Range resolution: bytes=-N (suffix) --
+  (assert-equal test
+    500l
+    (rr-start &(web-resolve-range "bytes=-500" 1000l))
+    "bytes=-500 starts 500 bytes before EOF")
+  (assert-equal test
+    999l
+    (rr-end &(web-resolve-range "bytes=-500" 1000l))
+    "bytes=-500 ends at EOF")
+
+  ; -- Range resolution: bytes=0- covers the whole file --
+  (assert-equal test
+    0l
+    (rr-start &(web-resolve-range "bytes=0-" 1000l))
+    "bytes=0- starts at 0")
+  (assert-equal test
+    999l
+    (rr-end &(web-resolve-range "bytes=0-" 1000l))
+    "bytes=0- ends at EOF")
+
+  ; -- Range resolution: end past EOF is clamped --
+  (assert-equal test
+    999l
+    (rr-end &(web-resolve-range "bytes=0-100000" 1000l))
+    "bytes=0-100000 clamps end to EOF")
+  (assert-equal test
+    1
+    (rr-tag &(web-resolve-range "bytes=0-100000" 1000l))
+    "bytes=0-100000 stays satisfiable after clamping")
+
+  ; -- Range resolution: start at/past size is unsatisfiable --
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=2000-3000" 1000l))
+    "bytes=2000-3000 past EOF is unsatisfiable")
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=1000-1000" 1000l))
+    "start equal to size is unsatisfiable")
+
+  ; -- Range resolution: malformed specs fall back to full --
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "bytes=abc" 1000l))
+    "bytes=abc falls back to full")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "bytes=" 1000l))
+    "bytes= falls back to full")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "0-499" 1000l))
+    "missing bytes= falls back to full")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "bytes=1-2-3" 1000l))
+    "extra dash falls back to full")
+
+  ; -- Range resolution: multiple ranges fall back to full --
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "bytes=0-499,600-700" 1000l))
+    "multiple ranges fall back to full")
+
+  ; -- Range resolution: zero-length suffix and empty files --
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=-0" 1000l))
+    "bytes=-0 is unsatisfiable")
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=0-" 0l))
+    "any range on an empty file is unsatisfiable")
+
+  ; -- Range resolution: oversized bounds do not overflow --
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=999999999999-" 1000l))
+    "oversized start saturates to unsatisfiable")
+  (assert-equal test
+    999l
+    (rr-end &(web-resolve-range "bytes=-999999999999" 1000l))
+    "oversized suffix saturates to the whole file")
+
+  ; -- HEAD with a satisfiable range answers 206 --
+  (assert-equal test
+    206
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\n\r\n"))
+    "HEAD range request returns 206")
+  (assert-equal test
+    "bytes 0-4/11"
+    &(header-val
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\n\r\n")
+      "Content-Range")
+    "HEAD range request sets Content-Range")
+  (assert-equal test
+    "5"
+    &(header-val
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\n\r\n")
+      "Content-Length")
+    "HEAD range request sets range-length Content-Length")
+  (assert-true test
+    (String.empty?
+      (Response.body
+        &(static-resp
+          "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\n\r\n")))
+    "HEAD range request has no body")
+
+  ; -- HEAD with an unsatisfiable range answers 416 --
+  (assert-equal test
+    416
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=100-200\r\n\r\n"))
+    "HEAD unsatisfiable range returns 416")
+  (assert-equal test
+    "bytes */11"
+    &(header-val
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=100-200\r\n\r\n")
+      "Content-Range")
+    "HEAD 416 sets Content-Range with the total size")
+
+  ; -- normal static responses advertise range support --
+  (assert-equal test
+    "bytes"
+    &(header-val
+      &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n")
+      "Accept-Ranges")
+    "static HEAD advertises Accept-Ranges")
+  (assert-equal test
+    200
+    @(Response.code &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n"))
+    "static HEAD without a range stays 200")
 
   ; -- chunked request body reaches the handler decoded --
   (assert-equal test

@@ -89,4 +89,22 @@ CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
   -H 'Transfer-Encoding: gzip' --data-binary 'x' "$BASE/echo")
 [ "$CODE" = "400" ] || fail "non-chunked Transfer-Encoding not rejected (got: $CODE)"
 
+# 8. a byte range yields 206 Partial Content with the requested bytes
+check "byte range"
+RH=$(curl -s --max-time 10 -D - -o "$WORK/range" -r 0-4 "$BASE/static/index.html")
+echo "$RH" | grep -qi '206 Partial Content' || fail "range request not 206"
+echo "$RH" | grep -qi 'Content-Range: bytes 0-4/11' || fail "wrong Content-Range"
+[ "$(cat "$WORK/range")" = "root " ] || fail "range body wrong (got: $(cat "$WORK/range"))"
+
+# 9. an open-ended range reassembles to the whole file
+check "open range"
+[ "$(curl -s --max-time 10 -r 0- "$BASE/static/index.html")" \
+  = "$(cat test/static-fixtures/index.html)" ] || fail "open range mismatch"
+
+# 10. a range past the end is rejected with 416
+check "unsatisfiable range"
+CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
+  -r 100-200 "$BASE/static/index.html")
+[ "$CODE" = "416" ] || fail "unsatisfiable range not 416 (got: $CODE)"
+
 echo "smoke: all checks passed"

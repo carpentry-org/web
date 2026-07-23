@@ -14,7 +14,8 @@
                                    (if (Request.chunked? r) "chunked" "plain")
                                    &(match (Request.header r "Content-Length")
                                      (Maybe.Just v) v
-                                     (Maybe.Nothing) @"none"))))))
+                                     (Maybe.Nothing) @"none")))))
+                (StaticFile.mount @"/static" @"test/static-fixtures"))
         bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
         ah (the
           (Array (Fn [&Request &(Map String String) Response] Response))
