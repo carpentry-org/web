@@ -1081,6 +1081,124 @@
       @(Response.code (Pair.a &pair)))
     "mismatched If-None-Match returns 200")
 
+  ; -- IMF-fixdate formatter --
+  (assert-equal test
+    "Thu, 01 Jan 1970 00:00:00 GMT"
+    &(web-http-date 0l)
+    "http-date formats the epoch")
+  (assert-equal test
+    "Wed, 21 Oct 2015 07:28:00 GMT"
+    &(web-http-date 1445412480l)
+    "http-date formats a post-2000 date with the right weekday")
+  (assert-equal test
+    "Tue, 29 Feb 2000 00:00:00 GMT"
+    &(web-http-date 951782400l)
+    "http-date formats a leap day")
+
+  ; -- IMF-fixdate parser --
+  (assert-equal test
+    1445412480l
+    (match (web-parse-http-date "Wed, 21 Oct 2015 07:28:00 GMT")
+      (Maybe.Just s) s
+      (Maybe.Nothing) -1l)
+    "parse-http-date inverts the formatter")
+  (assert-true test
+    (Maybe.nothing? &(web-parse-http-date "not a date"))
+    "parse-http-date rejects a malformed value")
+
+  ; -- Date header --
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(web-finalize-response (Response.text @"hi") true))
+      "Date")
+    "finalize adds a Date header")
+
+  ; -- Last-Modified on a static file response --
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(static-resp "GET /static/index.html HTTP/1.1\r\n\r\n"))
+      "Last-Modified")
+    "static file response carries Last-Modified")
+
+  ; -- If-Modified-Since: 304 when not newer, 200 when newer (same resource) --
+  (assert-equal test
+    304
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"Last-Modified"
+                                                   (web-http-date 1445412480l)))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "If-Modified-Since not older than Last-Modified returns 304")
+  (assert-equal test
+    200
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"Last-Modified"
+                                                   (web-http-date 1445412480l)))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: Thu, 01 Jan 1970 00:00:00 GMT\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "If-Modified-Since older than Last-Modified returns 200")
+
+  ; -- malformed If-Modified-Since is ignored --
+  (assert-equal test
+    200
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (Response.with-header (Response.text @"hi")
+                                                   @"Last-Modified"
+                                                   (web-http-date 1445412480l)))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: not a date\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "malformed If-Modified-Since is ignored (200)")
+
+  ; -- If-None-Match takes precedence over If-Modified-Since --
+  (assert-equal test
+    200
+    (let [app (-> (App.create)
+                  (App.GET @"/"
+                           (fn [r p]
+                             (-> (Response.text @"hi")
+                                 (Response.with-header @"ETag" @"\"abc\"")
+                                 (Response.with-header @"Last-Modified"
+                                                       (web-http-date 1445412480l))))))
+          req @"GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\nIf-Modified-Since: Wed, 21 Oct 2015 07:28:00 GMT\r\n\r\n"
+          bh (the
+            (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+            [])
+          ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [])
+          pair (web-build-response &app &bh &ah &(String.to-bytes &req))]
+      @(Response.code (Pair.a &pair)))
+    "If-None-Match precedence: mismatch serves 200 despite matching If-Modified-Since")
+
   ; -- finalize preserves explicit Content-Length --
   (assert-true test
     (let [resp (-> (Response.text @"")
