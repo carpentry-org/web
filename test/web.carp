@@ -509,6 +509,38 @@
     (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "keep-alive? defaults to keep-alive on HTTP/1.1 without Connection")
 
+  ; -- case-insensitive Connection option tokens (RFC 9110 §7.6.1) --
+  (assert-false test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nConnection: CLOSE\r\n\r\n"))
+    "keep-alive? honors an uppercase close token")
+
+  (assert-false test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nConnection: Close\r\n\r\n"))
+    "keep-alive? honors a capitalized close token")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req "GET / HTTP/1.1\r\nConnection: close, TE\r\n\r\n"))
+    "keep-alive? honors close as the first of several options")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req "GET / HTTP/1.1\r\nConnection: TE, close\r\n\r\n"))
+    "keep-alive? honors close as the last of several options")
+
+  (assert-true test
+    (web-keep-alive?
+      &(parse-req "GET / HTTP/1.1\r\nConnection: Keep-Alive\r\n\r\n"))
+    "keep-alive? true for a capitalized keep-alive token")
+
+  (assert-true test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.1\r\nConnection: TE\r\n\r\n"))
+    "keep-alive? true for an unrecognised option")
+
+  (assert-false test
+    (web-keep-alive? &(parse-req "GET / HTTP/1.0\r\nHost: x\r\n\r\n"))
+    "keep-alive? defaults to close on HTTP/1.0 without Connection")
+
   ; -- decode-multipart-request --
   (assert-equal test
     "hello"

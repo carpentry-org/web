@@ -37,6 +37,11 @@
   chunk) and answers `400` for ambiguous framing (RFC 7230 §3.3.3).
 - **Chunked bodies reach handlers decoded and normalized**: body dechunked,
   `Transfer-Encoding` removed, `Content-Length` set, trailers discarded.
+- **`Connection: close` is honoured whatever its case, and alongside other
+  connection options.** The field value was compared verbatim against
+  `close`, so a client sending `CLOSE`, `Close`, or `close, TE` kept the
+  socket open and got `Connection: keep-alive` back. The value is now read as
+  a list of case-insensitive comma-separated tokens (RFC 9110 §7.6.1).
 
 ## 0.8.0 (2026-07-12)
 
