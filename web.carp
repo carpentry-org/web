@@ -1182,7 +1182,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
         conn (match (Request.header req "Connection")
           (Maybe.Just v) v
           (Maybe.Nothing) (if http11 @"keep-alive" @"close"))]
-    (/= &conn "close")))
+    ; RFC 9110 §7.6.1: connection options are case-insensitive comma-separated tokens
+    (not
+      (Array.any? &(fn [t] (= &(String.trim t) "close"))
+                  &(String.split-by &(String.ascii-to-lower &conn) &[\,])))))
 
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
