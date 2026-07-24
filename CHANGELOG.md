@@ -10,6 +10,14 @@
   part carries no `Content-Type` header (previously `text/plain`).
 
 ### Added
+- **HTTP date headers.** Every response now carries a `Date` header (an RFC 9110
+  MUST for an origin server), and static-file responses add a `Last-Modified`
+  header from the file's modification time, so caches and conditional requests
+  have the freshness metadata they need.
+- **`If-Modified-Since` conditional requests.** A static-file request whose
+  `If-Modified-Since` is not older than the resource's modification time gets a
+  `304 Not Modified`; an older or malformed value serves the full `200`.
+  `If-None-Match` still takes precedence when both are present.
 - **HTTP `Range` requests on static files.** The static-file server answers a
   single byte range (`bytes=A-B`, `bytes=A-`, `bytes=-N`) with `206 Partial
   Content` and a `Content-Range` header, seeking directly via `sendfile(2)`, so

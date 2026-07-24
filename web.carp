@@ -296,6 +296,117 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
 (hidden web-is-directory?)
 (register web-is-directory? (Fn [&String] Bool) "web_is_directory")
 
+(hidden web-pad2)
+(defn web-pad2 [n] (if (< n 10) (fmt "0%d" n) (Int.str n)))
+
+(hidden web-day-name)
+(defn web-day-name [w]
+  (String.slice "SunMonTueWedThuFriSat" (* w 3) (* (+ w 1) 3)))
+
+(hidden web-month-name)
+(defn web-month-name [m]
+  (String.slice "JanFebMarAprMayJunJulAugSepOctNovDec" (* (- m 1) 3) (* m 3)))
+
+; unix seconds → an RFC 9110 IMF-fixdate string, e.g. "Sun, 06 Nov 1994 08:49:37 GMT".
+(hidden web-http-date)
+(defn web-http-date [secs]
+  (let [days (Long./ secs 86400l)
+        tod (Long.mod secs 86400l)
+        z (Long.+ days 719468l)
+        era (Long./ z 146097l)
+        doe (Long.- z (Long.* era 146097l))
+        yoe (Long./
+          (Long.-
+            (Long.+ (Long.- doe (Long./ doe 1460l)) (Long./ doe 36524l))
+            (Long./ doe 146096l))
+          365l)
+        y0 (Long.+ yoe (Long.* era 400l))
+        doy (Long.- doe
+                    (Long.+ (Long.* 365l yoe)
+                            (Long.- (Long./ yoe 4l) (Long./ yoe 100l))))
+        mp (Long./ (Long.+ (Long.* 5l doy) 2l) 153l)
+        d (Long.to-int
+          (Long.+ (Long.- doy (Long./ (Long.+ (Long.* 153l mp) 2l) 5l)) 1l))
+        m (Long.to-int (if (Long.< mp 10l) (Long.+ mp 3l) (Long.- mp 9l)))
+        y (Long.to-int (if (< m 3) (Long.+ y0 1l) y0))
+        hh (Long.to-int (Long./ tod 3600l))
+        mm (Long.to-int (Long./ (Long.mod tod 3600l) 60l))
+        ss (Long.to-int (Long.mod tod 60l))
+        wd (Long.to-int (Long.mod (Long.+ days 4l) 7l))]
+    (fmt "%s, %s %s %s %s:%s:%s GMT"
+         &(web-day-name wd)
+         &(web-pad2 d)
+         &(web-month-name m)
+         &(Int.str y)
+         &(web-pad2 hh)
+         &(web-pad2 mm)
+         &(web-pad2 ss))))
+
+(hidden web-date-uint)
+(defn web-date-uint [bytes start count]
+  (let-do [v 0
+           ok true]
+    (for [i start (+ start count)]
+      (let [b @(Array.unsafe-nth bytes i)]
+        (if (and (>= b 48b) (<= b 57b))
+          (set! v (+ (* v 10) (- (Byte.to-int b) 48)))
+          (set! ok false))))
+    (if ok v -1)))
+
+(hidden web-date-month)
+(defn web-date-month [bytes off]
+  (let-do [result -1
+           names (String.to-bytes "JanFebMarAprMayJunJulAugSepOctNovDec")]
+    (for [m 0 12]
+      (when (and
+          (= @(Array.unsafe-nth bytes off) @(Array.unsafe-nth &names (* m 3)))
+          (and
+            (= @(Array.unsafe-nth bytes (+ off 1))
+               @(Array.unsafe-nth &names (+ (* m 3) 1)))
+            (= @(Array.unsafe-nth bytes (+ off 2))
+               @(Array.unsafe-nth &names (+ (* m 3) 2)))))
+        (set! result (+ m 1))))
+    result))
+
+(hidden web-epoch-of)
+(defn web-epoch-of [y m d hh mi se]
+  (let [yl (Long.from-int (if (< m 3) (- y 1) y))
+        era (Long./ yl 400l)
+        yoe (Long.- yl (Long.* era 400l))
+        mp (Long.from-int (if (> m 2) (- m 3) (+ m 9)))
+        doy (Long.+ (Long./ (Long.+ (Long.* 153l mp) 2l) 5l)
+                    (Long.from-int (- d 1)))
+        doe (Long.+
+          (Long.+ (Long.* yoe 365l) (Long./ yoe 4l))
+          (Long.- doy (Long./ yoe 100l)))
+        days (Long.- (Long.+ (Long.* era 146097l) doe) 719468l)]
+    (Long.+ (Long.* days 86400l)
+            (Long.+ (Long.* (Long.from-int hh) 3600l)
+                    (Long.+ (Long.* (Long.from-int mi) 60l) (Long.from-int se))))))
+
+; an RFC 9110 IMF-fixdate string → unix seconds, or Nothing if malformed.
+(hidden web-parse-http-date)
+(defn web-parse-http-date [s]
+  (let [bytes (String.to-bytes s)]
+    (if (< (Array.length &bytes) 29)
+      (Maybe.Nothing)
+      (let [dd (web-date-uint &bytes 5 2)
+            mon (web-date-month &bytes 8)
+            yyyy (web-date-uint &bytes 12 4)
+            hh (web-date-uint &bytes 17 2)
+            mi (web-date-uint &bytes 20 2)
+            se (web-date-uint &bytes 23 2)]
+        (if (or (< dd 1)
+                (or (> dd 31)
+                    (or (< mon 1)
+                        (or (< yyyy 0)
+                            (or (< hh 0)
+                                (or (> hh 23)
+                                    (or (< mi 0)
+                                        (or (> mi 59) (or (< se 0) (> se 60))))))))))
+          (Maybe.Nothing)
+          (Maybe.Just (web-epoch-of yyyy mon dd hh mi se)))))))
+
 (defmodule Response
   (doc text "creates a 200 OK response with a plain text body.")
   (defn text [body]
@@ -445,7 +556,8 @@ with a `Content-Range` header (or `416` when unsatisfiable).")
               (-> (init 200 @"OK" @"HTTP/1.1" [] {} @"")
                   (with-header @"Content-Type" (content-type-for path))
                   (with-header @"X-Sendfile" @path)
-                  (with-header @"ETag" etag)))))))))
+                  (with-header @"ETag" etag)
+                  (with-header @"Last-Modified" (web-http-date mt))))))))))
 
 (doc Form "provides helpers for parsing `application/x-www-form-urlencoded`
 and `multipart/form-data` request bodies.")
@@ -1188,14 +1300,20 @@ responses. The `protocols` field lists the subprotocols that this route supports
   (let [body-len (String.length (Response.body &resp))
         has-te (Map.contains? (Response.headers &resp) "Transfer-Encoding")
         has-cl (Map.contains? (Response.headers &resp) "Content-Length")
+        has-date (Map.contains? (Response.headers &resp) "Date")
         conn-k @"Connection"
         conn-v [(if keep-alive @"keep-alive" @"close")]
-        h (let [base (Map.put @(Response.headers &resp) &conn-k &conn-v)]
-          (if (or has-te has-cl)
-            base
-            (let [cl-k @"Content-Length"
-                  cl-v [(Int.str body-len)]]
-              (Map.put base &cl-k &cl-v))))]
+        dated (let [withconn (Map.put @(Response.headers &resp) &conn-k &conn-v)]
+          (if has-date
+            withconn
+            (let [d-k @"Date"
+                  d-v [(web-http-date (Long.from-int (System.time)))]]
+              (Map.put withconn &d-k &d-v))))
+        h (if (or has-te has-cl)
+          dated
+          (let [cl-k @"Content-Length"
+                cl-v [(Int.str body-len)]]
+            (Map.put dated &cl-k &cl-v)))]
     (Response.set-headers resp h)))
 
 (defn read-request-buf [client buf]
@@ -1609,6 +1727,31 @@ responses. The `protocols` field lists the subprotocols that this route supports
             v [@(Array.unsafe-first &etag-vals)]]
         (Response.init 304 @"Not Modified" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))))
 
+; True when the response's Last-Modified is not newer than If-Modified-Since.
+(hidden web-if-modified-since?)
+(defn web-if-modified-since? [req resp]
+  (match (Request.header req "If-Modified-Since")
+    (Maybe.Nothing) false
+    (Maybe.Just ims)
+      (match (web-parse-http-date &ims)
+        (Maybe.Nothing) false
+        (Maybe.Just since)
+          (match (Map.get-maybe (Response.headers resp) "Last-Modified")
+            (Maybe.Nothing) false
+            (Maybe.Just vals)
+              (if (= (Array.length &vals) 0)
+                false
+                (match (web-parse-http-date (Array.unsafe-first &vals))
+                  (Maybe.Nothing) false
+                  (Maybe.Just mtime) (not (Long.< since mtime))))))))
+
+; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3).
+(hidden web-conditional-not-modified?)
+(defn web-conditional-not-modified? [req resp]
+  (match (Request.header req "If-None-Match")
+    (Maybe.Just _) (web-etag-match? req resp)
+    (Maybe.Nothing) (web-if-modified-since? req resp)))
+
 ; Forward-declare App.max-header-line so top-level validation helpers can
 ; reference it before the main (defmodule App ...) block.
 (defmodule App (def max-header-line 8192))
@@ -1703,8 +1846,8 @@ responses. The `protocols` field lists the subprotocols that this route supports
                       (~(Route.handler r) &req &params))))
               after-resp (web-run-after after-hooks &req &params resp)
               ranged (web-mark-range &req after-resp)
-              ; ETag conditional: return 304 if If-None-Match matches
-              cond-resp (if (web-etag-match? &req &ranged)
+              ; conditional GET: 304 when If-None-Match/If-Modified-Since match
+              cond-resp (if (web-conditional-not-modified? &req &ranged)
                 (web-not-modified ranged)
                 ranged)
               ; HEAD: strip body, preserve Content-Length
