@@ -541,6 +541,68 @@
     (web-keep-alive? &(parse-req "GET / HTTP/1.0\r\nHost: x\r\n\r\n"))
     "keep-alive? defaults to close on HTTP/1.0 without Connection")
 
+  ; -- repeated Connection field lines (RFC 9110 §5.3) --
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: keep-alive\r\nConnection: close\r\n\r\n"))
+    "keep-alive? honors close on a later Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: close\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? honors close on an earlier Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: TE\r\nConnection: Keep-Alive, CLOSE\r\n\r\n"))
+    "keep-alive? honors a close token in any of several Connection lines")
+
+  (assert-true test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: TE\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? true when no Connection line lists close")
+
+  ; -- repeated Connection lines differing in field-name case (RFC 9110 §5.1) --
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: close\r\nconnection: keep-alive\r\n\r\n"))
+    "keep-alive? honors close on a differently cased earlier Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nconnection: keep-alive\r\nConnection: close\r\n\r\n"))
+    "keep-alive? honors close on a differently cased later Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nCONNECTION: close\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? honors close on an upper-case CONNECTION line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: keep-alive\r\nCONNECTION: close\r\n\r\n"))
+    "keep-alive? honors a trailing upper-case CONNECTION: close")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: close\r\nconnection: keep-alive\r\nCONNECTION: TE\r\n\r\n"))
+    "keep-alive? honors close among three case variants of Connection")
+
+  (assert-true test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: TE\r\nconnection: keep-alive\r\n\r\n"))
+    "keep-alive? true when no cased Connection variant lists close")
+
   ; -- decode-multipart-request --
   (assert-equal test
     "hello"
