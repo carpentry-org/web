@@ -1295,7 +1295,10 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (defn header-values-ci [hdrs name]
   (let [lower-name &(String.ascii-to-lower name)]
     (Map.kv-reduce
-      &(fn [acc k v] (if (= &(String.ascii-to-lower k) lower-name) @v acc))
+      &(fn [acc k v]
+        (if (= &(String.ascii-to-lower k) lower-name)
+          (Array.concat &[acc @v])
+          acc))
       (the (Array String) [])
       hdrs)))
 

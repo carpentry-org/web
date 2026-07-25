@@ -53,8 +53,9 @@
 - **`Connection: close` is honoured when it arrives on its own header line.**
   A client sending `Connection: keep-alive` and `Connection: close` as two
   separate field lines kept the socket open, because only the first line was
-  read. Every `Connection` line is now considered, as RFC 9110 §5.3 requires
-  of repeated field lines.
+  read. Every `Connection` line is now considered — whatever the case of its
+  field name, so `connection:` from an HTTP/2 downgrading proxy counts too —
+  as RFC 9110 §5.3 requires of repeated field lines.
 
 ## 0.8.0 (2026-07-12)
 
