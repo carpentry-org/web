@@ -88,6 +88,26 @@
                     
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#chunk-cursor">
+                        <h3 id="chunk-cursor">
+                            chunk-cursor
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>chunk-cursor</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#copy">
                         <h3 id="copy">
                             copy
@@ -137,7 +157,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Maybe String)), (Map Int (Array Byte)), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int)] ConnState)
+                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Maybe String)), (Map Int (Array Byte)), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int)] ConnState)
                     </p>
                     <span>
                         
@@ -244,6 +264,46 @@
                     </span>
                     <p class="doc">
                         <p>gets the <code>read-start</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-chunk-cursor">
+                        <h3 id="set-chunk-cursor">
+                            set-chunk-cursor
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>chunk-cursor</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-chunk-cursor!">
+                        <h3 id="set-chunk-cursor!">
+                            set-chunk-cursor!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>chunk-cursor</code> property of a <code>ConnState</code> in place.</p>
 
                     </p>
                 </div>
@@ -1124,6 +1184,26 @@
                     </span>
                     <p class="doc">
                         <p>gets the <code>to-close</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-chunk-cursor">
+                        <h3 id="update-chunk-cursor">
+                            update-chunk-cursor
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>chunk-cursor</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

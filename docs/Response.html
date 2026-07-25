@@ -159,6 +159,28 @@ callback-based API.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#chunked?">
+                        <h3 id="chunked?">
+                            chunked?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref Response a)] Bool)
+                    </p>
+                    <pre class="args">
+                        (chunked? r)
+                    </pre>
+                    <p class="doc">
+                        <p>checks whether the response body is chunked transfer-encoded,
+i.e. its <code>Transfer-Encoding</code> header lists <code>chunked</code> (case-insensitively). Decode
+such a body with <code>TransferEncoding.dechunk</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#clear-cookie">
                         <h3 id="clear-cookie">
                             clear-cookie
@@ -277,6 +299,26 @@ based on its extension. Unknown extensions return <code>application/octet-stream
                     </span>
                     <p class="doc">
                         <p>copies a <code>Response</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#created">
+                        <h3 id="created">
+                            created
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Map String (Array String)), String] Response)
+                    </p>
+                    <pre class="args">
+                        (created headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a <code>201 Created</code> response with <code>headers</code> and <code>body</code>.</p>
 
                     </p>
                 </div>
@@ -446,6 +488,28 @@ Returns <code>(Maybe String)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#no-content">
+                        <h3 id="no-content">
+                            no-content
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Map String (Array String))] Response)
+                    </p>
+                    <pre class="args">
+                        (no-content headers)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a <code>204 No Content</code> response with <code>headers</code> and no body.
+Per RFC 7230 a 204 carries no <code>Content-Length</code>, so unlike the other builders this
+one adds none.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#not-found">
                         <h3 id="not-found">
                             not-found
@@ -462,6 +526,26 @@ Returns <code>(Maybe String)</code>.</p>
                     </pre>
                     <p class="doc">
                         <p>creates a 404 Not Found response.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#ok">
+                        <h3 id="ok">
+                            ok
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Map String (Array String)), String] Response)
+                    </p>
+                    <pre class="args">
+                        (ok headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>builds a <code>200 OK</code> response with <code>headers</code> and <code>body</code>.</p>
 
                     </p>
                 </div>
@@ -548,6 +632,28 @@ it will return a <code>(Success Response)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#respond">
+                        <h3 id="respond">
+                            respond
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Int, (Map String (Array String)), String] Response)
+                    </p>
+                    <pre class="args">
+                        (respond code headers body)
+                    </pre>
+                    <p class="doc">
+                        <p>builds an HTTP/1.1 response with status <code>code</code>, the standard
+reason phrase for that code (via <code>Status.reason</code>), the given <code>headers</code> and
+<code>body</code>, and a <code>Content-Length</code> header set to the body's byte length.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#sendfile">
                         <h3 id="sendfile">
                             sendfile
@@ -571,6 +677,9 @@ server does not detect the <code>X-Sendfile</code> header.</p>
 <code>Content-Length</code> from the file size. An <code>ETag</code> header is computed from
 the file's modification time and size, avoiding a full read of the
 file contents.</p>
+<p>The server advertises <code>Accept-Ranges: bytes</code> and honours a single
+<code>Range</code> request against the transfer, answering <code>206 Partial Content</code>
+with a <code>Content-Range</code> header (or <code>416</code> when unsatisfiable).</p>
 
                     </p>
                 </div>
@@ -1073,6 +1182,46 @@ Uses <code>Path=/</code>, <code>HttpOnly</code>, and <code>SameSite=Lax</code> a
                     </span>
                     <p class="doc">
                         <p>gets the <code>version</code> property of a <code>Response</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#with-content-type">
+                        <h3 id="with-content-type">
+                            with-content-type
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Response, String] Response)
+                    </p>
+                    <pre class="args">
+                        (with-content-type r ct)
+                    </pre>
+                    <p class="doc">
+                        <p>returns <code>r</code> with a <code>Content-Type</code> header of <code>ct</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#with-cookie">
+                        <h3 id="with-cookie">
+                            with-cookie
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Response, Cookie] Response)
+                    </p>
+                    <pre class="args">
+                        (with-cookie r c)
+                    </pre>
+                    <p class="doc">
+                        <p>returns <code>r</code> with cookie <code>c</code> appended.</p>
 
                     </p>
                 </div>

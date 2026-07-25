@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-07-25)
 
 ### Changed
 - **`Form.decode-multipart` / `decode-multipart-request` return

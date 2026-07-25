@@ -118,20 +118,23 @@ and <code>multipart/form-data</code> request bodies.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref String a), (Ref String b)] (Array FormPart))
+                        (Fn [(Ref String a), (Ref String b)] (Result (Array FormPart) String))
                     </p>
                     <pre class="args">
                         (decode-multipart body boundary)
                     </pre>
                     <p class="doc">
-                        <p>parses a <code>multipart/form-data</code> body given the
-boundary string. Returns an array of <a href="#FormPart"><code>FormPart</code></a> values.</p>
-<pre><code>(let [parts (Form.decode-multipart body &quot;boundary123&quot;)]
-  (Array.nth &amp;parts 0))
+                        <p>decodes a <code>multipart/form-data</code> body given the
+boundary string, via http’s <code>Multipart.parse</code>. Returns
+<code>(Result (Array FormPart) String)</code>; fails when the opening boundary
+delimiter is absent.</p>
+<pre><code>(match (Form.decode-multipart body &quot;boundary123&quot;)
+  (Result.Success parts) (Array.nth &amp;parts 0)
+  (Result.Error _) (Maybe.Nothing))
 </code></pre>
-<p>Each part’s <code>name</code>, optional <code>filename</code>, and <code>content-type</code> are extracted
-from its MIME headers. The <code>body</code> field is the raw content between the
-part headers and the next boundary delimiter.</p>
+<p>Each part’s <code>name</code>, optional <code>filename</code>, and optional <code>content-type</code> are
+extracted from its MIME headers. The <code>body</code> field is the raw content between
+the part headers and the next boundary delimiter.</p>
 
                     </p>
                 </div>
@@ -145,21 +148,21 @@ part headers and the next boundary delimiter.</p>
                         defn
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Request a)] (Array FormPart))
+                        (Fn [(Ref Request a)] (Result (Array FormPart) String))
                     </p>
                     <pre class="args">
                         (decode-multipart-request req)
                     </pre>
                     <p class="doc">
-                        <p>parses the multipart form body from a
-request. Returns an array of <a href="#FormPart"><code>FormPart</code></a> values, or an empty
-array if the content type is not <code>multipart/form-data</code> or the boundary
-is missing.</p>
+                        <p>decodes the multipart form body of a
+request, taking the boundary from its <code>Content-Type</code> header, via http’s
+<code>Request.multipart-data</code>. Returns <code>(Result (Array FormPart) String)</code>; fails
+when the request is not <code>multipart/form-data</code> or carries no boundary.</p>
 <pre><code>(defn upload [req params]
-  (let [parts (Form.decode-multipart-request req)]
-    (if (&gt; (Array.length &amp;parts) 0)
+  (match (Form.decode-multipart-request req)
+    (Result.Success parts)
       (Response.text (fmt &quot;got %d parts&quot; (Array.length &amp;parts)))
-      (Response.bad-request))))
+    (Result.Error _) (Response.bad-request)))
 </code></pre>
 
                     </p>
@@ -181,6 +184,28 @@ is missing.</p>
                     </pre>
                     <p class="doc">
                         
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode">
+                        <h3 id="encode">
+                            encode
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Map String String) a)] String)
+                    </p>
+                    <pre class="args">
+                        (encode m)
+                    </pre>
+                    <p class="doc">
+                        <p>encodes a <code>(Map String String)</code> as a URL-encoded form body.
+Spaces become <code>+</code> and other special characters are percent-encoded.
+This is the inverse of <code>parse</code>.</p>
+
                     </p>
                 </div>
                 <div class="binder">
@@ -225,6 +250,29 @@ content type.</p>
   (Map.get &amp;data &quot;username&quot;))
 </code></pre>
 <p>Keys and values are URL-decoded. Duplicate keys keep the last value.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#parse-pairs">
+                        <h3 id="parse-pairs">
+                            parse-pairs
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result (Array (Pair String String)) b))
+                    </p>
+                    <pre class="args">
+                        (parse-pairs s)
+                    </pre>
+                    <p class="doc">
+                        <p>parses a URL-encoded form body into an
+<code>(Array (Pair String String))</code>. Unlike <code>parse</code>, this preserves the order
+of pairs and allows duplicate keys. Keys and values are percent-decoded.
+The <code>+</code> character is decoded as space.</p>
 
                     </p>
                 </div>

@@ -354,6 +354,28 @@ negotiated protocol is available via <code>(WebSocket.protocol ws)</code>.</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#http-timeout-close?">
+                        <h3 id="http-timeout-close?">
+                            http-timeout-close?
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [Int, Int, Int, Int, a, a] Bool)
+                    </p>
+                    <pre class="args">
+                        (http-timeout-close? rs now header-to request-to idle idle-to)
+                    </pre>
+                    <p class="doc">
+                        <p>Decides whether an HTTP connection timed out.
+<code>rs</code> is positive while headers arrive (header-timeout), negated once they
+are complete (request-timeout), and 0 between requests (idle-timeout).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#idle-timeout">
                         <h3 id="idle-timeout">
                             idle-timeout
@@ -448,6 +470,25 @@ negotiated protocol is available via <code>(WebSocket.protocol ws)</code>.</p>
                     <p class="doc">
                         <p>converts a <code>App</code> to a string.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#request-timeout">
+                        <h3 id="request-timeout">
+                            request-timeout
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">
