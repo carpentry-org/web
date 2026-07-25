@@ -50,6 +50,11 @@
   `close`, so a client sending `CLOSE`, `Close`, or `close, TE` kept the
   socket open and got `Connection: keep-alive` back. The value is now read as
   a list of case-insensitive comma-separated tokens (RFC 9110 §7.6.1).
+- **`Connection: close` is honoured when it arrives on its own header line.**
+  A client sending `Connection: keep-alive` and `Connection: close` as two
+  separate field lines kept the socket open, because only the first line was
+  read. Every `Connection` line is now considered, as RFC 9110 §5.3 requires
+  of repeated field lines.
 
 ## 0.8.0 (2026-07-12)
 

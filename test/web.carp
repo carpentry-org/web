@@ -541,6 +541,31 @@
     (web-keep-alive? &(parse-req "GET / HTTP/1.0\r\nHost: x\r\n\r\n"))
     "keep-alive? defaults to close on HTTP/1.0 without Connection")
 
+  ; -- repeated Connection field lines (RFC 9110 §5.3) --
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: keep-alive\r\nConnection: close\r\n\r\n"))
+    "keep-alive? honors close on a later Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: close\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? honors close on an earlier Connection line")
+
+  (assert-false test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: TE\r\nConnection: Keep-Alive, CLOSE\r\n\r\n"))
+    "keep-alive? honors a close token in any of several Connection lines")
+
+  (assert-true test
+    (web-keep-alive?
+      &(parse-req
+        "GET / HTTP/1.1\r\nConnection: TE\r\nConnection: keep-alive\r\n\r\n"))
+    "keep-alive? true when no Connection line lists close")
+
   ; -- decode-multipart-request --
   (assert-equal test
     "hello"

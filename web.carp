@@ -1289,15 +1289,27 @@ responses. The `protocols` field lists the subprotocols that this route supports
                                     nl
                                     &(String.to-bytes "http/1.1")))))))
 
+; Case-insensitive header value lookup. Header names in the parsed map
+; preserve original case (RFC 7230 §3.2 says names are case-insensitive).
+(hidden header-values-ci)
+(defn header-values-ci [hdrs name]
+  (let [lower-name &(String.ascii-to-lower name)]
+    (Map.kv-reduce
+      &(fn [acc k v] (if (= &(String.ascii-to-lower k) lower-name) @v acc))
+      (the (Array String) [])
+      hdrs)))
+
 (defn web-keep-alive? [req]
-  (let [http11 (= (Request.version req) "HTTP/1.1")
-        conn (match (Request.header req "Connection")
-          (Maybe.Just v) v
-          (Maybe.Nothing) (if http11 @"keep-alive" @"close"))]
-    ; RFC 9110 §7.6.1: connection options are case-insensitive comma-separated tokens
-    (not
-      (Array.any? &(fn [t] (= &(String.trim t) "close"))
-                  &(String.split-by &(String.ascii-to-lower &conn) &[\,])))))
+  (let [conns (header-values-ci (Request.headers req) "Connection")]
+    (if (Array.empty? &conns)
+      (= (Request.version req) "HTTP/1.1")
+      ; RFC 9110 §5.3/§7.6.1: repeated lines form one comma-separated token list
+      (not
+        (Array.any?
+          &(fn [c]
+            (Array.any? &(fn [t] (= &(String.trim t) "close"))
+                        &(String.split-by &(String.ascii-to-lower c) &[\,])))
+          &conns)))))
 
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
@@ -1410,16 +1422,6 @@ responses. The `protocols` field lists the subprotocols that this route supports
             (break)))
         (when found (break))))
     result))
-
-; Case-insensitive header value lookup. Header names in the parsed map
-; preserve original case (RFC 7230 §3.2 says names are case-insensitive).
-(hidden header-values-ci)
-(defn header-values-ci [hdrs name]
-  (let [lower-name &(String.ascii-to-lower name)]
-    (Map.kv-reduce
-      &(fn [acc k v] (if (= &(String.ascii-to-lower k) lower-name) @v acc))
-      (the (Array String) [])
-      hdrs)))
 
 ; Try to parse a WebSocket upgrade from a raw HTTP buffer. Returns
 ; (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
