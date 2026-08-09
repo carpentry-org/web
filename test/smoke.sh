@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# end-to-end smoke test: runs test/smoke-server.carp, drives it with curl
+# end-to-end smoke test: runs test/smoke-server.carp, drives it with curl, builds examples/todo
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
