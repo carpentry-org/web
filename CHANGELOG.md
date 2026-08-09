@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **The bundled todo example compiles again.** `examples/todo/server.carp` had
+  not built since 0.6.0: it pinned long-superseded `web` and `orm` releases, and
+  `Item.insert` now yields a `Long` rowid where the example still expected an
+  `Int`. Its `id` is a `Long` now, it loads the repository's own `web.carp` the
+  way the other bundled servers do, and a failing insert, update, or delete
+  comes back as a `500` with the database's message instead of being silently
+  discarded. `test/smoke.sh` compiles the example, so it cannot rot unnoticed
+  again.
+
 ## 0.9.0 (2026-07-25)
 
 ### Changed

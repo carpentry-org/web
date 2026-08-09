@@ -1,14 +1,14 @@
-(load "git@github.com:carpentry-org/web@0.6.0")
-(load "git@github.com:carpentry-org/orm@0.1.0" "backends/sqlite3.carp")
+(load "../../web.carp")
+(load "git@github.com:carpentry-org/orm@0.4.0" "backends/sqlite3.carp")
 
-(deftype Item [id Int text String done Bool])
-(derive-model Item SQLiteBackend [id Int])
+(deftype Item [id Long text String done Bool])
+(derive-model Item SQLiteBackend [id Long])
 
 ; The application owns the DB handle. The ORM just uses it.
 (def db (Result.unsafe-from-success (SQLite3.open "todos.db")))
 
 (defn item-to-json [item]
-  (JSON.obj [(JSON.entry @"id"   (JSON.Num (Double.from-int @(Item.id item))))
+  (JSON.obj [(JSON.entry @"id"   (JSON.Num (Double.from-long @(Item.id item))))
              (JSON.entry @"text" (JSON.Str @(Item.text item)))
              (JSON.entry @"done" (JSON.Bool @(Item.done item)))]))
 
@@ -19,7 +19,7 @@
       items)))
 
 (defn id-param [params]
-  (Int.from-string &(Map.get params "id")))
+  (Long.from-string &(Map.get params "id")))
 
 (defn server-error [msg]
   (Response.with-status (Response.text msg) 500 @"Internal Server Error"))
@@ -38,18 +38,20 @@
 (defn api-list [req params]
   (match (Item.find-all &db)
     (Result.Success items) (Response.json &(items-to-json &items))
-    (Result.Error e) (server-error @&e)))
+    (Result.Error e) (server-error e)))
 
 (defn api-add [req params]
   (match (JSON.parse (Request.body req))
     (Result.Error _) (Response.bad-request)
     (Result.Success j)
       (match (JSON.get &j "text")
-        (Maybe.Nothing) (Response.bad-request)
         (Maybe.Just (JSON.Str text))
-          (let [item (Item.init 0 text false)
-                stored (Item.set-id @&item (Item.insert &db &item))]
-            (Response.json &(item-to-json &stored))))))
+          (let [item (Item.init 0l text false)]
+            (match (Item.insert &db &item)
+              (Result.Error e) (server-error e)
+              (Result.Success id)
+                (Response.json &(item-to-json &(Item.set-id item id)))))
+        _ (Response.bad-request))))
 
 (defn api-update [req params]
   (match (id-param params)
@@ -62,19 +64,23 @@
             (Result.Error _) (Response.bad-request)
             (Result.Success j)
               (let [updated (patch-item &current &j)]
-                (do
-                  (Item.update &db &updated)
-                  (Response.json &(item-to-json &updated))))))))
+                (match (Item.update &db &updated)
+                  (Result.Error e) (server-error e)
+                  (Result.Success _)
+                    (Response.json &(item-to-json &updated))))))))
 
 (defn api-delete [req params]
   (match (id-param params)
     (Maybe.Nothing) (Response.bad-request)
     (Maybe.Just id)
-      (do (Item.delete-by-id &db &id)
-          (Response.json &(JSON.Obj {})))))
+      (match (Item.delete-by-id &db &id)
+        (Result.Error e) (server-error e)
+        (Result.Success _) (Response.json &(JSON.Obj {})))))
 
 (defserver "0.0.0.0" 3000
-  (Item.create-table &db)
+  (match (Item.create-table &db)
+    (Result.Error e) (IO.errorln &e)
+    (Result.Success _) ())
   (GET    "/api/todos"     api-list)
   (POST   "/api/todos"     api-add)
   (PUT    "/api/todos/:id" api-update)

@@ -11,6 +11,9 @@ LOG=smoke-server.log
 echo "smoke: compiling server"
 carp -b test/smoke-server.carp
 
+echo "smoke: compiling examples/todo/server.carp"
+carp -b examples/todo/server.carp
+
 ./out/smoke-server > "$LOG" 2>&1 < /dev/null &
 SERVER_PID=$!
 cleanup() {
