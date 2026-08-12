@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.9.1 (2026-08-12)
+
+### Changed
+- **`file` is pinned to 0.3.0.** Its read path is all-or-nothing now, and
+  `read-all` reports an error for an input whose length it cannot determine
+  instead of reading into a buffer sized from a failed `ftell`. The static
+  file server calls `read-all`, so a path that resolves to a pipe or a
+  device is a clean `404` rather than a corrupted response.
+
 ### Fixed
 - **The bundled todo example compiles again.** `examples/todo/server.carp` had
   not built since 0.6.0: it pinned long-superseded `web` and `orm` releases, and
