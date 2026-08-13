@@ -26,12 +26,25 @@
   (WS  \"/ws/echo\" echo))
 ```")
 
-(load "git@github.com:carpentry-org/http@0.2.0")
+(load "git@github.com:carpentry-org/http@0.4.0")
 (load "git@github.com:carpentry-org/socket@0.2.3")
 (load "git@github.com:carpentry-org/json@0.2.2")
 (load "git@github.com:carpentry-org/file@0.3.0")
 (load "git@github.com:carpentry-org/log@0.1.1")
 (load "git@github.com:carpentry-org/utf8.carp@0.1.0")
+
+; Byte-indexed prefix/suffix tests; the core ones measure in bytes but slice
+; in characters.
+(hidden web-starts-with?)
+(defn web-starts-with? [s sub]
+  (let [n (String.length sub)]
+    (and (>= (String.length s) n) (= sub &(String.byte-slice s 0 n)))))
+
+(hidden web-ends-with?)
+(defn web-ends-with? [s sub]
+  (let [n (String.length s)
+        m (String.length sub)]
+    (and (>= n m) (= sub &(String.byte-slice s (- n m) n)))))
 
 (defmodule SHA1
   (hidden of-int)
@@ -455,23 +468,23 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
 based on its extension. Unknown extensions return `application/octet-stream`.")
   (defn content-type-for [path]
     (cond
-      (String.ends-with? path ".html") @"text/html; charset=utf-8"
-      (String.ends-with? path ".js") @"application/javascript; charset=utf-8"
-      (String.ends-with? path ".mjs") @"application/javascript; charset=utf-8"
-      (String.ends-with? path ".css") @"text/css; charset=utf-8"
-      (String.ends-with? path ".svg") @"image/svg+xml"
-      (String.ends-with? path ".json") @"application/json"
-      (String.ends-with? path ".png") @"image/png"
-      (String.ends-with? path ".jpg") @"image/jpeg"
-      (String.ends-with? path ".jpeg") @"image/jpeg"
-      (String.ends-with? path ".gif") @"image/gif"
-      (String.ends-with? path ".ico") @"image/x-icon"
-      (String.ends-with? path ".webp") @"image/webp"
-      (String.ends-with? path ".woff") @"font/woff"
-      (String.ends-with? path ".woff2") @"font/woff2"
-      (String.ends-with? path ".txt") @"text/plain; charset=utf-8"
-      (String.ends-with? path ".xml") @"application/xml"
-      (String.ends-with? path ".pdf") @"application/pdf"
+      (web-ends-with? path ".html") @"text/html; charset=utf-8"
+      (web-ends-with? path ".js") @"application/javascript; charset=utf-8"
+      (web-ends-with? path ".mjs") @"application/javascript; charset=utf-8"
+      (web-ends-with? path ".css") @"text/css; charset=utf-8"
+      (web-ends-with? path ".svg") @"image/svg+xml"
+      (web-ends-with? path ".json") @"application/json"
+      (web-ends-with? path ".png") @"image/png"
+      (web-ends-with? path ".jpg") @"image/jpeg"
+      (web-ends-with? path ".jpeg") @"image/jpeg"
+      (web-ends-with? path ".gif") @"image/gif"
+      (web-ends-with? path ".ico") @"image/x-icon"
+      (web-ends-with? path ".webp") @"image/webp"
+      (web-ends-with? path ".woff") @"font/woff"
+      (web-ends-with? path ".woff2") @"font/woff2"
+      (web-ends-with? path ".txt") @"text/plain; charset=utf-8"
+      (web-ends-with? path ".xml") @"application/xml"
+      (web-ends-with? path ".pdf") @"application/pdf"
       @"application/octet-stream"))
 
   (doc file "creates a 200 OK response by reading `path` from disk. Returns
@@ -588,8 +601,9 @@ Keys and values are URL-decoded. Duplicate keys keep the last value.")
             (let [eq (String.index-of pair \=)]
               (if (< eq 0)
                 (Map.put! &result &(decode-form-value pair) &@"")
-                (let [k (decode-form-value &(String.prefix pair eq))
-                      v (decode-form-value &(String.suffix pair (+ eq 1)))]
+                (let [k (decode-form-value &(String.byte-slice pair 0 eq))
+                      v (decode-form-value
+                        &(String.byte-slice pair (+ eq 1) (String.length pair)))]
                   (Map.put! &result &k &v)))))))
       result))
 
@@ -598,7 +612,7 @@ map if the content type is not `application/x-www-form-urlencoded`.")
   (defn decode-request [req]
     (if (match (Request.header req "Content-Type")
         (Maybe.Just ct)
-          (String.starts-with? &ct "application/x-www-form-urlencoded")
+          (web-starts-with? &ct "application/x-www-form-urlencoded")
         (Maybe.Nothing) false)
       (decode (Request.body req))
       (the (Map String String) {})))
@@ -623,7 +637,7 @@ the part headers and the next boundary delimiter.")
 content type.")
   (defn multipart? [req]
     (match (Request.header req "Content-Type")
-      (Maybe.Just ct) (String.starts-with? &ct "multipart/form-data")
+      (Maybe.Just ct) (web-starts-with? &ct "multipart/form-data")
       (Maybe.Nothing) false))
 
   (doc decode-multipart-request "decodes the multipart form body of a
@@ -1512,70 +1526,17 @@ responses. The `protocols` field lists the subprotocols that this route supports
   (Partial [Long Long])
   (Unsatisfiable []))
 
-; Parse a decimal byte-range bound, saturating at total+1 once the value
-; exceeds the file size so oversized specs cannot overflow Long.
-(hidden web-parse-bound)
-(defn web-parse-bound [s total]
-  (let-do [bytes (String.to-bytes s)
-           n (Array.length &bytes)
-           acc 0l
-           ok (> n 0)
-           over false]
-    (for [i 0 n]
-      (let [b (Byte.to-int @(Array.unsafe-nth &bytes i))]
-        (if (and (>= b 48) (<= b 57))
-          (unless over
-            (let [d (Long.from-int (- b 48))]
-              (if (or (> acc (/ total 10l)) (> d (- total (* acc 10l))))
-                (do (set! over true) (set! acc (+ total 1l)))
-                (set! acc (+ (* acc 10l) d)))))
-          (set! ok false))))
-    (if ok (Maybe.Just acc) (Maybe.Nothing))))
-
-; Resolve a single byte-range spec against a file of `total` bytes into Full
-; (serve the whole file; also the fallback for malformed/multi-range specs),
-; Partial with an inclusive [start end], or Unsatisfiable (start at/past EOF).
+; An unparseable range serves the whole representation (RFC 9110 §14.2); a
+; multi-range set resolves to its first satisfiable range.
 (defn web-resolve-range [spec total]
-  (if (not (String.starts-with? spec "bytes="))
-    (RangeResolution.Full)
-    (let [rest &(String.suffix spec 6)]
-      (if (String.contains? rest \,)
-        (RangeResolution.Full)
-        (let [dash (String.index-of rest \-)]
-          (if (< dash 0)
-            (RangeResolution.Full)
-            (let [start-s &(String.prefix rest dash)
-                  end-s &(String.suffix rest (+ dash 1))]
-              (cond
-                (String.empty? start-s)
-                  (match (web-parse-bound end-s total)
-                    (Maybe.Nothing) (RangeResolution.Full)
-                    (Maybe.Just n)
-                      (cond
-                        (<= n 0l) (RangeResolution.Unsatisfiable)
-                        (<= total 0l) (RangeResolution.Unsatisfiable)
-                        (>= n total) (RangeResolution.Partial 0l (- total 1l))
-                        (RangeResolution.Partial (- total n) (- total 1l))))
-                (String.empty? end-s)
-                  (match (web-parse-bound start-s total)
-                    (Maybe.Nothing) (RangeResolution.Full)
-                    (Maybe.Just a)
-                      (if (>= a total)
-                        (RangeResolution.Unsatisfiable)
-                        (RangeResolution.Partial a (- total 1l))))
-                (match (web-parse-bound start-s total)
-                  (Maybe.Nothing) (RangeResolution.Full)
-                  (Maybe.Just a)
-                    (match (web-parse-bound end-s total)
-                      (Maybe.Nothing) (RangeResolution.Full)
-                      (Maybe.Just b)
-                        (cond
-                          (> a b) (RangeResolution.Full)
-                          (>= a total) (RangeResolution.Unsatisfiable)
-                          (RangeResolution.Partial a
-                                                   (if (< b (- total 1l))
-                                                     b
-                                                     (- total 1l))))))))))))))
+  (match (ByteRange.parse spec)
+    (Result.Error _) (RangeResolution.Full)
+    (Result.Success specs)
+      (let [rs (ByteRange.resolve &specs total)]
+        (if (Array.empty? &rs)
+          (RangeResolution.Unsatisfiable)
+          (let [p (Array.unsafe-first &rs)]
+            (RangeResolution.Partial @(Pair.a p) @(Pair.b p)))))))
 
 ; Read the internal X-Sendfile-Range marker carrying the request's raw Range.
 (hidden web-range-header)
@@ -1614,10 +1575,6 @@ responses. The `protocols` field lists the subprotocols that this route supports
     (Maybe.Nothing) (RangeResolution.Full)
     (Maybe.Just rh) (web-resolve-range &rh total)))
 
-(hidden web-content-range)
-(defn web-content-range [start end total]
-  (fmt "bytes %s-%s/%s" &(Long.str start) &(Long.str end) &(Long.str total)))
-
 (hidden web-accept-ranges)
 (defn web-accept-ranges [resp]
   (let [k @"Accept-Ranges"
@@ -1628,7 +1585,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-range-not-satisfiable)
 (defn web-range-not-satisfiable [total]
   (let [cr-k @"Content-Range"
-        cr-v [(fmt "bytes */%s" &(Long.str total))]
+        cr-v [(ContentRange.unsatisfied total)]
         ar-k @"Accept-Ranges"
         ar-v [@"bytes"]
         hdrs (Map.put (Map.put {} &cr-k &cr-v) &ar-k &ar-v)]
@@ -1639,7 +1596,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (hidden web-partial-headers)
 (defn web-partial-headers [resp start end total]
   (let [cr-k @"Content-Range"
-        cr-v [(web-content-range start end total)]
+        cr-v [(ContentRange.bytes start end total)]
         ar-k @"Accept-Ranges"
         ar-v [@"bytes"]
         hdrs (Map.put
@@ -1667,7 +1624,7 @@ responses. The `protocols` field lists the subprotocols that this route supports
 (defn web-head-partial [resp start end total]
   (let [hdrs (Map.remove @(Response.headers &resp) &@"X-Sendfile")
         cr-k @"Content-Range"
-        cr-v [(web-content-range start end total)]
+        cr-v [(ContentRange.bytes start end total)]
         ar-k @"Accept-Ranges"
         ar-v [@"bytes"]
         cl-k @"Content-Length"
@@ -3013,9 +2970,9 @@ returns a 404 if the path is unsafe or no file matches.")
     (if (not (web-safe-path? rel))
       (Response.not-found)
       (let [path (if (String.empty? rel) @root (fmt "%s/%s" root rel))]
-        (if (or (String.empty? rel) (String.ends-with? rel "/"))
-          (let [dir (if (String.ends-with? &path "/")
-                  (String.prefix &path (- (String.length &path) 1))
+        (if (or (String.empty? rel) (web-ends-with? rel "/"))
+          (let [dir (if (web-ends-with? &path "/")
+                  (String.byte-slice &path 0 (- (String.length &path) 1))
                   @&path)]
             (match (find-index &dir index-files)
               (Maybe.Just idx-path) (Response.sendfile &idx-path)

@@ -7,6 +7,12 @@
   (let [app (-> (App.create)
                 (App.GET @"/ok" (fn [r p] (Response.text @"ok")))
                 (App.POST @"/echo" (fn [r p] (Response.text @(Request.body r))))
+                (App.POST @"/form"
+                          (fn [r p]
+                            (Response.text
+                              (Map.get-with-default &(Form.decode-request r)
+                                                    "a"
+                                                    &@"none"))))
                 (App.POST @"/meta"
                           (fn [r p]
                             (Response.text

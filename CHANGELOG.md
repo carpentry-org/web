@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+### Fixed
+- **A header a client controls can no longer kill the server.** A `Range` or
+  `Content-Type` header, or a form body, whose byte length ran past its
+  character count aborted the whole process — one request was enough to take
+  a server down. Those checks measure and slice in bytes now.
+- **A file extension is recognised on a non-ASCII path**, so such a file is
+  served with its real `Content-Type` rather than
+  `application/octet-stream`, and a non-ASCII directory path finds its index
+  file.
+
+### Changed
+- **`Range` request headers follow RFC 9110 §14.1.** The range unit is matched
+  case-insensitively, whitespace and empty elements in the range-set are
+  ignored, and a request for several ranges is answered with a `206` carrying
+  the first satisfiable one instead of the whole representation.
+- **`http` is pinned to 0.4.0.**
+
 ## 0.9.1 (2026-08-12)
 
 ### Changed

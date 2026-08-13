@@ -29,6 +29,15 @@
           (set! cursor @(Pair.b &p)))))
     status))
 
+; `n` copies of U+00E4, so the byte length is twice the character count
+(defn wide-chars [n]
+  (let-do [bs (the (Array Byte) [])]
+    (for [i 0 n]
+      (do
+        (Array.push-back! &bs (Byte.from-int 195))
+        (Array.push-back! &bs (Byte.from-int 164))))
+    (String.from-bytes &bs)))
+
 (defn rr-tag [r]
   (match-ref r
     (RangeResolution.Full) 0
@@ -864,11 +873,49 @@
     (rr-tag &(web-resolve-range "bytes=1-2-3" 1000l))
     "extra dash falls back to full")
 
-  ; -- Range resolution: multiple ranges fall back to full --
+  ; -- Range resolution: a range-set is served from its first satisfiable spec --
+  (assert-equal test
+    0l
+    (rr-start &(web-resolve-range "bytes=0-499,600-700" 1000l))
+    "a multi-range set is answered with its first range")
+  (assert-equal test
+    499l
+    (rr-end &(web-resolve-range "bytes=0-499,600-700" 1000l))
+    "a multi-range set ends at its first range")
+  (assert-equal test
+    800l
+    (rr-start &(web-resolve-range "bytes=2000-3000, -200" 1000l))
+    "a multi-range set skips a leading unsatisfiable spec")
+  (assert-equal test
+    2
+    (rr-tag &(web-resolve-range "bytes=2000-3000, 4000-5000" 1000l))
+    "a wholly unsatisfiable range-set is a 416")
   (assert-equal test
     0
-    (rr-tag &(web-resolve-range "bytes=0-499,600-700" 1000l))
-    "multiple ranges fall back to full")
+    (rr-tag &(web-resolve-range "bytes=0-499,abc" 1000l))
+    "one invalid spec discards the whole range-set")
+
+  ; -- Range resolution: RFC 9110 grammar --
+  (assert-equal test
+    499l
+    (rr-end &(web-resolve-range "BYTES=0-499" 1000l))
+    "the range unit is case-insensitive")
+  (assert-equal test
+    0l
+    (rr-start &(web-resolve-range "bytes = 0-499" 1000l))
+    "whitespace around the range-set is ignored")
+  (assert-equal test
+    499l
+    (rr-end &(web-resolve-range "bytes=, 0-499, " 1000l))
+    "empty range-set elements are ignored")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "items=0-499" 1000l))
+    "an unknown range unit falls back to full")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range "bytes=499-0" 1000l))
+    "a last-pos below its first-pos falls back to full")
 
   ; -- Range resolution: zero-length suffix and empty files --
   (assert-equal test
@@ -889,6 +936,75 @@
     999l
     (rr-end &(web-resolve-range "bytes=-999999999999" 1000l))
     "oversized suffix saturates to the whole file")
+
+  ; -- Client-controlled strings whose byte length exceeds their char count --
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range &(wide-chars 5) 1000l))
+    "a non-ASCII Range header falls back to full")
+  (assert-equal test
+    0
+    (rr-tag &(web-resolve-range &(String.append "bytes=" &(wide-chars 5)) 1000l))
+    "a non-ASCII range-set falls back to full")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        &(fmt
+          "HEAD /static/index.html HTTP/1.1\r\nRange: %s\r\n\r\n"
+          &(wide-chars 5))))
+    "a non-ASCII Range header serves the whole representation")
+  (assert-equal test
+    "11"
+    &(header-val
+      &(static-resp
+        &(fmt
+          "HEAD /static/index.html HTTP/1.1\r\nRange: %s\r\n\r\n"
+          &(wide-chars 5)))
+      "Content-Length")
+    "a non-ASCII Range header keeps the full Content-Length")
+  (assert-equal test
+    0
+    (Map.length
+      &(Form.decode-request
+        &(parse-req
+          &(fmt
+            "POST / HTTP/1.1\r\nContent-Type: %s\r\nContent-Length: 3\r\n\r\na=1"
+            &(wide-chars 20)))))
+    "a non-ASCII Content-Type decodes no urlencoded form")
+  (assert-equal test
+    false
+    (Form.multipart?
+      &(parse-req
+        &(fmt
+          "POST / HTTP/1.1\r\nContent-Type: %s\r\nContent-Length: 3\r\n\r\na=1"
+          &(wide-chars 20))))
+    "a non-ASCII Content-Type is not multipart")
+  (assert-equal test
+    "x"
+    &(Map.get-with-default
+      &(Form.decode &(String.append &(wide-chars 3) "=x"))
+      &(wide-chars 3)
+      &@"")
+    "a non-ASCII form key keeps its value")
+  (assert-equal test
+    "text/html; charset=utf-8"
+    &(Response.content-type-for &(String.append &(wide-chars 3) ".html"))
+    "a non-ASCII path still matches its extension")
+  (assert-equal test
+    404
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures"
+                         &(String.append &(wide-chars 4) "/")
+                         &[@"index.html"]))
+    "a non-ASCII directory path is a 404")
+  (assert-true test
+    (web-ends-with? &(String.append &(wide-chars 4) "/") "/")
+    "web-ends-with? measures the suffix in bytes")
+  (assert-equal test
+    false
+    (web-starts-with? &(wide-chars 5) "0123456789")
+    "web-starts-with? measures the prefix in bytes")
 
   ; -- HEAD with a satisfiable range answers 206 --
   (assert-equal test
