@@ -997,7 +997,30 @@
       &(StaticFile.serve "test/static-fixtures"
                          &(String.append &(wide-chars 4) "/")
                          &[@"index.html"]))
-    "a non-ASCII directory path is a 404")
+    "a missing non-ASCII directory path is a 404")
+  (assert-equal test
+    200
+    @(Response.code
+      &(StaticFile.serve "test/static-fixtures"
+                         &(String.append &(wide-chars 2) "/")
+                         &[@"index.html"]))
+    "an existing non-ASCII directory path finds its index file")
+  (assert-equal test
+    &(fmt "test/static-fixtures/%s/index.html" &(wide-chars 2))
+    &(header-val
+      &(StaticFile.serve "test/static-fixtures"
+                         &(String.append &(wide-chars 2) "/")
+                         &[@"index.html"])
+      "X-Sendfile")
+    "a non-ASCII directory index is resolved without a stray separator")
+  (assert-equal test
+    "text/html; charset=utf-8"
+    &(header-val
+      &(StaticFile.serve "test/static-fixtures"
+                         &(String.append &(wide-chars 2) "/")
+                         &[@"index.html"])
+      "Content-Type")
+    "a non-ASCII directory index is served as HTML")
   (assert-true test
     (web-ends-with? &(String.append &(wide-chars 4) "/") "/")
     "web-ends-with? measures the suffix in bytes")

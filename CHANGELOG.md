@@ -3,10 +3,12 @@
 ## Unreleased
 
 ### Fixed
-- **A header a client controls can no longer kill the server.** A `Range` or
-  `Content-Type` header, or a form body, whose byte length ran past its
-  character count aborted the whole process — one request was enough to take
-  a server down. Those checks measure and slice in bytes now.
+- **A `Range` header, a `Content-Type` header, a form body, or a static path
+  whose byte length ran past its character count no longer kills the server.**
+  One such request aborted the whole process. Every string `web` matches
+  itself measures and slices in bytes now. A hostile `multipart/form-data`
+  boundary parameter can still abort the process while `http` parses the
+  media type; that path is upstream in `http`, not here.
 - **A file extension is recognised on a non-ASCII path**, so such a file is
   served with its real `Content-Type` rather than
   `application/octet-stream`, and a non-ASCII directory path finds its index
