@@ -110,4 +110,27 @@ CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
   -r 100-200 "$BASE/static/index.html")
 [ "$CODE" = "416" ] || fail "unsatisfiable range not 416 (got: $CODE)"
 
+# 11. a range-set is answered with its first satisfiable range
+check "multi-range"
+RH=$(curl -s --max-time 10 -D - -o "$WORK/multi" \
+  -H 'Range: bytes=0-3, -2' "$BASE/static/index.html")
+echo "$RH" | grep -qi 'Content-Range: bytes 0-3/11' || fail "multi-range Content-Range"
+[ "$(cat "$WORK/multi")" = "root" ] || fail "multi-range body (got: $(cat "$WORK/multi"))"
+
+# 12. headers whose byte length exceeds their character count are answered,
+#     not aborted on
+WIDE=$(printf '\303\244\303\244\303\244\303\244\303\244')
+check "non-ASCII Range"
+CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
+  -H "Range: $WIDE" "$BASE/static/index.html")
+[ "$CODE" = "200" ] || fail "non-ASCII Range not served whole (got: $CODE)"
+
+check "non-ASCII Content-Type"
+BODY=$(curl -s --max-time 10 -H "Content-Type: $WIDE$WIDE$WIDE$WIDE" \
+  --data-binary 'a=1' "$BASE/form")
+[ "$BODY" = "none" ] || fail "non-ASCII Content-Type decoded a form (got: $BODY)"
+
+check "server survived"
+[ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on a non-ASCII header"
+
 echo "smoke: all checks passed"

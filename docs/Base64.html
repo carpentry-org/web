@@ -88,6 +88,109 @@
                     
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#decode">
+                        <h3 id="decode">
+                            decode
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result (Array Byte) String))
+                    </p>
+                    <pre class="args">
+                        (decode x)
+                    </pre>
+                    <p class="doc">
+                        <p>Decodes a base64-encoded datum using mime-charset.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#decode-str">
+                        <h3 id="decode-str">
+                            decode-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result String String))
+                    </p>
+                    <pre class="args">
+                        (decode-str s)
+                    </pre>
+                    <p class="doc">
+                        <p>Decodes a base64-encoded string using mime-charset.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#decode-url">
+                        <h3 id="decode-url">
+                            decode-url
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result (Array Byte) String))
+                    </p>
+                    <pre class="args">
+                        (decode-url s)
+                    </pre>
+                    <p class="doc">
+                        <p>Decodes a URL- and filename-safe base64 datum (RFC 4648 section 5).
+Accepts input with or without <code>=</code> padding.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#decode-url-str">
+                        <h3 id="decode-url-str">
+                            decode-url-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] (Result String String))
+                    </p>
+                    <pre class="args">
+                        (decode-url-str s)
+                    </pre>
+                    <p class="doc">
+                        <p>Decodes a URL- and filename-safe base64 string (RFC 4648 section 5).
+Accepts input with or without <code>=</code> padding.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#decode-using">
+                        <h3 id="decode-using">
+                            decode-using
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Array Byte) a), (Ref Byte b), (Ref String c)] (Result (Array Byte) String))
+                    </p>
+                    <pre class="args">
+                        (decode-using charset padding s)
+                    </pre>
+                    <p class="doc">
+                        <p>Decodes a base64-encoded datum using a user-supplied character set.
+Returns a Result with the decoded bytes or an error string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#encode">
                         <h3 id="encode">
                             encode
@@ -104,6 +207,146 @@
                     </pre>
                     <p class="doc">
                         <p>base64-encodes a byte array.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-str">
+                        <h3 id="encode-str">
+                            encode-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] String)
+                    </p>
+                    <pre class="args">
+                        (encode-str s)
+                    </pre>
+                    <p class="doc">
+                        <p>Encodes a string into base64 using mime-charset.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-url">
+                        <h3 id="encode-url">
+                            encode-url
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Array Byte) a)] String)
+                    </p>
+                    <pre class="args">
+                        (encode-url s)
+                    </pre>
+                    <p class="doc">
+                        <p>Encodes a datum into URL- and filename-safe base64 (RFC 4648 section 5).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-url-str">
+                        <h3 id="encode-url-str">
+                            encode-url-str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref String a)] String)
+                    </p>
+                    <pre class="args">
+                        (encode-url-str s)
+                    </pre>
+                    <p class="doc">
+                        <p>Encodes a string into URL- and filename-safe base64 (RFC 4648 section 5).</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#encode-using">
+                        <h3 id="encode-using">
+                            encode-using
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref (Array Byte) a), Byte, (Ref (Array Byte) b)] String)
+                    </p>
+                    <pre class="args">
+                        (encode-using charset pad s)
+                    </pre>
+                    <p class="doc">
+                        <p>Encodes a datum into base64 using a user-supplied character set.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#mime-charset">
+                        <h3 id="mime-charset">
+                            mime-charset
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        (Array Byte)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>The Base64 character set as specified by MIME.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#mime-padding">
+                        <h3 id="mime-padding">
+                            mime-padding
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Byte
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>The Base64 padding as specified by MIME.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#url-charset">
+                        <h3 id="url-charset">
+                            url-charset
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        (Array Byte)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>The URL- and filename-safe Base64 character set (RFC 4648 section 5).</p>
 
                     </p>
                 </div>

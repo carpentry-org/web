@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+### Fixed
+- **A `Range` header, a `Content-Type` header, a form body, or a static path
+  whose byte length ran past its character count no longer kills the server.**
+  One such request aborted the whole process. Every string `web` matches
+  itself measures and slices in bytes now. A hostile `multipart/form-data`
+  boundary parameter can still abort the process while `http` parses the
+  media type; that path is upstream in `http`, not here.
+- **A file extension is recognised on a non-ASCII path**, so such a file is
+  served with its real `Content-Type` rather than
+  `application/octet-stream`, and a non-ASCII directory path finds its index
+  file.
+
+### Changed
+- **`Range` request headers follow RFC 9110 §14.1.** The range unit is matched
+  case-insensitively, whitespace and empty elements in the range-set are
+  ignored, and a request for several ranges is answered with a `206` carrying
+  the first satisfiable one instead of the whole representation.
+- **`http` is pinned to 0.4.0.**
+
 ## 0.9.1 (2026-08-12)
 
 ### Changed
