@@ -98,6 +98,24 @@
     "null"
     (Response.body &(Response.json &(JSON.Null)))
     "json serializes body")
+  (assert-equal test
+    "1234567890"
+    (Response.body &(Response.json &(JSON.Num 1234567890.0)))
+    "json serializes a rowid-sized number without dropping digits")
+  (assert-equal test
+    "0.30000000000000004"
+    (Response.body &(Response.json &(JSON.Num (+ 0.1 0.2))))
+    "json serializes a double at full precision")
+  (assert-equal test
+    &(String.from-bytes &[34b 92b 110b 206b 177b 34b])
+    (Response.body
+      &(Response.json &(JSON.Str (String.from-bytes &[10b 206b 177b]))))
+    "json keeps a code point that follows an escaped character")
+  (assert-equal test
+    &(String.from-bytes &[34b 104b 105b 128b 34b])
+    (Response.body
+      &(Response.json &(JSON.Str (String.from-bytes &[104b 105b 128b]))))
+    "json leaves a byte that is not valid UTF-8 in place")
 
   ; -- Response.not-found --
   (assert-equal test

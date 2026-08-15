@@ -13,8 +13,24 @@
   served with its real `Content-Type` rather than
   `application/octet-stream`, and a non-ASCII directory path finds its index
   file.
+- **`Response.json` no longer rounds numbers to six significant digits.** A
+  database rowid of `1234567890` went out as `1.23457e+09`, `1000000` as
+  `1e+06` and `3.141592653589793` as `3.14159`; each of those is now written
+  in full. Numbers that already fitted in six digits, such as `42` and
+  `3.14`, are unchanged.
+- **`Response.json` no longer drops the character after an escape.** A string
+  value or object key containing `"` or `\`, or a control character such as a
+  newline or a tab, lost whatever code point came next if that code point was
+  one of a large set including Greek, Cyrillic, `©`, `°`, `µ` and `»`: a body
+  built from `"\nα"` was serialised as `"\n"`. Bytes that are not valid UTF-8
+  were dropped or replaced too, and now reach the client untouched.
 
 ### Changed
+- **`json` is pinned to 0.6.0 and `utf8.carp` to 0.2.0.** The `json` release
+  drops its own, older copy of `utf8.carp`, so only one version of that module
+  is compiled into a server now. `JSON` also gains RFC 6901 pointers, RFC 6902
+  patch, RFC 7386 merge patch and a parser recursion limit, all of which are
+  available to handlers.
 - **`Range` request headers follow RFC 9110 §14.1.** The range unit is matched
   case-insensitively, whitespace and empty elements in the range-set are
   ignored, and a request for several ranges is answered with a `206` carrying

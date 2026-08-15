@@ -312,6 +312,23 @@
         (Maybe.Nothing) -1))
     "decode pong frame opcode")
 
+  ; the RFC 6455 §8.1 gate that answers a text frame with close code 1007.
+  (assert-true test
+    (UTF8.valid? &[226b 130b 172b])
+    "a well-formed three-byte code point passes the text-frame gate")
+
+  (assert-false test
+    (UTF8.valid? &[226b 130b])
+    "a truncated code point fails the text-frame gate")
+
+  (assert-false test
+    (UTF8.valid? &[237b 160b 128b])
+    "a UTF-16 surrogate fails the text-frame gate")
+
+  (assert-false test
+    (UTF8.valid? &[192b 175b])
+    "an overlong encoding fails the text-frame gate")
+
   ; RFC 6455 §5.2/§5.5 control-frame validation (close/ping/pong = 8/9/10).
   (assert-false test
     (WebSocket.control-frame-protocol-error? 8 true 0)
