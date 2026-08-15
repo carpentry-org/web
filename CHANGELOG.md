@@ -2,13 +2,19 @@
 
 ## Unreleased
 
+## [0.9.2]
+
+### Changed
+- Dependencies bumped: `http` 0.4.1, `json` 0.6.0, `log` 0.2.0,
+  `utf8.carp` 0.2.0, and `orm` 0.5.1 in the todo example.
+
 ### Fixed
 - **A `Range` header, a `Content-Type` header, a form body, or a static path
   whose byte length ran past its character count no longer kills the server.**
   One such request aborted the whole process. Every string `web` matches
-  itself measures and slices in bytes now. A hostile `multipart/form-data`
-  boundary parameter can still abort the process while `http` parses the
-  media type; that path is upstream in `http`, not here.
+  itself measures and slices in bytes now. The one remaining upstream path
+  (a hostile `multipart/form-data` boundary parameter aborting while `http`
+  parsed the media type) is fixed by the `http` 0.4.1 bump above.
 - **A file extension is recognised on a non-ASCII path**, so such a file is
   served with its real `Content-Type` rather than
   `application/octet-stream`, and a non-ASCII directory path finds its index
