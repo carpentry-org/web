@@ -3,13 +3,13 @@
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.9.2\")
+(load \"git@github.com:carpentry-org/web@0.9.3\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.9.2\")
+(load \"git@github.com:carpentry-org/web@0.9.3\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -26,7 +26,7 @@
   (WS  \"/ws/echo\" echo))
 ```")
 
-(load "git@github.com:carpentry-org/http@0.4.1")
+(load "git@github.com:carpentry-org/http@0.4.2")
 (load "git@github.com:carpentry-org/socket@0.2.3")
 (load "git@github.com:carpentry-org/json@0.6.0")
 (load "git@github.com:carpentry-org/file@0.3.0")

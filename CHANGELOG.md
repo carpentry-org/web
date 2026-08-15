@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.9.3]
+
+### Changed
+- `http` bumped to 0.4.2.
+
 ## [0.9.2]
 
 ### Changed
