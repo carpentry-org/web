@@ -2169,6 +2169,10 @@ fallback.")
   (def sse-tick-interval 15)
   (def running true)
 
+  (private sweep-interval)
+  (hidden sweep-interval)
+  (def sweep-interval 30)
+
   (hidden queue-close)
   (defn queue-close [cs fd] (Array.push-back! (ConnState.to-close cs) fd))
 
@@ -3086,7 +3090,9 @@ fallback.")
             (Map.contains? (ConnState.sse-route-idx cs) &rfd)
             ; Server-Sent Events: timed push, and exempt from the HTTP timeouts
             (when (and (> App.sse-tick-interval 0)
-                       (not (Map.contains? (ConnState.write-bufs cs) &rfd)))
+                       (and (not (Map.contains? (ConnState.write-bufs cs) &rfd))
+                            (not (Array.contains? (ConnState.to-close cs)
+                                                  &rfd))))
               (let [last-tick (Map.get (ConnState.sse-last-tick cs) &rfd)]
                 (when-do (>= (- now last-tick) App.sse-tick-interval)
                   (let-do [params (Map.value-ref! (ConnState.sse-params cs)
@@ -3130,6 +3136,28 @@ fallback.")
                     sse-routes
                     poll
                     @(Array.unsafe-nth (ConnState.to-close cs) j))))
+
+  (private poll-timeout-ms)
+  (hidden poll-timeout-ms)
+  (doc poll-timeout-ms "milliseconds `Poll.wait` may block: the sweep interval,
+or the time until the earliest SSE tick comes due, whichever is sooner.
+
+Streams with a pending write are ignored, since their fd already wakes the
+loop on writability and [`sweep-idle`](#sweep-idle) skips their tick anyway.")
+  (defn poll-timeout-ms [cs sse-routes]
+    (if (or (Array.empty? sse-routes) (< App.sse-tick-interval 1))
+      (* 1000 sweep-interval)
+      (let-do [now (System.time)
+               keys (Map.keys (ConnState.sse-last-tick cs))
+               soonest sweep-interval]
+        (for [j 0 (Array.length &keys)]
+          (let [rfd @(Array.unsafe-nth &keys j)]
+            (unless (Map.contains? (ConnState.write-bufs cs) &rfd)
+              (let [due (- (+ (Map.get (ConnState.sse-last-tick cs) &rfd)
+                              App.sse-tick-interval)
+                           now)]
+                (when (< due soonest) (set! soonest due))))))
+        (* 1000 (max 1 soonest)))))
 
   (hidden static-form?)
   (defndynamic static-form? [f] (and (list? f) (= 'static (car f))))
@@ -3220,11 +3248,7 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
                                         {}
                                         {}
                                         {})
-                     poll-timeout (if (and (not (Array.empty? (App.sse-routes app)))
-                                           (and (> App.sse-tick-interval 0)
-                                                (< App.sse-tick-interval 30)))
-                       (* 1000 App.sse-tick-interval)
-                       30000)]
+                     poll-timeout (* 1000 sweep-interval)]
               (IO.println &(fmt "Listening on %s:%d" host port))
               (set! App.running true)
               (System.signal System.signal-int (fn [_] (set! App.running false)))
@@ -3254,7 +3278,9 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
                                                fd)
                             ())))
                       (sweep-idle &cs (App.sse-routes app) &poll)
-                      (flush-closed &cs (App.sse-routes app) &poll))))
+                      (flush-closed &cs (App.sse-routes app) &poll)
+                      (set! poll-timeout
+                            (poll-timeout-ms &cs (App.sse-routes app))))))
               (Poll.close poll)
               (TcpListener.close listener)))))
 
