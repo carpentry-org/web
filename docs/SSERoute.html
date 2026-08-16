@@ -102,246 +102,271 @@
             </div>
             <div class="module">
                 <h1>
-                    CORS
+                    SSERoute
                 </h1>
                 <div class="module-description">
-                    
+                    <p>a Server-Sent Events route entry. The handler receives an
+<a href="#SSEEvent"><code>SSEEvent</code></a>, the captured path parameters, and an
+<a href="#SSEStream"><code>SSEStream</code></a> handle for queueing events.</p>
+
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#after-hook">
-                        <h3 id="after-hook">
-                            after-hook
+                    <a class="anchor" href="#copy">
+                        <h3 id="copy">
+                            copy
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [a, b, Response] Response)
+                        (Fn [(Ref SSERoute a)] SSERoute)
                     </p>
-                    <pre class="args">
-                        (after-hook req params resp)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>adds CORS headers to every response.</p>
+                        <p>copies a <code>SSERoute</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#before-hook">
-                        <h3 id="before-hook">
-                            before-hook
+                    <a class="anchor" href="#delete">
+                        <h3 id="delete">
+                            delete
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref Request a), b] (Maybe Response))
+                        (Fn [SSERoute] ())
                     </p>
-                    <pre class="args">
-                        (before-hook req params)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>handles CORS preflight <code>OPTIONS</code> requests. Returns a
-204 with CORS headers, or <code>Nothing</code> for non-OPTIONS requests.</p>
+                        <p>deletes a <code>SSERoute</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#configure">
-                        <h3 id="configure">
-                            configure
+                    <a class="anchor" href="#handler">
+                        <h3 id="handler">
+                            handler
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String] ())
+                        (Fn [(Ref SSERoute a)] (Ref (Fn [(Ref SSEEvent b), (Ref (Map String String) c), (Ref SSEStream d)] ()) a))
                     </p>
-                    <pre class="args">
-                        (configure allowed-origin)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>sets the allowed origin for CORS. Use <code>setup</code> for full
-configuration.</p>
+                        <p>gets the <code>handler</code> property of a <code>SSERoute</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#credentials">
-                        <h3 id="credentials">
-                            credentials
+                    <a class="anchor" href="#init">
+                        <h3 id="init">
+                            init
                         </h3>
                     </a>
                     <div class="description">
-                        def
+                        instantiate
                     </div>
                     <p class="sig">
-                        Bool
+                        (Fn [String, (Fn [(Ref SSEEvent a), (Ref (Map String String) b), (Ref SSEStream c)] ())] SSERoute)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#expose-headers">
-                        <h3 id="expose-headers">
-                            expose-headers
-                        </h3>
-                    </a>
-                    <div class="description">
-                        def
-                    </div>
-                    <p class="sig">
-                        String
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#headers">
-                        <h3 id="headers">
-                            headers
-                        </h3>
-                    </a>
-                    <div class="description">
-                        def
-                    </div>
-                    <p class="sig">
-                        String
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#max-age">
-                        <h3 id="max-age">
-                            max-age
-                        </h3>
-                    </a>
-                    <div class="description">
-                        def
-                    </div>
-                    <p class="sig">
-                        String
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#methods">
-                        <h3 id="methods">
-                            methods
-                        </h3>
-                    </a>
-                    <div class="description">
-                        def
-                    </div>
-                    <p class="sig">
-                        String
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#origin">
-                        <h3 id="origin">
-                            origin
-                        </h3>
-                    </a>
-                    <div class="description">
-                        def
-                    </div>
-                    <p class="sig">
-                        String
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-credentials!">
-                        <h3 id="set-credentials!">
-                            set-credentials!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        defn
-                    </div>
-                    <p class="sig">
-                        (Fn [Bool] ())
-                    </p>
-                    <pre class="args">
-                        (set-credentials! c)
-                    </pre>
-                    <p class="doc">
-                        <p>enables or disables <code>Access-Control-Allow-Credentials</code>.
-Origin must not be <code>*</code> when enabled.</p>
+                        <p>creates a <code>SSERoute</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-expose-headers!">
-                        <h3 id="set-expose-headers!">
-                            set-expose-headers!
+                    <a class="anchor" href="#pattern">
+                        <h3 id="pattern">
+                            pattern
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String] ())
+                        (Fn [(Ref SSERoute a)] (Ref String a))
                     </p>
-                    <pre class="args">
-                        (set-expose-headers! h)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>sets the <code>Access-Control-Expose-Headers</code> value.
-Pass an empty string to omit (the default).</p>
+                        <p>gets the <code>pattern</code> property of a <code>SSERoute</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#setup">
-                        <h3 id="setup">
-                            setup
+                    <a class="anchor" href="#prn">
+                        <h3 id="prn">
+                            prn
                         </h3>
                     </a>
                     <div class="description">
-                        defn
+                        instantiate
                     </div>
                     <p class="sig">
-                        (Fn [String, String, String, String] ())
+                        (Fn [(Ref SSERoute a)] String)
                     </p>
-                    <pre class="args">
-                        (setup o m h ma)
-                    </pre>
+                    <span>
+                        
+                    </span>
                     <p class="doc">
-                        <p>configures CORS origin, methods, headers, and max-age.</p>
+                        <p>converts a <code>SSERoute</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-handler">
+                        <h3 id="set-handler">
+                            set-handler
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [SSERoute, (Fn [(Ref SSEEvent a), (Ref (Map String String) b), (Ref SSEStream c)] ())] SSERoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>handler</code> property of a <code>SSERoute</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-handler!">
+                        <h3 id="set-handler!">
+                            set-handler!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSERoute a), (Fn [(Ref SSEEvent b), (Ref (Map String String) c), (Ref SSEStream d)] ())] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>handler</code> property of a <code>SSERoute</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-pattern">
+                        <h3 id="set-pattern">
+                            set-pattern
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [SSERoute, String] SSERoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>pattern</code> property of a <code>SSERoute</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-pattern!">
+                        <h3 id="set-pattern!">
+                            set-pattern!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSERoute a), String] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>pattern</code> property of a <code>SSERoute</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#str">
+                        <h3 id="str">
+                            str
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSERoute a)] String)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>converts a <code>SSERoute</code> to a string.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-handler">
+                        <h3 id="update-handler">
+                            update-handler
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [SSERoute, (Ref (Fn [(Fn [(Ref SSEEvent a), (Ref (Map String String) b), (Ref SSEStream c)] ())] (Fn [(Ref SSEEvent a), (Ref (Map String String) b), (Ref SSEStream c)] ()) d) e)] SSERoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>handler</code> property of a <code>SSERoute</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-pattern">
+                        <h3 id="update-pattern">
+                            update-pattern
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [SSERoute, (Ref (Fn [String] String a) b)] SSERoute)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>pattern</code> property of a <code>SSERoute</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

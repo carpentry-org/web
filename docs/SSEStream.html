@@ -102,30 +102,17 @@
             </div>
             <div class="module">
                 <h1>
-                    WSFrame
+                    SSEStream
                 </h1>
                 <div class="module-description">
-                    
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#consumed">
-                        <h3 id="consumed">
-                            consumed
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref Int a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>consumed</code> property of a <code>WSFrame</code>.</p>
+                    <p>represents an open Server-Sent Events stream.</p>
+<p>Handlers receive a reference to this and call <a href="#send"><code>SSEStream.send</code></a>,
+<a href="#send-event"><code>SSEStream.send-event</code></a> or <a href="#send-raw"><code>SSEStream.send-raw</code></a> to
+queue outgoing events. The event loop drains the outbox after the handler
+returns.</p>
+<p>The <code>last-event-id</code> field holds the <code>Last-Event-ID</code> header a reconnecting
+client sent, or <code>Nothing</code> on a fresh stream.</p>
 
-                    </p>
                 </div>
                 <div class="binder">
                     <a class="anchor" href="#copy">
@@ -137,13 +124,13 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] WSFrame)
+                        (Fn [(Ref SSEStream a)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>copies a <code>WSFrame</code>.</p>
+                        <p>copies a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
@@ -157,33 +144,33 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame] ())
+                        (Fn [SSEStream] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>deletes a <code>WSFrame</code>. Should usually not be called manually.</p>
+                        <p>deletes a <code>SSEStream</code>. Should usually not be called manually.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#fin">
-                        <h3 id="fin">
-                            fin
+                    <a class="anchor" href="#fd">
+                        <h3 id="fd">
+                            fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref Bool a))
+                        (Fn [(Ref SSEStream a)] (Ref Int a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>fin</code> property of a <code>WSFrame</code>.</p>
+                        <p>gets the <code>fd</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
@@ -197,73 +184,53 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [Bool, Int, Int, Bool, (Array Byte), Int] WSFrame)
+                        (Fn [Int, (Maybe String), (Array String)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>creates a <code>WSFrame</code>.</p>
+                        <p>creates a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#masked">
-                        <h3 id="masked">
-                            masked
+                    <a class="anchor" href="#last-event-id">
+                        <h3 id="last-event-id">
+                            last-event-id
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref Bool a))
+                        (Fn [(Ref SSEStream a)] (Ref (Maybe String) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>masked</code> property of a <code>WSFrame</code>.</p>
+                        <p>gets the <code>last-event-id</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#opcode">
-                        <h3 id="opcode">
-                            opcode
+                    <a class="anchor" href="#outbox">
+                        <h3 id="outbox">
+                            outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref Int a))
+                        (Fn [(Ref SSEStream a)] (Ref (Array String) a))
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>opcode</code> property of a <code>WSFrame</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#payload">
-                        <h3 id="payload">
-                            payload
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref (Array Byte) a))
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>gets the <code>payload</code> property of a <code>WSFrame</code>.</p>
+                        <p>gets the <code>outbox</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
@@ -277,273 +244,194 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] String)
+                        (Fn [(Ref SSEStream a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>WSFrame</code> to a string.</p>
+                        <p>converts a <code>SSEStream</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#rsv">
-                        <h3 id="rsv">
-                            rsv
+                    <a class="anchor" href="#send">
+                        <h3 id="send">
+                            send
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSEStream a), (Ref String b)] ())
+                    </p>
+                    <pre class="args">
+                        (send s value)
+                    </pre>
+                    <p class="doc">
+                        <p>queues a <code>data</code>-only event on the stream.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#send-event">
+                        <h3 id="send-event">
+                            send-event
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSEStream a), (Ref String b), (Ref String c)] ())
+                    </p>
+                    <pre class="args">
+                        (send-event s name value)
+                    </pre>
+                    <p class="doc">
+                        <p>queues an event with a name on the stream.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#send-raw">
+                        <h3 id="send-raw">
+                            send-raw
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref SSEStream a), String] ())
+                    </p>
+                    <pre class="args">
+                        (send-raw s chunk)
+                    </pre>
+                    <p class="doc">
+                        <p>queues an already encoded block, for instance one built with
+<a href="./SSE.html#encode"><code>SSE.encode</code></a>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-fd">
+                        <h3 id="set-fd">
+                            set-fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] (Ref Int a))
+                        (Fn [SSEStream, Int] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>gets the <code>rsv</code> property of a <code>WSFrame</code>.</p>
+                        <p>sets the <code>fd</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-consumed">
-                        <h3 id="set-consumed">
-                            set-consumed
+                    <a class="anchor" href="#set-fd!">
+                        <h3 id="set-fd!">
+                            set-fd!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, Int] WSFrame)
+                        (Fn [(Ref SSEStream a), Int] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>consumed</code> property of a <code>WSFrame</code>.</p>
+                        <p>sets the <code>fd</code> property of a <code>SSEStream</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-consumed!">
-                        <h3 id="set-consumed!">
-                            set-consumed!
+                    <a class="anchor" href="#set-last-event-id">
+                        <h3 id="set-last-event-id">
+                            set-last-event-id
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a), Int] ())
+                        (Fn [SSEStream, (Maybe String)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>consumed</code> property of a <code>WSFrame</code> in place.</p>
+                        <p>sets the <code>last-event-id</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-fin">
-                        <h3 id="set-fin">
-                            set-fin
+                    <a class="anchor" href="#set-last-event-id!">
+                        <h3 id="set-last-event-id!">
+                            set-last-event-id!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, Bool] WSFrame)
+                        (Fn [(Ref SSEStream a), (Maybe String)] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>fin</code> property of a <code>WSFrame</code>.</p>
+                        <p>sets the <code>last-event-id</code> property of a <code>SSEStream</code> in place.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-fin!">
-                        <h3 id="set-fin!">
-                            set-fin!
+                    <a class="anchor" href="#set-outbox">
+                        <h3 id="set-outbox">
+                            set-outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a), Bool] ())
+                        (Fn [SSEStream, (Array String)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>fin</code> property of a <code>WSFrame</code> in place.</p>
+                        <p>sets the <code>outbox</code> property of a <code>SSEStream</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#set-masked">
-                        <h3 id="set-masked">
-                            set-masked
+                    <a class="anchor" href="#set-outbox!">
+                        <h3 id="set-outbox!">
+                            set-outbox!
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, Bool] WSFrame)
+                        (Fn [(Ref SSEStream a), (Array String)] ())
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>sets the <code>masked</code> property of a <code>WSFrame</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-masked!">
-                        <h3 id="set-masked!">
-                            set-masked!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a), Bool] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>masked</code> property of a <code>WSFrame</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-opcode">
-                        <h3 id="set-opcode">
-                            set-opcode
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, Int] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>opcode</code> property of a <code>WSFrame</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-opcode!">
-                        <h3 id="set-opcode!">
-                            set-opcode!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a), Int] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>opcode</code> property of a <code>WSFrame</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-payload">
-                        <h3 id="set-payload">
-                            set-payload
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, (Array Byte)] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>payload</code> property of a <code>WSFrame</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-payload!">
-                        <h3 id="set-payload!">
-                            set-payload!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a), (Array Byte)] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>payload</code> property of a <code>WSFrame</code> in place.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-rsv">
-                        <h3 id="set-rsv">
-                            set-rsv
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, Int] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>rsv</code> property of a <code>WSFrame</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#set-rsv!">
-                        <h3 id="set-rsv!">
-                            set-rsv!
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [(Ref WSFrame a), Int] ())
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>sets the <code>rsv</code> property of a <code>WSFrame</code> in place.</p>
+                        <p>sets the <code>outbox</code> property of a <code>SSEStream</code> in place.</p>
 
                     </p>
                 </div>
@@ -557,133 +445,73 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Ref WSFrame a)] String)
+                        (Fn [(Ref SSEStream a)] String)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>converts a <code>WSFrame</code> to a string.</p>
+                        <p>converts a <code>SSEStream</code> to a string.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-consumed">
-                        <h3 id="update-consumed">
-                            update-consumed
+                    <a class="anchor" href="#update-fd">
+                        <h3 id="update-fd">
+                            update-fd
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
+                        (Fn [SSEStream, (Ref (Fn [Int] Int a) b)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>consumed</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>fd</code> property of a <code>SSEStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-fin">
-                        <h3 id="update-fin">
-                            update-fin
+                    <a class="anchor" href="#update-last-event-id">
+                        <h3 id="update-last-event-id">
+                            update-last-event-id
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [Bool] Bool a) b)] WSFrame)
+                        (Fn [SSEStream, (Ref (Fn [(Maybe String)] (Maybe String) a) b)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>fin</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>last-event-id</code> property of a <code>SSEStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>
                 <div class="binder">
-                    <a class="anchor" href="#update-masked">
-                        <h3 id="update-masked">
-                            update-masked
+                    <a class="anchor" href="#update-outbox">
+                        <h3 id="update-outbox">
+                            update-outbox
                         </h3>
                     </a>
                     <div class="description">
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [Bool] Bool a) b)] WSFrame)
+                        (Fn [SSEStream, (Ref (Fn [(Array String)] (Array String) a) b)] SSEStream)
                     </p>
                     <span>
                         
                     </span>
                     <p class="doc">
-                        <p>updates the <code>masked</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-opcode">
-                        <h3 id="update-opcode">
-                            update-opcode
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>opcode</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-payload">
-                        <h3 id="update-payload">
-                            update-payload
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [(Array Byte)] (Array Byte) a) b)] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>payload</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
-
-                    </p>
-                </div>
-                <div class="binder">
-                    <a class="anchor" href="#update-rsv">
-                        <h3 id="update-rsv">
-                            update-rsv
-                        </h3>
-                    </a>
-                    <div class="description">
-                        instantiate
-                    </div>
-                    <p class="sig">
-                        (Fn [WSFrame, (Ref (Fn [Int] Int a) b)] WSFrame)
-                    </p>
-                    <span>
-                        
-                    </span>
-                    <p class="doc">
-                        <p>updates the <code>rsv</code> property of a <code>WSFrame</code> using a function <code>f</code>.</p>
+                        <p>updates the <code>outbox</code> property of a <code>SSEStream</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

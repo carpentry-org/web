@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Added
+- **Server-Sent Events.** `(SSE "/path" handler)` in `defserver`, or
+  `App.SSE`, answers a GET with a `text/event-stream` response that stays
+  open. The handler is called with `Connect` when a client subscribes, with
+  `Tick` every `App.sse-tick-interval` seconds, and with `Close` when the
+  client goes away; it queues events on the stream handle with
+  `SSEStream.send` and `SSEStream.send-event`. A reconnecting client's
+  `Last-Event-ID` is handed to the handler. Idle streams are not closed by
+  the HTTP timeouts, and a tick that queues nothing sends a comment line so
+  proxies keep the stream open. The `SSE` module encodes the wire format on
+  its own for handlers that need an `id`, a `retry` time, or a comment.
+
 ## [0.9.3]
 
 ### Changed

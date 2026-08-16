@@ -3,27 +3,51 @@
 
 (Project.config "title" "smoke-server")
 
+(defn events [event params s]
+  (match-ref event
+    (SSEEvent.Connect)
+      (SSEStream.send-event s
+                            "ready"
+                            &(match-ref (SSEStream.last-event-id s)
+                              (Maybe.Just v) @v
+                              (Maybe.Nothing) @"fresh"))
+    (SSEEvent.Tick) (SSEStream.send s "tick")
+    (SSEEvent.Close) ()))
+
+; queues nothing on a tick, so the loop must send a keep-alive comment
+(defn quiet [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send s "hi")
+    (SSEEvent.Tick) ()
+    (SSEEvent.Close) ()))
+
 (defn main []
-  (let [app (-> (App.create)
-                (App.GET @"/ok" (fn [r p] (Response.text @"ok")))
-                (App.POST @"/echo" (fn [r p] (Response.text @(Request.body r))))
-                (App.POST @"/form"
-                          (fn [r p]
-                            (Response.text
-                              (Map.get-with-default &(Form.decode-request r)
-                                                    "a"
-                                                    &@"none"))))
-                (App.POST @"/meta"
-                          (fn [r p]
-                            (Response.text
-                              (fmt "%s %s"
-                                   (if (Request.chunked? r) "chunked" "plain")
-                                   &(match (Request.header r "Content-Length")
-                                     (Maybe.Just v) v
-                                     (Maybe.Nothing) @"none")))))
-                (StaticFile.mount @"/static" @"test/static-fixtures"))
-        bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
-        ah (the
-          (Array (Fn [&Request &(Map String String) Response] Response))
-          [])]
+  (let-do [app (-> (App.create)
+                   (App.GET @"/ok" (fn [r p] (Response.text @"ok")))
+                   (App.POST @"/echo"
+                             (fn [r p] (Response.text @(Request.body r))))
+                   (App.POST @"/form"
+                             (fn [r p]
+                               (Response.text
+                                 (Map.get-with-default &(Form.decode-request r)
+                                                       "a"
+                                                       &@"none"))))
+                   (App.POST @"/meta"
+                             (fn [r p]
+                               (Response.text
+                                 (fmt "%s %s"
+                                      (if (Request.chunked? r) "chunked" "plain")
+                                      &(match (Request.header r "Content-Length")
+                                        (Maybe.Just v) v
+                                        (Maybe.Nothing) @"none")))))
+                   (App.SSE @"/events" events)
+                   (App.SSE @"/quiet" quiet)
+                   (StaticFile.mount @"/static" @"test/static-fixtures"))
+           bh (the
+             (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+             [])
+           ah (the
+             (Array (Fn [&Request &(Map String String) Response] Response))
+             [])]
+    (set! App.sse-tick-interval 1)
     (App.serve &app &bh &ah "127.0.0.1" 8437)))

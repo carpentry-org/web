@@ -68,6 +68,26 @@
                             </a>
                         </li>
                         <li>
+                            <a href="SSE.html">
+                                SSE
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSEEvent.html">
+                                SSEEvent
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSEStream.html">
+                                SSEStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSERoute.html">
+                                SSERoute
+                            </a>
+                        </li>
+                        <li>
                             <a href="SHA1.html">
                                 SHA1
                             </a>
@@ -157,7 +177,7 @@
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Maybe String)), (Map Int (Array Byte)), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int)] ConnState)
+                        (Fn [(Map Int TcpStream), (Map Int (Array Byte)), (Map Int (Array Byte)), (Map Int Int), (Map Int Bool), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Long), (Map Int Long), (Array Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Maybe String)), (Map Int (Array Byte)), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int Int), (Map Int (Map String String)), (Map Int (Maybe String)), (Map Int Int)] ConnState)
                     </p>
                     <span>
                         
@@ -584,6 +604,166 @@
                     </span>
                     <p class="doc">
                         <p>sets the <code>sf-sizes</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-last-id">
+                        <h3 id="set-sse-last-id">
+                            set-sse-last-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int (Maybe String))] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-last-id</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-last-id!">
+                        <h3 id="set-sse-last-id!">
+                            set-sse-last-id!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int (Maybe String))] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-last-id</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-last-tick">
+                        <h3 id="set-sse-last-tick">
+                            set-sse-last-tick
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-last-tick</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-last-tick!">
+                        <h3 id="set-sse-last-tick!">
+                            set-sse-last-tick!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-last-tick</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-params">
+                        <h3 id="set-sse-params">
+                            set-sse-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int (Map String String))] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-params</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-params!">
+                        <h3 id="set-sse-params!">
+                            set-sse-params!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int (Map String String))] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-params</code> property of a <code>ConnState</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-route-idx">
+                        <h3 id="set-sse-route-idx">
+                            set-sse-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Map Int Int)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-route-idx</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-route-idx!">
+                        <h3 id="set-sse-route-idx!">
+                            set-sse-route-idx!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a), (Map Int Int)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-route-idx</code> property of a <code>ConnState</code> in place.</p>
 
                     </p>
                 </div>
@@ -1128,6 +1308,86 @@
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#sse-last-id">
+                        <h3 id="sse-last-id">
+                            sse-last-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int (Maybe String)) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>sse-last-id</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sse-last-tick">
+                        <h3 id="sse-last-tick">
+                            sse-last-tick
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>sse-last-tick</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sse-params">
+                        <h3 id="sse-params">
+                            sse-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int (Map String String)) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>sse-params</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sse-route-idx">
+                        <h3 id="sse-route-idx">
+                            sse-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref ConnState a)] (Ref (Map Int Int) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>sse-route-idx</code> property of a <code>ConnState</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#str">
                         <h3 id="str">
                             str
@@ -1344,6 +1604,86 @@
                     </span>
                     <p class="doc">
                         <p>updates the <code>sf-sizes</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-sse-last-id">
+                        <h3 id="update-sse-last-id">
+                            update-sse-last-id
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int (Maybe String))] (Map Int (Maybe String)) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>sse-last-id</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-sse-last-tick">
+                        <h3 id="update-sse-last-tick">
+                            update-sse-last-tick
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>sse-last-tick</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-sse-params">
+                        <h3 id="update-sse-params">
+                            update-sse-params
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int (Map String String))] (Map Int (Map String String)) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>sse-params</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-sse-route-idx">
+                        <h3 id="update-sse-route-idx">
+                            update-sse-route-idx
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [ConnState, (Ref (Fn [(Map Int Int)] (Map Int Int) a) b)] ConnState)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>sse-route-idx</code> property of a <code>ConnState</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

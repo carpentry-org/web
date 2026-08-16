@@ -71,6 +71,24 @@
   @(Array.unsafe-first
     &(Map.get-with-default (Response.headers resp) name &[@""])))
 
+; matches `raw` against a single Server-Sent Events route at `pattern`
+(defn sse-match [raw pattern]
+  (web-try-sse &(String.to-bytes raw)
+               &[(SSERoute.init @pattern (fn [event params s] ()))]))
+
+(defn sse-idx [m] (match-ref m (Maybe.Just p) @(Pair.a p) (Maybe.Nothing) -1))
+
+(defn sse-last-id [m]
+  (match-ref m
+    (Maybe.Just p)
+      (match-ref (Pair.a (Pair.b p)) (Maybe.Just v) @v (Maybe.Nothing) @"none")
+    (Maybe.Nothing) @"no-match"))
+
+(defn sse-param [m k]
+  (match-ref m
+    (Maybe.Just p) (Map.get-with-default (Pair.b (Pair.b p)) k &@"none")
+    (Maybe.Nothing) @"no-match"))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -2208,4 +2226,145 @@
           hdr (Array.unsafe-first &vals)]
       (and (String.starts-with? hdr "session=;")
            (>= (String.index-of-string hdr "Max-Age=0") 0)))
-    "clear-cookie sets empty value and Max-Age=0"))
+    "clear-cookie sets empty value and Max-Age=0")
+
+  ; -- SSE.data --
+  (assert-equal test
+    "data: hello\n\n"
+    &(SSE.data "hello")
+    "data encodes a data-only event")
+
+  (assert-equal test
+    "data: \n\n"
+    &(SSE.data "")
+    "an empty payload still emits a data line")
+
+  (assert-equal test
+    "data: a\ndata: b\n\n"
+    &(SSE.data "a\nb")
+    "a multi-line payload becomes one data line per line")
+
+  (assert-equal test
+    "data: a\ndata: b\n\n"
+    &(SSE.data "a\r\nb")
+    "CRLF separates data lines")
+
+  (assert-equal test
+    "data: a\ndata: b\n\n"
+    &(SSE.data "a\rb")
+    "a lone CR separates data lines")
+
+  (assert-equal test
+    "data: a\ndata: \n\n"
+    &(SSE.data "a\n")
+    "a trailing newline emits a trailing empty data line")
+
+  ; -- SSE.event, SSE.encode, SSE.retry-after --
+  (assert-equal test
+    "event: tick\ndata: 1\n\n"
+    &(SSE.event "tick" "1")
+    "event encodes a named event")
+
+  (assert-equal test
+    "id: 7\nevent: tick\nretry: 2500\ndata: x\n\n"
+    &(SSE.encode (Maybe.Just @"tick") "x" (Maybe.Just @"7") (Maybe.Just 2500))
+    "encode emits id, event and retry ahead of the data lines")
+
+  (assert-equal test
+    "retry: 5000\n\n"
+    &(SSE.retry-after 5000)
+    "retry-after encodes a lone reconnection time")
+
+  ; -- SSE.comment-line --
+  (assert-equal test
+    ": ping\n\n"
+    &(SSE.comment-line "ping")
+    "comment-line encodes a comment")
+
+  ; -- SSE framing: no raw CR or LF survives a field value --
+  (assert-equal test
+    "event: ab\ndata: c\n\n"
+    &(SSE.event "a\r\nb" "c")
+    "an event name loses its line breaks")
+
+  (assert-equal test
+    "id: 12\ndata: x\n\n"
+    &(SSE.encode (Maybe.Nothing) "x" (Maybe.Just @"1\n2") (Maybe.Nothing))
+    "an id loses its line breaks")
+
+  (assert-equal test
+    ": ab\n\n"
+    &(SSE.comment-line "a\nb")
+    "a comment loses its line breaks")
+
+  (assert-true test
+    (< (String.index-of-string &(SSE.data "a\r\nb\rc\nd") "\r") 0)
+    "no carriage return survives an encoded payload")
+
+  ; -- SSEStream outbox --
+  (assert-equal test
+    "data: a\n\nevent: e\ndata: b\n\n"
+    &(let-do [s (SSEStream.init 0 (Maybe.Nothing) [])
+              buf (the (Array Byte) [])]
+       (SSEStream.send &s "a")
+       (SSEStream.send-event &s "e" "b")
+       (App.sse-flatten-outbox &s &buf)
+       (String.from-bytes &buf))
+    "the outbox flattens in queue order")
+
+  ; -- web-try-sse --
+  (assert-equal test
+    0
+    (sse-idx &(sse-match "GET /events HTTP/1.1\r\nHost: x\r\n\r\n" "/events"))
+    "a GET on an SSE path matches its route")
+
+  (assert-equal test
+    -1
+    (sse-idx &(sse-match "POST /events HTTP/1.1\r\nHost: x\r\n\r\n" "/events"))
+    "only GET opens a stream")
+
+  (assert-equal test
+    -1
+    (sse-idx &(sse-match "GET /other HTTP/1.1\r\nHost: x\r\n\r\n" "/events"))
+    "an unmatched path is not a stream")
+
+  (assert-equal test
+    -1
+    (sse-idx
+      &(web-try-sse &(String.to-bytes "GET /events HTTP/1.1\r\nHost: x\r\n\r\n")
+                    &(the (Array SSERoute) [])))
+    "an app without SSE routes never opens a stream")
+
+  (assert-equal test
+    "none"
+    &(sse-last-id &(sse-match "GET /events HTTP/1.1\r\nHost: x\r\n\r\n"
+                              "/events"))
+    "a fresh stream carries no Last-Event-ID")
+
+  (assert-equal test
+    "42"
+    &(sse-last-id &(sse-match "GET /events HTTP/1.1\r\nlast-event-id: 42\r\n\r\n"
+                              "/events"))
+    "Last-Event-ID is read case-insensitively")
+
+  (assert-equal test
+    "9"
+    &(sse-param &(sse-match "GET /rooms/9/events HTTP/1.1\r\nHost: x\r\n\r\n"
+                            "/rooms/:room/events")
+                "room")
+    "path parameters are captured for a stream")
+
+  ; -- App.SSE --
+  (assert-equal test
+    1
+    (Array.length
+      (App.sse-routes &(App.SSE (App.create)
+                                @"/events"
+                                (fn [event params s] ()))))
+    "SSE registers a stream route")
+
+  (assert-equal test
+    0
+    (Array.length
+      (App.routes &(App.SSE (App.create) @"/events" (fn [event params s] ()))))
+    "SSE does not add an HTTP route"))
