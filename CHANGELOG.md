@@ -14,6 +14,12 @@
   proxies keep the stream open. The `SSE` module encodes the wire format on
   its own for handlers that need an `id`, a `retry` time, or a comment.
 
+### Changed
+- **Registering WebSocket or Server-Sent Events routes no longer slows down
+  ordinary requests.** An app with both kinds of route re-read and re-parsed
+  the whole request buffer three times before answering a plain GET; it now
+  reads and parses each request once.
+
 ## [0.9.3]
 
 ### Changed
