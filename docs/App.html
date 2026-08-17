@@ -68,6 +68,26 @@
                             </a>
                         </li>
                         <li>
+                            <a href="SSE.html">
+                                SSE
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSEEvent.html">
+                                SSEEvent
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSEStream.html">
+                                SSEStream
+                            </a>
+                        </li>
+                        <li>
+                            <a href="SSERoute.html">
+                                SSERoute
+                            </a>
+                        </li>
+                        <li>
                             <a href="SHA1.html">
                                 SHA1
                             </a>
@@ -184,6 +204,40 @@
                     </pre>
                     <p class="doc">
                         <p>adds a PUT route.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#SSE">
+                        <h3 id="SSE">
+                            SSE
+                        </h3>
+                    </a>
+                    <div class="description">
+                        defn
+                    </div>
+                    <p class="sig">
+                        (Fn [App, String, (Fn [(Ref SSEEvent a), (Ref (Map String String) b), (Ref SSEStream c)] ())] App)
+                    </p>
+                    <pre class="args">
+                        (SSE app pattern handler)
+                    </pre>
+                    <p class="doc">
+                        <p>adds a Server-Sent Events route. A GET to <code>pattern</code> is answered
+with a <code>text/event-stream</code> body that stays open, and the handler is called for
+each lifecycle event (<a href="#SSEEvent"><code>SSEEvent</code></a>): <code>Connect</code>, <code>Tick</code> and <code>Close</code>.</p>
+<p><code>Tick</code> fires every <code>App.sse-tick-interval</code> seconds; when it queues nothing, a
+comment line goes out instead so idle streams survive proxies. Server-Sent
+Events are one-way, so anything the client writes to the stream is ignored.</p>
+<pre><code>(defn clock [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send-event s &quot;ready&quot; &quot;&quot;)
+    (SSEEvent.Tick) (SSEStream.send s &amp;(Int.str (System.time)))
+    (SSEEvent.Close) ()))
+
+(defserver &quot;0.0.0.0&quot; 3000
+  (SSE &quot;/events&quot; clock))
+</code></pre>
 
                     </p>
                 </div>
@@ -404,7 +458,7 @@ are complete (request-timeout), and 0 between requests (idle-timeout).</p>
                         instantiate
                     </div>
                     <p class="sig">
-                        (Fn [(Array Route), (Array WSRoute), (Fn [(Ref Request a), Int, String] Response)] App)
+                        (Fn [(Array Route), (Array WSRoute), (Array SSERoute), (Fn [(Ref Request a), Int, String] Response)] App)
                     </p>
                     <span>
                         
@@ -706,6 +760,46 @@ connections across workers via SO_REUSEPORT (Linux 3.9+, most BSDs).</p>
                     </p>
                 </div>
                 <div class="binder">
+                    <a class="anchor" href="#set-sse-routes">
+                        <h3 id="set-sse-routes">
+                            set-sse-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Array SSERoute)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-routes</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#set-sse-routes!">
+                        <h3 id="set-sse-routes!">
+                            set-sse-routes!
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a), (Array SSERoute)] ())
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>sets the <code>sse-routes</code> property of a <code>App</code> in place.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
                     <a class="anchor" href="#set-ws-routes">
                         <h3 id="set-ws-routes">
                             set-ws-routes
@@ -743,6 +837,45 @@ connections across workers via SO_REUSEPORT (Linux 3.9+, most BSDs).</p>
                     <p class="doc">
                         <p>sets the <code>ws-routes</code> property of a <code>App</code> in place.</p>
 
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sse-routes">
+                        <h3 id="sse-routes">
+                            sse-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [(Ref App a)] (Ref (Array SSERoute) a))
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>gets the <code>sse-routes</code> property of a <code>App</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#sse-tick-interval">
+                        <h3 id="sse-tick-interval">
+                            sse-tick-interval
+                        </h3>
+                    </a>
+                    <div class="description">
+                        def
+                    </div>
+                    <p class="sig">
+                        Int
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        
                     </p>
                 </div>
                 <div class="binder">
@@ -824,6 +957,26 @@ fallback.</p>
                     </span>
                     <p class="doc">
                         <p>updates the <code>routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
+
+                    </p>
+                </div>
+                <div class="binder">
+                    <a class="anchor" href="#update-sse-routes">
+                        <h3 id="update-sse-routes">
+                            update-sse-routes
+                        </h3>
+                    </a>
+                    <div class="description">
+                        instantiate
+                    </div>
+                    <p class="sig">
+                        (Fn [App, (Ref (Fn [(Array SSERoute)] (Array SSERoute) a) b)] App)
+                    </p>
+                    <span>
+                        
+                    </span>
+                    <p class="doc">
+                        <p>updates the <code>sse-routes</code> property of a <code>App</code> using a function <code>f</code>.</p>
 
                     </p>
                 </div>

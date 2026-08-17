@@ -133,4 +133,31 @@ BODY=$(curl -s --max-time 10 -H "Content-Type: $WIDE$WIDE$WIDE$WIDE" \
 check "server survived"
 [ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on a non-ASCII header"
 
+# 13. a Server-Sent Events stream opens, pushes on connect, and keeps ticking.
+#     curl is cut off by --max-time because the stream never ends.
+check "SSE stream"
+curl -s --max-time 5 --no-buffer -H 'Last-Event-ID: 77' \
+  -D "$WORK/sse.head" -o "$WORK/sse.body" "$BASE/events" || true
+grep -qi '^HTTP/1.1 200' "$WORK/sse.head" || fail "SSE stream not 200"
+grep -qi '^content-type: text/event-stream' "$WORK/sse.head" \
+  || fail "SSE stream has the wrong Content-Type"
+grep -qi '^cache-control: no-cache' "$WORK/sse.head" || fail "SSE stream is cached"
+if grep -qi '^content-length:' "$WORK/sse.head"; then
+  fail "SSE stream head carries a Content-Length"
+fi
+grep -q '^event: ready$' "$WORK/sse.body" || fail "no connect event on the stream"
+grep -q '^data: 77$' "$WORK/sse.body" || fail "Last-Event-ID did not reach the handler"
+TICKS=$(grep -c '^data: tick$' "$WORK/sse.body" || true)
+[ "${TICKS:-0}" -ge 2 ] || fail "stream stopped ticking (got $TICKS ticks)"
+
+# 14. a tick that queues nothing sends a keep-alive comment instead
+check "SSE keep-alive comment"
+curl -s --max-time 5 --no-buffer -o "$WORK/quiet.body" "$BASE/quiet" || true
+grep -q '^data: hi$' "$WORK/quiet.body" || fail "no connect event on the quiet stream"
+KEEPS=$(grep -c '^:$' "$WORK/quiet.body" || true)
+[ "${KEEPS:-0}" -ge 2 ] || fail "quiet stream sent no keep-alives (got $KEEPS)"
+
+check "server survived the stream"
+[ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on an SSE stream"
+
 echo "smoke: all checks passed"

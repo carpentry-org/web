@@ -1,4 +1,5 @@
-(doc Web "is a minimal web framework for Carp with WebSocket support.
+(doc Web "is a minimal web framework for Carp with WebSocket and Server-Sent
+Events support.
 
 ## Installation
 
@@ -21,9 +22,16 @@
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
+(defn clock [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send-event s \"ready\" \"\")
+    (SSEEvent.Tick) (SSEStream.send s &(Int.str (System.time)))
+    (SSEEvent.Close) ()))
+
 (defserver \"0.0.0.0\" 8080
   (GET \"/hello\" hello)
-  (WS  \"/ws/echo\" echo))
+  (WS  \"/ws/echo\" echo)
+  (SSE \"/events\" clock))
 ```")
 
 (load "git@github.com:carpentry-org/http@0.4.2")
@@ -995,9 +1003,139 @@ responses. The `protocols` field lists the subprotocols that this route supports
    protocols (Array String)
    handler (Fn [&WSEvent &(Map String String) &WebSocket] ())])
 
+(doc SSEEvent "represents an event on a Server-Sent Events stream.
+
+Handlers receive one of these for each lifecycle event:
+- `Connect`: the stream was opened
+- `Tick`: `App.sse-tick-interval` seconds passed since the last push
+- `Close`: the peer went away; anything queued in response is discarded")
+(deftype SSEEvent Connect Tick Close)
+
+(doc SSEStream "represents an open Server-Sent Events stream.
+
+Handlers receive a reference to this and call [`SSEStream.send`](#send),
+[`SSEStream.send-event`](#send-event) or [`SSEStream.send-raw`](#send-raw) to
+queue outgoing events. The event loop drains the outbox after the handler
+returns.
+
+The `last-event-id` field holds the `Last-Event-ID` header a reconnecting
+client sent, or `Nothing` on a fresh stream.")
+(deftype SSEStream [fd Int
+                    last-event-id (Maybe String)
+                    outbox (Array String)])
+
+(doc SSE "encodes the Server-Sent Events wire format (WHATWG HTML §9.2.6).
+
+Every function here returns one complete block, terminated by the blank line
+that dispatches it. Carriage returns and newlines are stripped from field
+values, and a `data` value spanning several lines becomes one `data:` line per
+line.")
+(defmodule SSE
+  ; CR and LF never occur inside a multi-byte UTF-8 sequence, so this is safe
+  ; to do bytewise.
+  (hidden scrub)
+  (defn scrub [value]
+    (let-do [bs (String.to-bytes value)
+             out (the (Array Byte) [])]
+      (for [i 0 (Array.length &bs)]
+        (let [b @(Array.unsafe-nth &bs i)]
+          (unless (or (= b (Char.to-byte \return)) (= b (Char.to-byte \newline)))
+            (Array.push-back! &out b))))
+      (String.from-bytes &out)))
+
+  (hidden split-lines)
+  (defn split-lines [value]
+    (let-do [bs (String.to-bytes value)
+             n (Array.length &bs)
+             out (the (Array String) [])
+             cur (the (Array Byte) [])
+             i 0]
+      (while (< i n)
+        (let [b @(Array.unsafe-nth &bs i)]
+          (cond
+            (= b (Char.to-byte \return))
+              (do
+                (Array.push-back! &out (String.from-bytes &cur))
+                (set! cur (the (Array Byte) []))
+                (set! i
+                      (if (and (< (+ i 1) n)
+                               (= @(Array.unsafe-nth &bs (+ i 1))
+                                  (Char.to-byte \newline)))
+                        (+ i 2)
+                        (+ i 1))))
+            (= b (Char.to-byte \newline))
+              (do
+                (Array.push-back! &out (String.from-bytes &cur))
+                (set! cur (the (Array Byte) []))
+                (set! i (+ i 1)))
+            (do (Array.push-back! &cur b) (set! i (+ i 1))))))
+      (Array.push-back! &out (String.from-bytes &cur))
+      out))
+
+  (doc encode "encodes one event with an optional name, `id` and `retry`.
+
+`retry` is the reconnection time in milliseconds a client should wait before
+reopening the stream. An empty `payload` still emits an empty `data:` line, so
+the event is dispatched with an empty payload rather than dropped.")
+  (sig encode
+       (Fn [(Maybe String) (Ref String) (Maybe String) (Maybe Int)] String))
+  (defn encode [name payload id retry]
+    (let-do [parts (the (Array String) [])]
+      (match id
+        (Maybe.Just v) (Array.push-back! &parts (fmt "id: %s\n" &(scrub &v)))
+        (Maybe.Nothing) ())
+      (match name
+        (Maybe.Just v) (Array.push-back! &parts (fmt "event: %s\n" &(scrub &v)))
+        (Maybe.Nothing) ())
+      (match retry
+        (Maybe.Just ms) (Array.push-back! &parts (fmt "retry: %d\n" ms))
+        (Maybe.Nothing) ())
+      (let-do [ls (split-lines payload)]
+        (for [i 0 (Array.length &ls)]
+          (Array.push-back! &parts (fmt "data: %s\n" (Array.unsafe-nth &ls i)))))
+      (Array.push-back! &parts @"\n")
+      (String.concat &parts)))
+
+  (doc data "encodes a `data`-only event.")
+  (defn data [value]
+    (encode (Maybe.Nothing) value (Maybe.Nothing) (Maybe.Nothing)))
+
+  (doc event "encodes an event with a name, which the client listens for by
+that name instead of `message`.")
+  (defn event [name value]
+    (encode (Maybe.Just @name) value (Maybe.Nothing) (Maybe.Nothing)))
+
+  (doc comment-line "encodes a comment line. Clients ignore it; it keeps the
+stream and any proxy in front of it from timing out.")
+  (defn comment-line [text] (fmt ": %s\n\n" &(scrub text)))
+
+  (doc retry-after "encodes a lone reconnection time in milliseconds.")
+  (defn retry-after [ms] (fmt "retry: %d\n\n" ms)))
+
+(defmodule SSEStream
+  (doc send "queues a `data`-only event on the stream.")
+  (defn send [s value] (Array.push-back! (SSEStream.outbox s) (SSE.data value)))
+
+  (doc send-event "queues an event with a name on the stream.")
+  (defn send-event [s name value]
+    (Array.push-back! (SSEStream.outbox s) (SSE.event name value)))
+
+  (doc send-raw "queues an already encoded block, for instance one built with
+[`SSE.encode`](./SSE.html#encode).")
+  (defn send-raw [s chunk] (Array.push-back! (SSEStream.outbox s) chunk)))
+
+(doc SSERoute
+  "a Server-Sent Events route entry. The handler receives an
+[`SSEEvent`](#SSEEvent), the captured path parameters, and an
+[`SSEStream`](#SSEStream) handle for queueing events.")
+(deftype SSERoute
+  [pattern String
+   handler (Fn [&SSEEvent &(Map String String) &SSEStream] ())])
+
 (deftype App
   [routes (Array Route)
    ws-routes (Array WSRoute)
+   sse-routes (Array SSERoute)
    error-handler (Fn [&Request Int String] Response)])
 
 ; Index of the CR opening the CRLFCRLF that ends the header block, or -1.
@@ -1504,6 +1642,41 @@ responses. The `protocols` field lists the subprotocols that this route supports
                   (Maybe.Nothing) (Maybe.Nothing))))
             (Maybe.Nothing)))))))
 
+; Find a matching Server-Sent Events route by path.
+(hidden web-find-sse-handler)
+(defn web-find-sse-handler [sse-routes path]
+  (let-do [result (the (Maybe (Pair Int (Map String String))) (Maybe.Nothing))]
+    (for [i 0 (Array.length sse-routes)]
+      (let [r (Array.unsafe-nth sse-routes i)]
+        (match (match-route (SSERoute.pattern r) path)
+          (Maybe.Just params)
+            (do (set! result (Maybe.Just (Pair.init i params))) (break))
+          (Maybe.Nothing) ())))
+    result))
+
+; Try to match a raw HTTP buffer against a Server-Sent Events route. Returns
+; (Maybe (Pair Int (Pair (Maybe String) (Map String String)))) — the route
+; index, the Last-Event-ID header, and the params — or Nothing.
+(hidden web-try-sse)
+(defn web-try-sse [buf sse-routes]
+  (if (Array.empty? sse-routes)
+    (the (Maybe (Pair Int (Pair (Maybe String) (Map String String))))
+         (Maybe.Nothing))
+    (match (Request.parse &(String.from-bytes buf))
+      (Result.Error _) (Maybe.Nothing)
+      (Result.Success req)
+        (if (/= (Request.verb &req) "GET")
+          (Maybe.Nothing)
+          (match (web-find-sse-handler sse-routes &(web-routable-path &req))
+            (Maybe.Nothing) (Maybe.Nothing)
+            (Maybe.Just m)
+              (let [ids (header-values-ci (Request.headers &req) "Last-Event-ID")
+                    last-id (if (Array.empty? &ids)
+                      (the (Maybe String) (Maybe.Nothing))
+                      (Maybe.Just @(Array.unsafe-first &ids)))]
+                (Maybe.Just (Pair.init @(Pair.a &m)
+                                       (Pair.init last-id @(Pair.b &m))))))))))
+
 ; Run before-hooks. Each hook can annotate `params` via Map.put! and
 ; optionally short-circuit by returning (Maybe.Just response).
 (defn web-run-before [hooks req params]
@@ -1868,12 +2041,17 @@ responses. The `protocols` field lists the subprotocols that this route supports
    ws-frag-opcodes (Map Int Int)
    ws-frag-start (Map Int Int)
    ws-ping-count (Map Int Int)
-   ws-last-ping (Map Int Int)])
+   ws-last-ping (Map Int Int)
+   sse-route-idx (Map Int Int)
+   sse-params (Map Int (Map String String))
+   sse-last-id (Map Int (Maybe String))
+   sse-last-tick (Map Int Int)])
 
 (defmodule App
   (doc create "creates an empty App with no routes and a default error handler.")
   (defn create []
     (init []
+          []
           []
           (fn [req code msg]
             (Response.with-status (Response.text @&msg) code msg))))
@@ -1942,6 +2120,29 @@ negotiated protocol is available via `(WebSocket.protocol ws)`.
                    (Array.push-back @(ws-routes &app)
                                     (WSRoute.init pattern protocols handler))))
 
+  (doc SSE "adds a Server-Sent Events route. A GET to `pattern` is answered
+with a `text/event-stream` body that stays open, and the handler is called for
+each lifecycle event ([`SSEEvent`](#SSEEvent)): `Connect`, `Tick` and `Close`.
+
+`Tick` fires every `App.sse-tick-interval` seconds; when it queues nothing, a
+comment line goes out instead so idle streams survive proxies. Server-Sent
+Events are one-way, so anything the client writes to the stream is ignored.
+
+```
+(defn clock [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send-event s \"ready\" \"\")
+    (SSEEvent.Tick) (SSEStream.send s &(Int.str (System.time)))
+    (SSEEvent.Close) ()))
+
+(defserver \"0.0.0.0\" 3000
+  (SSE \"/events\" clock))
+```")
+  (defn SSE [app pattern handler]
+    (set-sse-routes app
+                    (Array.push-back @(sse-routes &app)
+                                     (SSERoute.init pattern handler))))
+
   (doc static-dir "registers a wildcard GET route that serves files from
 `dir` on disk via sendfile. Register after API routes so it acts as a
 fallback.")
@@ -1965,7 +2166,12 @@ fallback.")
   (def ws-max-missed-pongs 3)
   (def ws-frag-ttl 30)
   (def ws-max-frag-size 1048576)
+  (def sse-tick-interval 15)
   (def running true)
+
+  (private sweep-interval)
+  (hidden sweep-interval)
+  (def sweep-interval 30)
 
   (hidden queue-close)
   (defn queue-close [cs fd] (Array.push-back! (ConnState.to-close cs) fd))
@@ -2042,8 +2248,27 @@ fallback.")
                                               -1l)))))))))
 
   (hidden conn-cleanup)
-  (defn conn-cleanup [cs poll fd]
+  (defn conn-cleanup [cs sse-routes poll fd]
     (do
+      (when-do (Map.contains? (ConnState.sse-route-idx cs) &fd)
+        (let [params (Map.value-ref! (ConnState.sse-params cs)
+                                     &fd
+                                     &(fn [p] @p)
+                                     (the (Map String String) {}))
+              last-id (Map.value-ref! (ConnState.sse-last-id cs)
+                                      &fd
+                                      &(fn [i] @i)
+                                      (the (Maybe String) (Maybe.Nothing)))
+              s (SSEStream.init fd last-id [])]
+          (~(SSERoute.handler (Array.unsafe-nth sse-routes
+                                                (Map.get (ConnState.sse-route-idx cs)
+                                                         &fd))) &(SSEEvent.Close)
+                                                                &params
+                                                                &s))
+        (Map.remove! (ConnState.sse-route-idx cs) &fd)
+        (Map.remove! (ConnState.sse-params cs) &fd)
+        (Map.remove! (ConnState.sse-last-id cs) &fd)
+        (Map.remove! (ConnState.sse-last-tick cs) &fd))
       (ignore (Poll.remove-fd poll fd))
       (Map.update-value! (ConnState.streams cs)
                          &fd
@@ -2135,6 +2360,75 @@ fallback.")
       (let [frame (Array.unsafe-nth (WebSocket.outbox ws) i)]
         (for [j 0 (Array.length frame)]
           (Array.push-back! wbuf @(Array.unsafe-nth frame j))))))
+
+  (hidden sse-flatten-outbox)
+  (defn sse-flatten-outbox [s wbuf]
+    (for [i 0 (Array.length (SSEStream.outbox s))]
+      (let [chunk (String.to-bytes (Array.unsafe-nth (SSEStream.outbox s) i))]
+        (for [j 0 (Array.length &chunk)]
+          (Array.push-back! wbuf @(Array.unsafe-nth &chunk j))))))
+
+  ; The head deliberately carries no Content-Length: the body is the stream.
+  (hidden sse-response-head)
+  (def sse-response-head @"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nCache-Control: no-cache\r\nConnection: keep-alive\r\n\r\n")
+
+  (hidden sse-keep-alive-chunk)
+  (def sse-keep-alive-chunk @":\n\n")
+
+  (hidden handle-sse-open)
+  (defn handle-sse-open [cs sse-routes poll fd stream route-idx last-id params]
+    (let-do [wbuf (String.to-bytes &sse-response-head)
+             s (SSEStream.init fd @last-id [])]
+      (~(SSERoute.handler (Array.unsafe-nth sse-routes route-idx)) &(SSEEvent.Connect)
+                                                                   params
+                                                                   &s)
+      (sse-flatten-outbox &s &wbuf)
+      (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+      (Map.put! (ConnState.write-positions cs) &fd &0)
+      (Map.put! (ConnState.keep-alives cs) &fd &true)
+      (Map.put! (ConnState.sse-route-idx cs) &fd &route-idx)
+      (Map.put! (ConnState.sse-params cs) &fd params)
+      (Map.put! (ConnState.sse-last-id cs) &fd last-id)
+      (Map.put! (ConnState.sse-last-tick cs) &fd &(System.time))
+      (Map.update-value! (ConnState.read-bufs cs)
+                         &fd
+                         &(fn [b] (TcpStream.clear-buf b)))
+      (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                               &fd
+                               &(fn [b]
+                                 (match (TcpStream.send-nb &stream b 0)
+                                   (Result.Success k) k
+                                   (Result.Error _) -1))
+                               -1)
+            buf-len (Array.length &wbuf)]
+        (cond
+          (< n0 0) (queue-close cs fd)
+          (< n0 buf-len)
+            (do
+              (Map.put! (ConnState.write-positions cs) &fd &n0)
+              (ignore (Poll.modify poll fd poll-write)))
+          (conn-done-writing cs poll fd)))))
+
+  ; The protocol is one-way, so a readable event is either the peer going away
+  ; or bytes with nowhere to go.
+  (hidden handle-sse-readable)
+  (defn handle-sse-readable [cs poll fd]
+    (match (Map.get-maybe (ConnState.streams cs) &fd)
+      (Maybe.Nothing) ()
+      (Maybe.Just stream)
+        (let [n (Map.value-ref! (ConnState.read-bufs cs)
+                                &fd
+                                &(fn [buf]
+                                  (match (TcpStream.read-append-nb &stream buf)
+                                    (Result.Success k) k
+                                    (Result.Error _) -1))
+                                -1)]
+          (cond
+            (= n TcpStream.read-blocked) ()
+            (<= n 0) (queue-close cs fd)
+            (Map.update-value! (ConnState.read-bufs cs)
+                               &fd
+                               &(fn [b] (TcpStream.clear-buf b)))))))
 
   (hidden handle-ws-upgrade)
   (defn handle-ws-upgrade [cs
@@ -2472,9 +2766,12 @@ fallback.")
 
   (hidden handle-readable)
   (defn handle-readable [cs app before-hooks after-hooks poll fd]
-    ; Active WebSocket connections bypass HTTP parsing
-    (if (Map.contains? (ConnState.ws-route-idx cs) &fd)
-      (handle-ws-readable cs (App.ws-routes app) poll fd)
+    ; Active WebSocket and Server-Sent Events connections bypass HTTP parsing
+    (cond
+      (Map.contains? (ConnState.ws-route-idx cs) &fd)
+        (handle-ws-readable cs (App.ws-routes app) poll fd)
+      (Map.contains? (ConnState.sse-route-idx cs) &fd)
+        (handle-sse-readable cs poll fd)
       (match (Map.get-maybe (ConnState.streams cs) &fd)
         (Maybe.Nothing) ()
         (Maybe.Just stream)
@@ -2649,6 +2946,28 @@ fallback.")
                                                          &proto
                                                          &ps)))
                                 (Maybe.Nothing)
+                                  (match (Map.value-ref! (ConnState.read-bufs cs)
+                                                         &fd
+                                                         &(fn [buf]
+                                                           (web-try-sse buf
+                                                                        (App.sse-routes app)))
+                                                         (the
+                                                           (Maybe
+                                                             (Pair Int
+                                                                   (Pair (Maybe String)
+                                                                         (Map String
+                                                                              String))))
+                                                           (Maybe.Nothing)))
+                                    (Maybe.Just si)
+                                      (handle-sse-open cs
+                                                       (App.sse-routes app)
+                                                       poll
+                                                       fd
+                                                       stream2
+                                                       @(Pair.a &si)
+                                                       (Pair.a (Pair.b &si))
+                                                       (Pair.b (Pair.b &si)))
+                                    (Maybe.Nothing)
                                   (let-do [pair (Map.value-ref! (ConnState.read-bufs cs)
                                                                 &fd
                                                                 &(fn [buf]
@@ -2692,7 +3011,7 @@ fallback.")
                                             (ignore (Poll.modify poll
                                                                  fd
                                                                  poll-write)))
-                                        (conn-done-writing cs poll fd))))))))))))))))))
+                                        (conn-done-writing cs poll fd)))))))))))))))))))
 
   (doc ws-ping-action "Decides what to do for a WebSocket connection's ping
     state. Returns 0 (nothing), 1 (send ping), or 2 (close as dead).
@@ -2721,7 +3040,7 @@ fallback.")
       (> idle idle-to)))
 
   (hidden sweep-idle)
-  (defn sweep-idle [cs poll]
+  (defn sweep-idle [cs sse-routes poll]
     (let [now (System.time)
           keys (Map.keys (ConnState.last-active cs))]
       (for [j 0 (Array.length &keys)]
@@ -2729,7 +3048,8 @@ fallback.")
               ts (Map.get (ConnState.last-active cs) &rfd)
               idle (- now ts)
               is-ws (Map.contains? (ConnState.ws-route-idx cs) &rfd)]
-          (if is-ws
+          (cond
+            is-ws
             ; WebSocket: ping/pong dead client detection
             (let-do [pcount (if (Map.contains? (ConnState.ws-ping-count cs) &rfd)
                        (Map.get (ConnState.ws-ping-count cs) &rfd)
@@ -2767,6 +3087,38 @@ fallback.")
                     (Map.remove! (ConnState.ws-frag-bufs cs) &rfd)
                     (Map.remove! (ConnState.ws-frag-opcodes cs) &rfd)
                     (queue-close cs rfd)))))
+            (Map.contains? (ConnState.sse-route-idx cs) &rfd)
+            ; Server-Sent Events: timed push, and exempt from the HTTP timeouts
+            (when (and (> App.sse-tick-interval 0)
+                       (and (not (Map.contains? (ConnState.write-bufs cs) &rfd))
+                            (not (Array.contains? (ConnState.to-close cs)
+                                                  &rfd))))
+              (let [last-tick (Map.get (ConnState.sse-last-tick cs) &rfd)]
+                (when-do (>= (- now last-tick) App.sse-tick-interval)
+                  (let-do [params (Map.value-ref! (ConnState.sse-params cs)
+                                                  &rfd
+                                                  &(fn [p] @p)
+                                                  (the (Map String String) {}))
+                           last-id (Map.value-ref! (ConnState.sse-last-id cs)
+                                                   &rfd
+                                                   &(fn [i] @i)
+                                                   (the (Maybe String)
+                                                        (Maybe.Nothing)))
+                           s (SSEStream.init rfd last-id [])
+                           wbuf (the (Array Byte) [])]
+                    (~(SSERoute.handler (Array.unsafe-nth sse-routes
+                                                          (Map.get (ConnState.sse-route-idx cs)
+                                                                   &rfd))) &(SSEEvent.Tick)
+                                                                           &params
+                                                                           &s)
+                    (sse-flatten-outbox &s &wbuf)
+                    (when (Array.empty? &wbuf)
+                      (set! wbuf (String.to-bytes &sse-keep-alive-chunk)))
+                    (Map.put! (ConnState.sse-last-tick cs) &rfd &now)
+                    (Map.put! (ConnState.write-bufs cs) &rfd &wbuf)
+                    (Map.put! (ConnState.write-positions cs) &rfd &0)
+                    (Map.put! (ConnState.keep-alives cs) &rfd &true)
+                    (ignore (Poll.modify poll rfd poll-write))))))
             ; HTTP: slow-loris headers, slow-drip bodies, and idle connections
             (let [rs (Map.get (ConnState.read-start cs) &rfd)]
               (when (http-timeout-close? rs
@@ -2778,9 +3130,34 @@ fallback.")
                 (queue-close cs rfd))))))))
 
   (hidden flush-closed)
-  (defn flush-closed [cs poll]
+  (defn flush-closed [cs sse-routes poll]
     (for [j 0 (Array.length (ConnState.to-close cs))]
-      (conn-cleanup cs poll @(Array.unsafe-nth (ConnState.to-close cs) j))))
+      (conn-cleanup cs
+                    sse-routes
+                    poll
+                    @(Array.unsafe-nth (ConnState.to-close cs) j))))
+
+  (private poll-timeout-ms)
+  (hidden poll-timeout-ms)
+  (doc poll-timeout-ms "milliseconds `Poll.wait` may block: the sweep interval,
+or the time until the earliest SSE tick comes due, whichever is sooner.
+
+Streams with a pending write are ignored, since their fd already wakes the
+loop on writability and [`sweep-idle`](#sweep-idle) skips their tick anyway.")
+  (defn poll-timeout-ms [cs sse-routes]
+    (if (or (Array.empty? sse-routes) (< App.sse-tick-interval 1))
+      (* 1000 sweep-interval)
+      (let-do [now (System.time)
+               keys (Map.keys (ConnState.sse-last-tick cs))
+               soonest sweep-interval]
+        (for [j 0 (Array.length &keys)]
+          (let [rfd @(Array.unsafe-nth &keys j)]
+            (unless (Map.contains? (ConnState.write-bufs cs) &rfd)
+              (let [due (- (+ (Map.get (ConnState.sse-last-tick cs) &rfd)
+                              App.sse-tick-interval)
+                           now)]
+                (when (< due soonest) (set! soonest due))))))
+        (* 1000 (max 1 soonest)))))
 
   (hidden static-form?)
   (defndynamic static-form? [f] (and (list? f) (= 'static (car f))))
@@ -2813,6 +3190,7 @@ fallback.")
              (= 'PATCH (car f))
              (= 'WS (car f))
              (= 'WSP (car f))
+             (= 'SSE (car f))
              (= 'static (car f))
              (= 'before (car f))
              (= 'after (car f))
@@ -2865,7 +3243,12 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
                                         {}
                                         {}
                                         {}
-                                        {})]
+                                        {}
+                                        {}
+                                        {}
+                                        {}
+                                        {})
+                     poll-timeout (* 1000 sweep-interval)]
               (IO.println &(fmt "Listening on %s:%d" host port))
               (set! App.running true)
               (System.signal System.signal-int (fn [_] (set! App.running false)))
@@ -2874,7 +3257,7 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
               (ignore (Poll.add-read &poll &listener))
               (while App.running
                 (match (the (Result (Array PollEvent) String)
-                            (Poll.wait &poll 30000))
+                            (Poll.wait &poll poll-timeout))
                   (Result.Error _) (break)
                   (Result.Success events)
                     (do
@@ -2894,8 +3277,10 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
                                                &poll
                                                fd)
                             ())))
-                      (sweep-idle &cs &poll)
-                      (flush-closed &cs &poll))))
+                      (sweep-idle &cs (App.sse-routes app) &poll)
+                      (flush-closed &cs (App.sse-routes app) &poll)
+                      (set! poll-timeout
+                            (poll-timeout-ms &cs (App.sse-routes app))))))
               (Poll.close poll)
               (TcpListener.close listener)))))
 

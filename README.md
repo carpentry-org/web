@@ -1,7 +1,8 @@
 # web
 
-A web framework for Carp with routing, middleware, WebSocket support, JSON
-integration, and concurrent connection handling via kqueue/epoll.
+A web framework for Carp with routing, middleware, WebSocket and Server-Sent
+Events support, JSON integration, and concurrent connection handling via
+kqueue/epoll.
 
 ## Installation
 
@@ -190,12 +191,46 @@ the connection uses WebSocket framing over the same non-blocking event
 loop. Text frames, binary frames, ping/pong, and close frames are
 supported.
 
+### Server-Sent Events
+
+Register event-stream routes with `(SSE pattern handler)`. The handler
+receives an `SSEEvent` (Connect, Tick, or Close), the path parameters, and
+an `SSEStream` handle for queueing events:
+
+```clojure
+(defn clock [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send-event s "ready" "")
+    (SSEEvent.Tick) (SSEStream.send s &(Int.str (System.time)))
+    (SSEEvent.Close) ()))
+
+(defserver "0.0.0.0" 3000
+  (GET "/api/data" api-handler)
+  (SSE "/events"   clock))
+```
+
+A GET on the pattern is answered with an open `text/event-stream` response.
+`Tick` fires every `App.sse-tick-interval` seconds; if the handler queues
+nothing, a comment line goes out to keep the stream alive through proxies.
+Streams are exempt from the HTTP idle timeouts and are never closed for
+being quiet. A reconnecting client's `Last-Event-ID` header is available as
+`(SSEStream.last-event-id s)`.
+
+The `SSE` module encodes the wire format on its own, so a handler can build
+events with an id and a reconnection time and queue them with
+`SSEStream.send-raw`:
+
+```clojure
+(SSEStream.send-raw s
+  (SSE.encode (Maybe.Just @"progress") "42%" (Maybe.Just @"7") (Maybe.Nothing)))
+```
+
 ### Concurrent connections
 
 The server uses kqueue (macOS) or epoll (Linux) in a single-threaded,
-non-blocking event loop. HTTP keep-alive is supported. WebSocket and
-HTTP connections share the same event loop. Large responses drain across
-multiple writable events without stalling other connections.
+non-blocking event loop. HTTP keep-alive is supported. WebSocket, event
+stream, and HTTP connections share the same event loop. Large responses
+drain across multiple writable events without stalling other connections.
 
 ## Testing
 

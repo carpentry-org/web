@@ -64,6 +64,26 @@
                                 </a>
                             </li>
                             <li>
+                                <a href="SSE.html">
+                                    SSE
+                                </a>
+                            </li>
+                            <li>
+                                <a href="SSEEvent.html">
+                                    SSEEvent
+                                </a>
+                            </li>
+                            <li>
+                                <a href="SSEStream.html">
+                                    SSEStream
+                                </a>
+                            </li>
+                            <li>
+                                <a href="SSERoute.html">
+                                    SSERoute
+                                </a>
+                            </li>
+                            <li>
                                 <a href="SHA1.html">
                                     SHA1
                                 </a>
@@ -81,7 +101,8 @@
                         web
                     </h1>
                     <p>A web framework for Carp with routing, JSON
-integration, WebSocket support, and concurrent connection handling.</p>
+integration, WebSocket and Server-Sent Events support, and concurrent
+connection handling.</p>
 <p>Define handlers as <code>(Fn [&amp;Request &amp;(Map String String)] Response)</code> functions,
 register them as routes on an <a href="./App.html"><code>App</code></a>, and start serving with
 <a href="./App.html#serve"><code>App.serve</code></a>.</p>
@@ -103,6 +124,16 @@ register them as routes on an <a href="./App.html"><code>App</code></a>, and sta
 
 (defserver &quot;0.0.0.0&quot; 8080
   (WS &quot;/ws/echo&quot; echo))
+</code></pre>
+<h3>Server-Sent Events Example</h3>
+<pre><code>(defn clock [event params s]
+  (match-ref event
+    (SSEEvent.Connect) (SSEStream.send-event s &quot;ready&quot; &quot;&quot;)
+    (SSEEvent.Tick) (SSEStream.send s &amp;(Int.str (System.time)))
+    (SSEEvent.Close) ()))
+
+(defserver &quot;0.0.0.0&quot; 8080
+  (SSE &quot;/events&quot; clock))
 </code></pre>
 
                 </div>
