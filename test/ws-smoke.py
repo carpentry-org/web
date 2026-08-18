@@ -21,7 +21,6 @@ MAX_FRAME = 1 << 20
 MAX_HEAD = 8192
 
 OP_CONT, OP_TEXT, OP_BIN, OP_CLOSE, OP_PING, OP_PONG = 0x0, 0x1, 0x2, 0x8, 0x9, 0xA
-LEGAL_CLOSE = set(range(1000, 1004)) | set(range(1007, 1012)) | set(range(3000, 5000))
 
 failures = []
 
@@ -154,11 +153,9 @@ def expect_upgrade(conn, path, protocols=None):
     return headers
 
 
-def check(name, fn):
-    conn = None
+def run(name, fn):
     try:
-        conn = Conn()
-        fn(conn)
+        fn()
         print("ws: %s" % name)
     except Failure as e:
         failures.append("%s: %s" % (name, e))
@@ -166,9 +163,16 @@ def check(name, fn):
     except (OSError, struct.error) as e:
         failures.append("%s: %s: %s" % (name, e.__class__.__name__, e))
         print("FAIL: ws %s: %s: %s" % (name, e.__class__.__name__, e))
-    finally:
-        if conn is not None:
+
+
+def check(name, fn):
+    def connected():
+        conn = Conn()
+        try:
+            fn(conn)
+        finally:
             conn.close()
+    run(name, connected)
 
 
 def echo_session(conn):
@@ -198,13 +202,10 @@ def echo_session(conn):
 
     conn.send_frame(OP_CLOSE, struct.pack("!H", 1000))
     payload = conn.expect_frame("close echo", OP_CLOSE)
-    if payload:
-        if len(payload) != 2:
-            raise Failure("close payload is %d bytes, want 0 or 2: %r"
-                          % (len(payload), payload))
-        code = struct.unpack("!H", payload)[0]
-        if code not in LEGAL_CLOSE:
-            raise Failure("close status %d is not sendable on the wire" % code)
+    # RFC 6455 5.5.1: the answering close MAY carry a body, so empty is conformant too
+    if payload not in (b"", struct.pack("!H", 1000)):
+        raise Failure("close echo payload: want b'' or the echoed 1000, got %r"
+                      % payload)
     conn.expect_eof("connection stayed open after close")
 
 
@@ -222,8 +223,25 @@ def bad_version(conn):
 
 def missing_key(conn):
     _, (status, _) = conn.handshake("/ws/echo", key="")
-    if "101" in status:
-        raise Failure("keyless upgrade was accepted: %s" % status)
+    want("keyless status line", "HTTP/1.1 404 Not Found", status)
+    # a keyless refusal is byte-identical to an unknown path, so prove the route is there
+    control = Conn()
+    try:
+        _, (control_status, _) = control.handshake("/ws/echo")
+        want("keyed control status line",
+             "HTTP/1.1 101 Switching Protocols",
+             control_status)
+    finally:
+        control.close()
+
+
+def large_frame(conn):
+    expect_upgrade(conn, "/ws/echo")
+    conn.expect_frame("connect event", OP_TEXT, b"ready")
+    # 70000 bytes puts both directions on the 64-bit length path (indicator 127)
+    payload = b"".join(b"%06d." % i for i in range(10000))
+    conn.send_frame(OP_TEXT, payload)
+    conn.expect_frame("64-bit length echo", OP_TEXT, payload)
 
 
 def unmasked_frame(conn):
@@ -236,11 +254,12 @@ def unmasked_frame(conn):
 
 
 signal.alarm(120)
-# the accept vector published in RFC 6455 1.3
-want("RFC 6455 accept vector",
-     "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
-     accept_for("dGhlIHNhbXBsZSBub25jZQ=="))
+run("the client agrees with the RFC 6455 1.3 accept vector",
+    lambda: want("accept vector",
+                 "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=",
+                 accept_for("dGhlIHNhbXBsZSBub25jZQ==")))
 check("handshake, echo, ping and close on /ws/echo", echo_session)
+check("a 70000-byte frame round trips on the 64-bit length path", large_frame)
 check("subprotocol negotiation on /ws/proto", subprotocol)
 check("a bad Sec-WebSocket-Version is refused", bad_version)
 check("a keyless upgrade is refused", missing_key)
