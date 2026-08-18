@@ -1635,13 +1635,13 @@ stream and any proxy in front of it from timing out.")
 ; Like web-ws-upgrade-info, but starting from a raw HTTP buffer.
 (hidden web-try-ws-upgrade)
 (defn web-try-ws-upgrade [buf ws-routes]
-  (match (Request.parse &(String.from-bytes buf))
-    (Result.Error _)
-      (the
-        (Maybe
-          (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
-        (Maybe.Nothing))
-    (Result.Success req) (web-ws-upgrade-info &req ws-routes)))
+  (if (= 0 (Array.length ws-routes))
+    (the
+      (Maybe (Pair String (Pair Int (Pair (Maybe String) (Map String String)))))
+      (Maybe.Nothing))
+    (match (Request.parse &(String.from-bytes buf))
+      (Result.Error _) (Maybe.Nothing)
+      (Result.Success req) (web-ws-upgrade-info &req ws-routes))))
 
 ; Find a matching Server-Sent Events route by path.
 (hidden web-find-sse-handler)
@@ -1678,11 +1678,12 @@ stream and any proxy in front of it from timing out.")
 ; Like web-sse-info, but starting from a raw HTTP buffer.
 (hidden web-try-sse)
 (defn web-try-sse [buf sse-routes]
-  (match (Request.parse &(String.from-bytes buf))
-    (Result.Error _)
-      (the (Maybe (Pair Int (Pair (Maybe String) (Map String String))))
-           (Maybe.Nothing))
-    (Result.Success req) (web-sse-info &req sse-routes)))
+  (if (Array.empty? sse-routes)
+    (the (Maybe (Pair Int (Pair (Maybe String) (Map String String))))
+         (Maybe.Nothing))
+    (match (Request.parse &(String.from-bytes buf))
+      (Result.Error _) (Maybe.Nothing)
+      (Result.Success req) (web-sse-info &req sse-routes))))
 
 ; Run before-hooks. Each hook can annotate `params` via Map.put! and
 ; optionally short-circuit by returning (Maybe.Just response).
@@ -1961,6 +1962,7 @@ stream and any proxy in front of it from timing out.")
     (Result.Success req)))
 
 ; Build the response for a parsed request. Returns `(Pair Response Bool)`.
+(hidden web-respond)
 (defn web-respond [app before-hooks after-hooks req chunked?]
   (let [decoded (web-decode-body chunked? req)]
     (match decoded
