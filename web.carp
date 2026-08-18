@@ -920,6 +920,12 @@ or `Nothing` if no subprotocol was negotiated.")
             (not (UTF8.valid? &(Array.suffix payload 2))) (Maybe.Just 1007)
             (Maybe.Just code))))))
 
+  (hidden close-response-frame)
+  (defn close-response-frame [payload]
+    (match (close-response-code payload)
+      (Maybe.Nothing) (encode-close)
+      (Maybe.Just code) (encode-close-with-code code)))
+
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
 
@@ -2598,11 +2604,7 @@ fallback.")
                                                                                    &params
                                                                                    &ws)
                                   (Array.push-back! (WebSocket.outbox &ws)
-                                                    (match (WebSocket.close-response-code (WSFrame.payload &frame))
-                                                      (Maybe.Nothing)
-                                                        (WebSocket.encode-close)
-                                                      (Maybe.Just code)
-                                                        (WebSocket.encode-close-with-code code)))
+                                                    (WebSocket.close-response-frame (WSFrame.payload &frame)))
                                   (set! should-close true)
                                   (break))
                                 ())

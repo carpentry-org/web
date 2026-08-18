@@ -470,6 +470,21 @@
     "a close reason that is not valid UTF-8 is answered with 1007 (§8.1)")
 
   (assert-equal test
+    &(the (Array Byte) [136b 0b])
+    &(WebSocket.close-response-frame &(the (Array Byte) []))
+    "an empty close payload answers with a bare 0x88 0x00")
+
+  (assert-equal test
+    &(the (Array Byte) [136b 2b 3b 235b])
+    &(WebSocket.close-response-frame &(make-close-payload 1003 &[]))
+    "a close of 1003 answers with 0x88 0x02 0x03 0xEB")
+
+  (assert-equal test
+    &(the (Array Byte) [136b 2b 3b 234b])
+    &(WebSocket.close-response-frame &(make-close-payload 1005 &[]))
+    "a close of 1005 answers with 1002 on the wire")
+
+  (assert-equal test
     "/"
     &(let [req (Result.unsafe-from-success
              (Request.parse "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))]
