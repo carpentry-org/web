@@ -17,8 +17,8 @@ Events support.
 
 (defn echo [event params ws]
   (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @\"connected\")
-    (WSEvent.Message msg) (WebSocket.send ws (fmt \"echo: %s\" msg))
+    (WSEvent.Connect) (WebSocket.send ws \"connected\")
+    (WSEvent.Message msg) (WebSocket.send ws &(fmt \"echo: %s\" msg))
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
@@ -2082,8 +2082,8 @@ event ([`WSEvent`](#WSEvent)): `Connect`, `Message`, `Binary`, and `Close`.
 ```
 (defn echo [event params ws]
   (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @\"connected\")
-    (WSEvent.Message msg) (WebSocket.send ws (fmt \"echo: %s\" msg))
+    (WSEvent.Connect) (WebSocket.send ws \"connected\")
+    (WSEvent.Message msg) (WebSocket.send ws &(fmt \"echo: %s\" msg))
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
@@ -2108,8 +2108,8 @@ negotiated protocol is available via `(WebSocket.protocol ws)`.
   (match-ref event
     (WSEvent.Connect)
       (match-ref (WebSocket.protocol ws)
-        (Maybe.Just p) (WebSocket.send ws (fmt \"using protocol %s\" p))
-        (Maybe.Nothing) (WebSocket.send ws @\"no subprotocol\"))
+        (Maybe.Just p) (WebSocket.send ws &(fmt \"using protocol %s\" p))
+        (Maybe.Nothing) (WebSocket.send ws \"no subprotocol\"))
     _ ()))
 
 (defserver \"0.0.0.0\" 3000
