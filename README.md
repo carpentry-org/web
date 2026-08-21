@@ -176,8 +176,8 @@ and a `WebSocket` handle for sending messages:
 ```clojure
 (defn echo [event params ws]
   (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @"connected")
-    (WSEvent.Message msg) (WebSocket.send ws (fmt "echo: %s" msg))
+    (WSEvent.Connect) (WebSocket.send ws "connected")
+    (WSEvent.Message msg) (WebSocket.send ws &(fmt "echo: %s" msg))
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 

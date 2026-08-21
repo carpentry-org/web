@@ -20,6 +20,15 @@
   the whole request buffer three times before answering a plain GET; it now
   reads and parses each request once.
 
+### Fixed
+- **A WebSocket close frame is checked before it is answered.** A close
+  payload holding a single byte, a status code an endpoint must never receive
+  (0-999, 1004, 1005, 1006, 1012-2999, and anything above 4999), or a reason
+  that is not valid UTF-8 was accepted silently; such a frame now fails the
+  connection with 1002 or 1007. A well-formed close is answered with the
+  client's own status code echoed back, as RFC 6455 §5.5.1 asks for, and a
+  close carrying no payload is still answered with an empty close.
+
 ## [0.9.3]
 
 ### Changed

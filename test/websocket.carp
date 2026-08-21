@@ -72,6 +72,15 @@
                                                                    (Int.mod i 4)))))))
     frame))
 
+; Build a close frame payload: a big-endian u16 status code plus `reason` bytes.
+(defn make-close-payload [code reason]
+  (let-do [payload (the (Array Byte)
+                        [(Byte.from-int (bit-and (bit-shift-right code 8) 255))
+                         (Byte.from-int (bit-and code 255))])]
+    (for [i 0 (Array.length reason)]
+      (Array.push-back! &payload @(Array.unsafe-nth reason i)))
+    payload))
+
 ; Build a masked text frame with an explicit 8-byte (64-bit) declared length.
 ; No payload bytes follow — these exercise header length handling only.
 (defn make-64bit-len-frame [b2 b3 b4 b5 b6 b7 b8 b9]
@@ -357,6 +366,123 @@
   (assert-true test
     (WebSocket.control-frame-protocol-error? 15 true 0)
     "reserved control opcode 0xF is a protocol error (§5.2)")
+
+  ; RFC 6455 §5.5.1/§7.4 close payload validation.
+  (assert-equal test
+    &(the (Maybe Int) (Maybe.Nothing))
+    &(WebSocket.close-response-code &(the (Array Byte) []))
+    "an empty close payload is answered with a bare close")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &[3b])
+    "a 1-byte close payload is a protocol error (§5.5.1)")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 0 &[]))
+    "close code 0 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 999 &[]))
+    "close code 999 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1000)
+    &(WebSocket.close-response-code &(make-close-payload 1000 &[]))
+    "close code 1000 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 1003)
+    &(WebSocket.close-response-code &(make-close-payload 1003 &[]))
+    "close code 1003 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 1004 &[]))
+    "close code 1004 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 1005 &[]))
+    "close code 1005 must not appear on the wire")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 1006 &[]))
+    "close code 1006 must not appear on the wire")
+
+  (assert-equal test
+    &(Maybe.Just 1007)
+    &(WebSocket.close-response-code &(make-close-payload 1007 &[]))
+    "close code 1007 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 1011)
+    &(WebSocket.close-response-code &(make-close-payload 1011 &[]))
+    "close code 1011 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 1015 &[]))
+    "close code 1015 must not appear on the wire")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 1016 &[]))
+    "close code 1016 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 2999 &[]))
+    "close code 2999 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 3000)
+    &(WebSocket.close-response-code &(make-close-payload 3000 &[]))
+    "close code 3000 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 4999)
+    &(WebSocket.close-response-code &(make-close-payload 4999 &[]))
+    "close code 4999 is echoed back")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &(make-close-payload 5000 &[]))
+    "close code 5000 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1002)
+    &(WebSocket.close-response-code &[255b 255b])
+    "close code 65535 is rejected")
+
+  (assert-equal test
+    &(Maybe.Just 1000)
+    &(WebSocket.close-response-code
+      &(make-close-payload 1000 &(String.to-bytes "bye")))
+    "a close reason that is valid UTF-8 keeps the code")
+
+  (assert-equal test
+    &(Maybe.Just 1007)
+    &(WebSocket.close-response-code &(make-close-payload 1000 &[255b 254b]))
+    "a close reason that is not valid UTF-8 is answered with 1007 (§8.1)")
+
+  (assert-equal test
+    &(the (Array Byte) [136b 0b])
+    &(WebSocket.close-response-frame &(the (Array Byte) []))
+    "an empty close payload answers with a bare 0x88 0x00")
+
+  (assert-equal test
+    &(the (Array Byte) [136b 2b 3b 235b])
+    &(WebSocket.close-response-frame &(make-close-payload 1003 &[]))
+    "a close of 1003 answers with 0x88 0x02 0x03 0xEB")
+
+  (assert-equal test
+    &(the (Array Byte) [136b 2b 3b 234b])
+    &(WebSocket.close-response-frame &(make-close-payload 1005 &[]))
+    "a close of 1005 answers with 1002 on the wire")
 
   (assert-equal test
     "/"
