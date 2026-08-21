@@ -3,7 +3,7 @@
 
 (Project.config "title" "smoke-server")
 
-(defn events [event params s]
+(defn events [event -params s]
   (match-ref event
     (SSEEvent.Connect)
       (SSEStream.send-event s
@@ -15,20 +15,20 @@
     (SSEEvent.Close) ()))
 
 ; queues nothing on a tick, so the loop must send a keep-alive comment
-(defn quiet [event params s]
+(defn quiet [event -params s]
   (match-ref event
     (SSEEvent.Connect) (SSEStream.send s "hi")
     (SSEEvent.Tick) ()
     (SSEEvent.Close) ()))
 
-(defn ws-echo [event params ws]
+(defn ws-echo [event -params ws]
   (match-ref event
     (WSEvent.Connect) (WebSocket.send ws "ready")
     (WSEvent.Message msg) (WebSocket.send ws msg)
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
-(defn ws-proto [event params ws]
+(defn ws-proto [event -params ws]
   (match-ref event
     (WSEvent.Connect)
       (WebSocket.send ws

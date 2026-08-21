@@ -1,13 +1,13 @@
 (load "../web.carp")
 
-(defn hello [req params]
+(defn hello [-req -params]
   (Response.text @"Hello, world!"))
 
-(defn greet [req params]
+(defn greet [-req params]
   (let [name (Map.get params "name")]
     (Response.text (fmt "Hello, %s!" &name))))
 
-(defn json-example [req params]
+(defn json-example [-req -params]
   (let [j (JSON.obj [(JSON.entry @"message" (JSON.Str @"it works"))
                      (JSON.entry @"status" (JSON.Num 200.0))])]
     (Response.json &j)))

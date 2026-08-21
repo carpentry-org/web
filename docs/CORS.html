@@ -120,7 +120,7 @@
                         (Fn [a, b, Response] Response)
                     </p>
                     <pre class="args">
-                        (after-hook req params resp)
+                        (after-hook -req -params resp)
                     </pre>
                     <p class="doc">
                         <p>adds CORS headers to every response.</p>
@@ -140,7 +140,7 @@
                         (Fn [(Ref Request a), b] (Maybe Response))
                     </p>
                     <pre class="args">
-                        (before-hook req params)
+                        (before-hook req -params)
                     </pre>
                     <p class="doc">
                         <p>handles CORS preflight <code>OPTIONS</code> requests. Returns a

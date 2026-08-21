@@ -37,12 +37,12 @@
                    _ @(Item.done current))]
     (Item.init @(Item.id current) new-text new-done)))
 
-(defn api-list [req params]
+(defn api-list [-req -params]
   (match (Item.find-all &db)
     (Result.Success items) (Response.json &(items-to-json &items))
     (Result.Error e) (server-error e)))
 
-(defn api-add [req params]
+(defn api-add [req -params]
   (match (JSON.parse (Request.body req))
     (Result.Error _) (Response.bad-request)
     (Result.Success j)
@@ -71,7 +71,7 @@
                   (Result.Success _)
                     (Response.json &(item-to-json &updated))))))))
 
-(defn api-delete [req params]
+(defn api-delete [-req params]
   (match (id-param params)
     (Maybe.Nothing) (Response.bad-request)
     (Maybe.Just id)

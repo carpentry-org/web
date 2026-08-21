@@ -1,6 +1,6 @@
 (load "../web.carp")
 
-(defn echo [event params ws]
+(defn echo [event -params ws]
   (match-ref event
     (WSEvent.Message msg) (WebSocket.send ws msg)
     _ ()))

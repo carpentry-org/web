@@ -2438,7 +2438,7 @@ fallback.")
   ; The protocol is one-way, so a readable event is either the peer going away
   ; or bytes with nowhere to go.
   (hidden handle-sse-readable)
-  (defn handle-sse-readable [cs poll fd]
+  (defn handle-sse-readable [cs -poll fd]
     (match (Map.get-maybe (ConnState.streams cs) &fd)
       (Maybe.Nothing) ()
       (Maybe.Just stream)
@@ -3439,7 +3439,7 @@ Pass an empty string to omit (the default).")
 
   (doc before-hook "handles CORS preflight `OPTIONS` requests. Returns a
 204 with CORS headers, or `Nothing` for non-OPTIONS requests.")
-  (defn before-hook [req params]
+  (defn before-hook [req -params]
     (if (= (Request.verb req) "OPTIONS")
       (let [r (-> (Response.text @"")
                   (Response.with-status 204 @"No Content")
@@ -3455,7 +3455,7 @@ Pass an empty string to omit (the default).")
       (Maybe.Nothing)))
 
   (doc after-hook "adds CORS headers to every response.")
-  (defn after-hook [req params resp]
+  (defn after-hook [-req -params resp]
     (let [r1 (Response.with-header resp @"Access-Control-Allow-Origin" @&origin)
           r2 (if (= &origin "*") r1 (Response.with-header r1 @"Vary" @"Origin"))
           r3 (if credentials
@@ -3581,7 +3581,7 @@ match the path used when the cookie was set.")
 
 (doc log-before "before-hook that records the request start time in params
 under the key `_start`. Pair with [`log-after`](#log-after).")
-(defn log-before [req params]
+(defn log-before [-req params]
   (do
     (Map.put! params &@"_start" &(Long.str (Uint64.to-long (System.nanotime))))
     (Maybe.Nothing)))
