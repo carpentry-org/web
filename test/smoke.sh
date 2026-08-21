@@ -160,4 +160,12 @@ KEEPS=$(grep -c '^:$' "$WORK/quiet.body" || true)
 check "server survived the stream"
 [ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on an SSE stream"
 
+# 15. the upgrade handshake and the frame loop, driven by a client that shares
+#     no code with the server (python3 standard library only)
+check "WebSocket end to end"
+python3 test/ws-smoke.py "$PORT" || fail "WebSocket checks failed"
+
+check "server survived the WebSocket checks"
+[ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on a WebSocket connection"
+
 echo "smoke: all checks passed"

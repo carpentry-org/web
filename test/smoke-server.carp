@@ -21,6 +21,24 @@
     (SSEEvent.Tick) ()
     (SSEEvent.Close) ()))
 
+(defn ws-echo [event params ws]
+  (match-ref event
+    (WSEvent.Connect) (WebSocket.send ws "ready")
+    (WSEvent.Message msg) (WebSocket.send ws msg)
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
+    (WSEvent.Close) ()))
+
+(defn ws-proto [event params ws]
+  (match-ref event
+    (WSEvent.Connect)
+      (WebSocket.send ws
+                      (match-ref (WebSocket.protocol ws)
+                        (Maybe.Just p) p
+                        (Maybe.Nothing) "none"))
+    (WSEvent.Message msg) (WebSocket.send ws msg)
+    (WSEvent.Binary data) (WebSocket.send-binary ws data)
+    (WSEvent.Close) ()))
+
 (defn main []
   (let-do [app (-> (App.create)
                    (App.GET @"/ok" (fn [r p] (Response.text @"ok")))
@@ -40,6 +58,8 @@
                                       &(match (Request.header r "Content-Length")
                                         (Maybe.Just v) v
                                         (Maybe.Nothing) @"none")))))
+                   (App.WS @"/ws/echo" ws-echo)
+                   (App.WSP @"/ws/proto" [@"smoke-v2" @"smoke-v1"] ws-proto)
                    (App.SSE @"/events" events)
                    (App.SSE @"/quiet" quiet)
                    (StaticFile.mount @"/static" @"test/static-fixtures"))
