@@ -17,8 +17,8 @@ in the route array (which already works for `Route`).
 ```carp
 (defn chat [event params ws]
   (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @"connected")
-    (WSEvent.Message msg) (WebSocket.send ws (fmt "echo: %s" msg))
+    (WSEvent.Connect) (WebSocket.send ws "connected")
+    (WSEvent.Message msg) (WebSocket.send ws &(fmt "echo: %s" msg))
     (WSEvent.Close) ()))
 
 (defserver "0.0.0.0" 3000

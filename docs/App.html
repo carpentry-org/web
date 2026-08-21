@@ -261,8 +261,8 @@ Events are one-way, so anything the client writes to the stream is ignored.</p>
 event (<a href="#WSEvent"><code>WSEvent</code></a>): <code>Connect</code>, <code>Message</code>, <code>Binary</code>, and <code>Close</code>.</p>
 <pre><code>(defn echo [event params ws]
   (match-ref event
-    (WSEvent.Connect) (WebSocket.send ws @&quot;connected&quot;)
-    (WSEvent.Message msg) (WebSocket.send ws (fmt &quot;echo: %s&quot; msg))
+    (WSEvent.Connect) (WebSocket.send ws &quot;connected&quot;)
+    (WSEvent.Message msg) (WebSocket.send ws &amp;(fmt &quot;echo: %s&quot; msg))
     (WSEvent.Binary data) (WebSocket.send-binary ws data)
     (WSEvent.Close) ()))
 
@@ -298,8 +298,8 @@ negotiated protocol is available via <code>(WebSocket.protocol ws)</code>.</p>
   (match-ref event
     (WSEvent.Connect)
       (match-ref (WebSocket.protocol ws)
-        (Maybe.Just p) (WebSocket.send ws (fmt &quot;using protocol %s&quot; p))
-        (Maybe.Nothing) (WebSocket.send ws @&quot;no subprotocol&quot;))
+        (Maybe.Just p) (WebSocket.send ws &amp;(fmt &quot;using protocol %s&quot; p))
+        (Maybe.Nothing) (WebSocket.send ws &quot;no subprotocol&quot;))
     _ ()))
 
 (defserver &quot;0.0.0.0&quot; 3000
