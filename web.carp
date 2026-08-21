@@ -900,6 +900,32 @@ or `Nothing` if no subprotocol was negotiated.")
   (defn control-frame-protocol-error? [opcode fin plen]
     (or (not fin) (> plen 125) (and (/= opcode 8) (/= opcode 9) (/= opcode 10))))
 
+  (hidden close-response-code)
+  ; RFC 6455 §5.5.1/§7.4: the status code to echo for a received close frame
+  ; (1002 malformed, 1007 non-UTF-8 reason), or Nothing when it had no payload.
+  (defn close-response-code [payload]
+    (let [len (Array.length payload)]
+      (cond
+        (= len 0) (Maybe.Nothing)
+        (= len 1) (Maybe.Just 1002)
+        (let [code (+
+                (* (Byte.to-int @(Array.unsafe-nth payload 0)) 256)
+                (Byte.to-int @(Array.unsafe-nth payload 1)))]
+          (cond
+            (or (< code 1000)
+                (and (>= code 1004) (<= code 1006))
+                (and (>= code 1012) (<= code 2999))
+                (> code 4999))
+              (Maybe.Just 1002)
+            (not (UTF8.valid? &(Array.suffix payload 2))) (Maybe.Just 1007)
+            (Maybe.Just code))))))
+
+  (hidden close-response-frame)
+  (defn close-response-frame [payload]
+    (match (close-response-code payload)
+      (Maybe.Nothing) (encode-close)
+      (Maybe.Just code) (encode-close-with-code code)))
+
   (doc send "queues a text message for sending on the WebSocket connection.")
   (defn send [ws msg] (Array.push-back! (WebSocket.outbox ws) (encode-text msg)))
 
@@ -2578,7 +2604,7 @@ fallback.")
                                                                                    &params
                                                                                    &ws)
                                   (Array.push-back! (WebSocket.outbox &ws)
-                                                    (WebSocket.encode-close))
+                                                    (WebSocket.close-response-frame (WSFrame.payload &frame)))
                                   (set! should-close true)
                                   (break))
                                 ())
