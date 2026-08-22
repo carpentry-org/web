@@ -71,6 +71,31 @@
   @(Array.unsafe-first
     &(Map.get-with-default (Response.headers resp) name &[@""])))
 
+; builds the 304 for a conditional GET, running `ah` as the after-hooks
+(defn cached-304 [ah]
+  (let [app (App.GET (App.create)
+                     @"/"
+                     (fn [-r -p]
+                       (-> (Response.text @"hi")
+                           (Response.with-header @"ETag" @"\"abc\"")
+                           (Response.with-header @"Cache-Control"
+                                                 @"max-age=60"))))
+        bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
+        raw @"GET / HTTP/1.1\r\nHost: x\r\nOrigin: http://a.test\r\nIf-None-Match: \"abc\"\r\n\r\n"
+        pair (web-build-response &app &bh ah &(String.to-bytes &raw))]
+    @(Pair.a &pair)))
+
+; like `cached-304`, with the CORS after-hook configured for `origin`
+(defn cors-304 [origin]
+  (let-do [ah (the
+            (Array (Fn [&Request &(Map String String) Response] Response))
+            [CORS.after-hook])]
+    (CORS.configure origin)
+    (cached-304 &ah)))
+
+(defn no-hooks []
+  (the (Array (Fn [&Request &(Map String String) Response] Response)) []))
+
 ; matches `raw` against a single Server-Sent Events route at `pattern`
 (defn sse-match [raw pattern]
   (web-try-sse &(String.to-bytes raw)
@@ -1297,6 +1322,56 @@
           resp @(Pair.a &pair)]
       (Map.contains? (Response.headers &resp) "ETag"))
     "304 response preserves ETag header")
+
+  ; -- 304 keeps the caching and negotiation headers the 200 carried --
+  (assert-equal test
+    "max-age=60"
+    &(header-val &(cached-304 &(no-hooks)) "Cache-Control")
+    "304 keeps Cache-Control")
+  (assert-equal test
+    "http://a.test"
+    &(header-val &(cors-304 @"http://a.test") "Access-Control-Allow-Origin")
+    "304 keeps the CORS after-hook's Access-Control-Allow-Origin")
+  (assert-equal test
+    "Origin"
+    &(header-val &(cors-304 @"http://a.test") "Vary")
+    "304 keeps the CORS after-hook's Vary")
+
+  ; -- 304 drops the representation and framing headers --
+  (assert-false test
+    (Map.contains? (Response.headers &(cached-304 &(no-hooks))) "Content-Type")
+    "304 drops Content-Type")
+  (assert-true test
+    (String.empty? (Response.body &(cached-304 &(no-hooks))))
+    "304 has no body")
+  (assert-equal test
+    "0"
+    &(header-val
+      &(web-finalize-response (cached-304 &(no-hooks)) true)
+      "Content-Length")
+    "a finalized 304 sends Content-Length: 0")
+
+  ; -- a sendfile 304 leaves the transfer machinery disarmed --
+  (assert-equal test
+    304
+    @(Response.code
+      &(static-resp
+        "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-1\r\nIf-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n\r\n"))
+    "a ranged conditional GET for a static file returns 304")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(static-resp
+          "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-1\r\nIf-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n\r\n"))
+      "X-Sendfile")
+    "a 304 for a static file drops X-Sendfile")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(static-resp
+          "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-1\r\nIf-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n\r\n"))
+      "X-Sendfile-Range")
+    "a 304 for a static file drops the X-Sendfile-Range marker")
 
   ; -- No 304 when ETags differ --
   (assert-equal test

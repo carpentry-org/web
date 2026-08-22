@@ -22,6 +22,15 @@
   connection with 1002 or 1007. A well-formed close is answered with the
   client's own status code echoed back, as RFC 6455 §5.5.1 asks for, and a
   close carrying no payload is still answered with an empty close.
+- **A `304 Not Modified` keeps the headers the `200` would have sent.** The
+  revalidation response was built from an empty header map holding nothing but
+  `ETag`, so `Cache-Control`, `Vary`, `Last-Modified`, `Expires` and the
+  `Access-Control-*` headers a hook had added were thrown away: a browser
+  revalidating a cross-origin resource got a 304 with no
+  `Access-Control-Allow-Origin` and failed the CORS check, and a shared cache
+  lost the `Vary: Origin` telling it to key the entry by origin. The 304 now
+  carries everything the `200` did apart from the body and the headers that
+  describe it.
 
 ## [0.9.3]
 

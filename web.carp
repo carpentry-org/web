@@ -1881,15 +1881,18 @@ stream and any proxy in front of it from timing out.")
             false
             (= &inm (Array.unsafe-first &vals))))))
 
-; Build a 304 Not Modified response, preserving the ETag header.
+; Turn a response into a 304 keeping the headers RFC 9110 §15.4.5 requires.
 (hidden web-not-modified)
 (defn web-not-modified [resp]
-  (let [etag-vals (Map.get-with-default (Response.headers &resp) "ETag" &[])]
-    (if (= (Array.length &etag-vals) 0)
-      (Response.init 304 @"Not Modified" @"HTTP/1.1" [] {} @"")
-      (let [k @"ETag"
-            v [@(Array.unsafe-first &etag-vals)]]
-        (Response.init 304 @"Not Modified" @"HTTP/1.1" [] (Map.put {} &k &v) @"")))))
+  (let [drop-keys [@"Content-Length" @"Content-Type" @"Transfer-Encoding"
+                   @"X-Sendfile" @"X-Sendfile-Range"]
+        hdrs (Array.reduce &(fn [m k] (Map.remove m k))
+                           @(Response.headers &resp)
+                           &drop-keys)]
+    (-> resp
+        (Response.with-status 304 @"Not Modified")
+        (Response.set-body @"")
+        (Response.set-headers hdrs))))
 
 ; True when the response's Last-Modified is not newer than If-Modified-Since.
 (hidden web-if-modified-since?)
