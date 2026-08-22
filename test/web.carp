@@ -38,6 +38,12 @@
         (Array.push-back! &bs (Byte.from-int 164))))
     (String.from-bytes &bs)))
 
+; a name holding byte 0xFF, which no valid UTF-8 sequence contains
+(defn bad-utf8-name [ext]
+  (let-do [bs (the (Array Byte) [])]
+    (Array.push-back! &bs (Byte.from-int 0xFF))
+    (String.append &(String.from-bytes &bs) ext)))
+
 (defn rr-tag [r]
   (match-ref r
     (RangeResolution.Full) 0
@@ -231,6 +237,16 @@
     "application/octet-stream"
     &(Response.content-type-for "blob.unknown")
     "content-type-for unknown extension")
+
+  (assert-equal test
+    "image/jpeg"
+    &(Response.content-type-for "IMG_1234.JPG")
+    "content-type-for an uppercase extension")
+
+  (assert-equal test
+    "text/css; charset=utf-8"
+    &(Response.content-type-for "/assets/Site.CsS")
+    "content-type-for a mixed-case extension")
 
   ; -- safe-path? --
   (assert-true test
@@ -1027,6 +1043,10 @@
     "text/html; charset=utf-8"
     &(Response.content-type-for &(String.append &(wide-chars 3) ".html"))
     "a non-ASCII path still matches its extension")
+  (assert-equal test
+    "image/jpeg"
+    &(Response.content-type-for &(bad-utf8-name ".JPG"))
+    "a path that is not valid UTF-8 still matches an uppercase extension")
   (assert-equal test
     404
     @(Response.code

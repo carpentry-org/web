@@ -473,27 +473,30 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
   (defn with-status [r code msg] (set-message (set-code r code) msg))
 
   (doc content-type-for "infers an HTTP `Content-Type` for a file path
-based on its extension. Unknown extensions return `application/octet-stream`.")
+based on its extension, matched case-insensitively, so `photo.JPG` and
+`photo.jpg` are the same. Unknown extensions return
+`application/octet-stream`.")
   (defn content-type-for [path]
-    (cond
-      (web-ends-with? path ".html") @"text/html; charset=utf-8"
-      (web-ends-with? path ".js") @"application/javascript; charset=utf-8"
-      (web-ends-with? path ".mjs") @"application/javascript; charset=utf-8"
-      (web-ends-with? path ".css") @"text/css; charset=utf-8"
-      (web-ends-with? path ".svg") @"image/svg+xml"
-      (web-ends-with? path ".json") @"application/json"
-      (web-ends-with? path ".png") @"image/png"
-      (web-ends-with? path ".jpg") @"image/jpeg"
-      (web-ends-with? path ".jpeg") @"image/jpeg"
-      (web-ends-with? path ".gif") @"image/gif"
-      (web-ends-with? path ".ico") @"image/x-icon"
-      (web-ends-with? path ".webp") @"image/webp"
-      (web-ends-with? path ".woff") @"font/woff"
-      (web-ends-with? path ".woff2") @"font/woff2"
-      (web-ends-with? path ".txt") @"text/plain; charset=utf-8"
-      (web-ends-with? path ".xml") @"application/xml"
-      (web-ends-with? path ".pdf") @"application/pdf"
-      @"application/octet-stream"))
+    (let [lowered (String.ascii-to-lower path)]
+      (cond
+        (web-ends-with? &lowered ".html") @"text/html; charset=utf-8"
+        (web-ends-with? &lowered ".js") @"application/javascript; charset=utf-8"
+        (web-ends-with? &lowered ".mjs") @"application/javascript; charset=utf-8"
+        (web-ends-with? &lowered ".css") @"text/css; charset=utf-8"
+        (web-ends-with? &lowered ".svg") @"image/svg+xml"
+        (web-ends-with? &lowered ".json") @"application/json"
+        (web-ends-with? &lowered ".png") @"image/png"
+        (web-ends-with? &lowered ".jpg") @"image/jpeg"
+        (web-ends-with? &lowered ".jpeg") @"image/jpeg"
+        (web-ends-with? &lowered ".gif") @"image/gif"
+        (web-ends-with? &lowered ".ico") @"image/x-icon"
+        (web-ends-with? &lowered ".webp") @"image/webp"
+        (web-ends-with? &lowered ".woff") @"font/woff"
+        (web-ends-with? &lowered ".woff2") @"font/woff2"
+        (web-ends-with? &lowered ".txt") @"text/plain; charset=utf-8"
+        (web-ends-with? &lowered ".xml") @"application/xml"
+        (web-ends-with? &lowered ".pdf") @"application/pdf"
+        @"application/octet-stream")))
 
   (doc file "creates a 200 OK response by reading `path` from disk. Returns
 a 404 Not Found response if the file is missing or unreadable. The

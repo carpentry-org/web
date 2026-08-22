@@ -15,6 +15,11 @@
   its own for handlers that need an `id`, a `retry` time, or a comment.
 
 ### Fixed
+- **A file whose extension is uppercase gets its real content type.** A path
+  ending in `.JPG`, `.PNG`, `.HTML` or any other spelling of a known extension
+  that is not all lower case was served as `application/octet-stream`, so a
+  browser offered `IMG_1234.JPG` as a download instead of showing it.
+  Extensions now match case-insensitively, the way nginx and Apache do.
 - **A WebSocket close frame is checked before it is answered.** A close
   payload holding a single byte, a status code an endpoint must never receive
   (0-999, 1004, 1005, 1006, 1012-2999, and anything above 4999), or a reason
