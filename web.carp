@@ -1884,11 +1884,15 @@ stream and any proxy in front of it from timing out.")
 ; Turn a response into a 304 keeping the headers RFC 9110 §15.4.5 requires.
 (hidden web-not-modified)
 (defn web-not-modified [resp]
-  (let [drop-keys [@"Content-Length" @"Content-Type" @"Transfer-Encoding"
-                   @"X-Sendfile" @"X-Sendfile-Range"]
-        hdrs (Array.reduce &(fn [m k] (Map.remove m k))
-                           @(Response.headers &resp)
-                           &drop-keys)]
+  (let [drop-keys [@"content-length" @"content-type" @"transfer-encoding"
+                   @"x-sendfile" @"x-sendfile-range"]
+        hdrs (Map.kv-reduce
+          &(fn [m k v]
+            (if (Array.contains? &drop-keys &(String.ascii-to-lower k))
+              m
+              (Map.put m k v)))
+          (the (Map String (Array String)) {})
+          (Response.headers &resp))]
     (-> resp
         (Response.with-status 304 @"Not Modified")
         (Response.set-body @"")

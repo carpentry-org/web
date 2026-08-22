@@ -96,6 +96,13 @@
 (defn no-hooks []
   (the (Array (Fn [&Request &(Map String String) Response] Response)) []))
 
+; the 304 built from a 200 that also carried `name: value`
+(defn not-modified-with [name value]
+  (web-not-modified
+    (-> (Response.text @"hi")
+        (Response.with-header @"ETag" @"\"abc\"")
+        (Response.with-header name value))))
+
 ; matches `raw` against a single Server-Sent Events route at `pattern`
 (defn sse-match [raw pattern]
   (web-try-sse &(String.to-bytes raw)
@@ -1350,6 +1357,32 @@
       &(web-finalize-response (cached-304 &(no-hooks)) true)
       "Content-Length")
     "a finalized 304 sends Content-Length: 0")
+
+  ; -- the drop list matches header names case-insensitively --
+  (assert-false test
+    (Map.contains?
+      (Response.headers &(not-modified-with @"content-length" @"5"))
+      "content-length")
+    "304 drops a lowercase content-length")
+  (assert-false test
+    (Map.contains?
+      (Response.headers &(not-modified-with @"transfer-encoding" @"chunked"))
+      "transfer-encoding")
+    "304 drops a lowercase transfer-encoding")
+  (assert-false test
+    (Map.contains?
+      (Response.headers &(not-modified-with @"Content-type" @"text/plain"))
+      "Content-type")
+    "304 drops a mixed-case Content-type")
+  (assert-equal test
+    1
+    (Array.length
+      &(header-values-ci
+        (Response.headers
+          &(web-finalize-response (not-modified-with @"content-length" @"5")
+                                  true))
+        "Content-Length"))
+    "a finalized 304 sends one Content-Length even when the handler set another")
 
   ; -- a sendfile 304 leaves the transfer machinery disarmed --
   (assert-equal test
