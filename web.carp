@@ -1923,30 +1923,24 @@ stream and any proxy in front of it from timing out.")
     (cond
       (Array.empty? &inms) false
       (Array.any? &(fn [v] (= &(String.trim v) "*")) &inms) true
-      (match (Map.get-maybe (Response.headers resp) "ETag")
-        (Maybe.Nothing) false
-        (Maybe.Just vals)
-          (if (Array.empty? &vals)
-            false
-            (let-do [tag (web-etag-opaque (Array.unsafe-first &vals))
-                     found false]
-              (for [i 0 (Array.length &inms)]
-                (when (web-etag-list-match? (Array.unsafe-nth &inms i) &tag)
-                  (set! found true)))
-              found))))))
-
-; A bodyless 412 for a precondition that failed on a non-GET/HEAD request.
-(hidden web-precondition-failed)
-(defn web-precondition-failed []
-  (Response.init 412 @"Precondition Failed" @"HTTP/1.1" [] {} @""))
+      (let [vals (header-values-ci (Response.headers resp) "ETag")]
+        (if (Array.empty? &vals)
+          false
+          (let-do [tag (web-etag-opaque (Array.unsafe-first &vals))
+                   found false]
+            (for [i 0 (Array.length &inms)]
+              (when (web-etag-list-match? (Array.unsafe-nth &inms i) &tag)
+                (set! found true)))
+            found))))))
 
 (hidden web-get-or-head?)
 (defn web-get-or-head? [req]
   (let [v (Request.verb req)] (or (= v "GET") (= v "HEAD"))))
 
-; Turn a response into a 304 keeping the headers RFC 9110 §15.4.5 requires.
-(hidden web-not-modified)
-(defn web-not-modified [resp]
+; Restatus with an empty body, dropping the headers that framed the old one
+; plus the sendfile markers that would otherwise put a file back in its place.
+(hidden web-bodyless)
+(defn web-bodyless [resp code reason]
   (let [drop-keys [@"content-length" @"content-type" @"transfer-encoding"
                    @"x-sendfile" @"x-sendfile-range"]
         hdrs (Map.kv-reduce
@@ -1957,9 +1951,18 @@ stream and any proxy in front of it from timing out.")
           (the (Map String (Array String)) {})
           (Response.headers &resp))]
     (-> resp
-        (Response.with-status 304 @"Not Modified")
+        (Response.with-status code reason)
         (Response.set-body @"")
         (Response.set-headers hdrs))))
+
+; Turn a response into a 304 keeping the headers RFC 9110 §15.4.5 requires.
+(hidden web-not-modified)
+(defn web-not-modified [resp] (web-bodyless resp 304 @"Not Modified"))
+
+; The 412 a failed precondition owes a non-GET/HEAD request (RFC 9110 §15.5.13).
+(hidden web-precondition-failed)
+(defn web-precondition-failed [resp]
+  (web-bodyless resp 412 @"Precondition Failed"))
 
 ; True when the response's Last-Modified is not newer than If-Modified-Since.
 (hidden web-if-modified-since?)
@@ -1970,14 +1973,12 @@ stream and any proxy in front of it from timing out.")
       (match (web-parse-http-date &ims)
         (Maybe.Nothing) false
         (Maybe.Just since)
-          (match (Map.get-maybe (Response.headers resp) "Last-Modified")
-            (Maybe.Nothing) false
-            (Maybe.Just vals)
-              (if (= (Array.length &vals) 0)
-                false
-                (match (web-parse-http-date (Array.unsafe-first &vals))
-                  (Maybe.Nothing) false
-                  (Maybe.Just mtime) (not (Long.< since mtime))))))))
+          (let [vals (header-values-ci (Response.headers resp) "Last-Modified")]
+            (if (Array.empty? &vals)
+              false
+              (match (web-parse-http-date (Array.unsafe-first &vals))
+                (Maybe.Nothing) false
+                (Maybe.Just mtime) (not (Long.< since mtime))))))))
 
 ; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3),
 ; which applies to GET and HEAD only; a non-2xx response ignores both (§13.2.1).
@@ -2088,7 +2089,7 @@ stream and any proxy in front of it from timing out.")
               cond-resp (if (web-conditional-not-modified? &req &ranged)
                 (if (web-get-or-head? &req)
                   (web-not-modified ranged)
-                  (web-precondition-failed))
+                  (web-precondition-failed ranged))
                 ranged)
               ; HEAD: strip body, preserve Content-Length
               final (if is-head (web-strip-head-body cond-resp) cond-resp)]

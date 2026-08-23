@@ -102,6 +102,30 @@
 (defn no-hooks []
   (the (Array (Fn [&Request &(Map String String) Response] Response)) []))
 
+; the response a `verb` request carrying `hdrs` gets from a route whose 200
+; sets an ETag, `X-Custom` and a cookie, behind the CORS after-hook
+(defn cors-conditional [verb hdrs]
+  (let-do [app (App.route (App.create)
+                          @verb
+                          @"/"
+                          (fn [-r -p]
+                            (-> (Response.text @"hi")
+                                (Response.with-header @"ETag" @"\"abc\"")
+                                (Response.with-header @"X-Custom" @"yes")
+                                (Response.set-simple-cookie @"sid" @"s1"))))
+           bh (the
+             (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+             [])
+           ah (the
+             (Array (Fn [&Request &(Map String String) Response] Response))
+             [CORS.after-hook])
+           raw (fmt
+             "%s / HTTP/1.1\r\nHost: x\r\nOrigin: http://a.test\r\n%s\r\n"
+             verb
+             hdrs)]
+    (CORS.configure @"http://a.test")
+    @(Pair.a &(web-build-response &app &bh &ah &(String.to-bytes &raw)))))
+
 ; the 304 built from a 200 that also carried `name: value`
 (defn not-modified-with [name value]
   (web-not-modified
@@ -1345,6 +1369,22 @@
       (web-etag-match? &req &resp))
     "etag-match? false when ETags differ")
 
+  ; -- the response side of the lookup is case-insensitive too --
+  (assert-true test
+    (let [req (parse-req
+            "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n")
+          resp (Response.with-header (Response.text @"hi") @"etag" @"\"abc\"")]
+      (web-etag-match? &req &resp))
+    "etag-match? finds a lower-case ETag on the response")
+  (assert-true test
+    (let [req (parse-req
+            "GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT\r\n\r\n")
+          resp (Response.with-header (Response.text @"hi")
+                                     @"last-modified"
+                                     @"Sun, 06 Nov 1994 08:49:37 GMT")]
+      (web-if-modified-since? &req &resp))
+    "if-modified-since? finds a lower-case Last-Modified on the response")
+
   ; -- an entity-tag list is split on commas outside the quoted tags --
   (assert-equal test
     &[@"\"a\"" @"W/\"b\"" @"\"c,d\""]
@@ -1434,8 +1474,33 @@
     (Map.contains?
       (Response.headers
         &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+      "Content-Type")
+    "a 412 drops Content-Type")
+
+  ; -- a 412 keeps every header that was not describing the body --
+  (assert-true test
+    (Map.contains?
+      (Response.headers
+        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
       "ETag")
-    "a 412 does not carry the representation's headers")
+    "a 412 carries the ETag its precondition was tested against")
+  (assert-equal test
+    "http://a.test"
+    &(header-val
+      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
+      "Access-Control-Allow-Origin")
+    "a 412 keeps the CORS after-hook's Access-Control-Allow-Origin")
+  (assert-equal test
+    "yes"
+    &(header-val
+      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
+      "X-Custom")
+    "a 412 keeps a header the handler set")
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n"))
+      "Set-Cookie")
+    "a 412 keeps a cookie the handler set")
 
   ; -- If-Modified-Since is GET/HEAD-only and yields to If-None-Match --
   (assert-equal test

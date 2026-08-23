@@ -23,7 +23,12 @@
   §13.1.2 asks for. A matching `If-None-Match` on a method other than `GET` or
   `HEAD` is answered with `412 Precondition Failed` instead of a `304 Not
   Modified`, and `If-Modified-Since` is ignored on those methods. A response
-  that is not a `2xx` ignores both headers, so a `404` stays a `404`.
+  that is not a `2xx` ignores both headers, so a `404` stays a `404`. The
+  `412`, like the `304`, keeps every header the response had built up — a
+  `Set-Cookie` the handler issued, an `Access-Control-Allow-Origin` an
+  after-hook added — and drops only the ones that described the body it no
+  longer carries. A response `ETag` or `Last-Modified` is found whatever its
+  capitalisation, the way the request headers are already read.
 - **A file whose extension is uppercase gets its real content type.** A path
   ending in `.JPG`, `.PNG`, `.HTML` or any other spelling of a known extension
   that is not all lower case was served as `application/octet-stream`, so a
