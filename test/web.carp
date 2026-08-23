@@ -102,12 +102,71 @@
 (defn no-hooks []
   (the (Array (Fn [&Request &(Map String String) Response] Response)) []))
 
+; the response a `verb` request carrying `hdrs` gets from a route whose 200
+; sets an ETag, `X-Custom` and a cookie, behind the CORS after-hook
+(defn cors-conditional [verb hdrs]
+  (let-do [app (App.route (App.create)
+                          @verb
+                          @"/"
+                          (fn [-r -p]
+                            (-> (Response.text @"hi")
+                                (Response.with-header @"ETag" @"\"abc\"")
+                                (Response.with-header @"X-Custom" @"yes")
+                                (Response.set-simple-cookie @"sid" @"s1"))))
+           bh (the
+             (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+             [])
+           ah (the
+             (Array (Fn [&Request &(Map String String) Response] Response))
+             [CORS.after-hook])
+           raw (fmt
+             "%s / HTTP/1.1\r\nHost: x\r\nOrigin: http://a.test\r\n%s\r\n"
+             verb
+             hdrs)]
+    (CORS.configure @"http://a.test")
+    @(Pair.a &(web-build-response &app &bh &ah &(String.to-bytes &raw)))))
+
 ; the 304 built from a 200 that also carried `name: value`
 (defn not-modified-with [name value]
   (web-not-modified
     (-> (Response.text @"hi")
         (Response.with-header @"ETag" @"\"abc\"")
         (Response.with-header name value))))
+
+; the response a `verb` request carrying the raw header lines `hdrs` gets from
+; a route whose 200 has ETag `etag` and Last-Modified `lm`; either header is
+; left off when its argument is empty
+(defn conditional-resp [verb etag lm hdrs]
+  (let [e @etag
+        l @lm
+        app (App.route (App.create)
+                       @verb
+                       @"/"
+                       (fn [-r -p]
+                         (let [base (Response.text @"hi")
+                               tagged (if (String.empty? &e)
+                                 base
+                                 (Response.with-header base @"ETag" @&e))]
+                           (if (String.empty? &l)
+                             tagged
+                             (Response.with-header tagged @"Last-Modified" @&l)))))
+        bh (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) [])
+        raw (fmt "%s / HTTP/1.1\r\nHost: x\r\n%s\r\n" verb hdrs)
+        pair (web-build-response &app &bh &(no-hooks) &(String.to-bytes &raw))]
+    @(Pair.a &pair)))
+
+(defn conditional-code [verb etag hdrs]
+  @(Response.code &(conditional-resp verb etag "" hdrs)))
+
+; the code for a GET whose If-None-Match is `inm` against ETag `etag`
+(defn inm-code [inm etag]
+  (conditional-code "GET" etag &(fmt "If-None-Match: %s\r\n" inm)))
+
+; the code for a `verb` request carrying `hdrs` against a 200 whose ETag is
+; "abc" and whose Last-Modified is older than every date used below
+(defn dated-code [verb hdrs]
+  @(Response.code
+    &(conditional-resp verb "\"abc\"" "Sun, 01 Jan 2023 00:00:00 GMT" hdrs)))
 
 ; matches `raw` against a single Server-Sent Events route at `pattern`
 (defn sse-match [raw pattern]
@@ -1309,6 +1368,159 @@
           resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
       (web-etag-match? &req &resp))
     "etag-match? false when ETags differ")
+
+  ; -- the response side of the lookup is case-insensitive too --
+  (assert-true test
+    (let [req (parse-req
+            "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n")
+          resp (Response.with-header (Response.text @"hi") @"etag" @"\"abc\"")]
+      (web-etag-match? &req &resp))
+    "etag-match? finds a lower-case ETag on the response")
+  (assert-true test
+    (let [req (parse-req
+            "GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT\r\n\r\n")
+          resp (Response.with-header (Response.text @"hi")
+                                     @"last-modified"
+                                     @"Sun, 06 Nov 1994 08:49:37 GMT")]
+      (web-if-modified-since? &req &resp))
+    "if-modified-since? finds a lower-case Last-Modified on the response")
+
+  ; -- an entity-tag list is split on commas outside the quoted tags --
+  (assert-equal test
+    &[@"\"a\"" @"W/\"b\"" @"\"c,d\""]
+    &(web-parse-etag-list " \"a\" , W/\"b\",\"c,d\" ")
+    "the entity-tag list keeps quoted commas and drops the OWS")
+  (assert-equal test
+    &(the (Array String) [])
+    &(web-parse-etag-list "\"unterminated")
+    "an unterminated entity-tag yields no tags")
+
+  ; -- If-None-Match: * matches any current representation (RFC 9110 §13.1.2) --
+  (assert-equal test 304 (inm-code "*" "\"abc\"") "* matches a tagged 200")
+  (assert-equal test 304 (inm-code "*" "") "* matches a 200 with no ETag")
+  (assert-equal test
+    404
+    @(Response.code
+      &(static-resp "GET /static/nope.html HTTP/1.1\r\nIf-None-Match: *\r\n\r\n"))
+    "* on a request that answers 404 leaves the 404 alone")
+
+  ; -- every member of the list is compared, not just the first --
+  (assert-equal test
+    304
+    (inm-code "\"z\", \"abc\"" "\"abc\"")
+    "a list matching on its second tag returns 304")
+  (assert-equal test
+    304
+    (inm-code "  \"z\" ,\t\"abc\"  " "\"abc\"")
+    "OWS around the list members is ignored")
+  (assert-equal test
+    200
+    (inm-code "\"z\", \"y\"" "\"abc\"")
+    "a list matching nothing returns 200")
+  (assert-equal test
+    304
+    (inm-code "\"a,b\"" "\"a,b\"")
+    "a comma inside a quoted tag does not split it")
+  (assert-equal test
+    200
+    (inm-code "\"a,b\"" "\"a\"")
+    "a quoted comma is part of the tag, not a list separator")
+  (assert-equal test
+    200
+    (inm-code "" "\"abc\"")
+    "an empty If-None-Match matches nothing")
+
+  ; -- If-None-Match uses the weak comparison function (RFC 9110 §13.1.2) --
+  (assert-equal test
+    304
+    (inm-code "W/\"abc\"" "\"abc\"")
+    "a weak request tag matches a strong ETag")
+  (assert-equal test
+    304
+    (inm-code "\"abc\"" "W/\"abc\"")
+    "a strong request tag matches a weak ETag")
+  (assert-equal test
+    304
+    (inm-code "W/\"abc\"" "W/\"abc\"")
+    "two weak tags match")
+  (assert-equal test
+    200
+    (inm-code "W/\"abc\"" "\"abcd\"")
+    "the weak comparison still compares the whole opaque tag")
+
+  ; -- 304 is a GET/HEAD outcome; other methods get 412 (RFC 9110 §13.2.2) --
+  (assert-equal test
+    304
+    (conditional-code "HEAD" "\"abc\"" "If-None-Match: \"abc\"\r\n")
+    "a matching If-None-Match on HEAD returns 304")
+  (assert-equal test
+    412
+    (conditional-code "PUT" "\"abc\"" "If-None-Match: \"abc\"\r\n")
+    "a matching If-None-Match on PUT returns 412")
+  (assert-equal test
+    412
+    (conditional-code "DELETE" "\"abc\"" "If-None-Match: *\r\n")
+    "a matching If-None-Match on DELETE returns 412")
+  (assert-equal test
+    200
+    (conditional-code "PUT" "\"abc\"" "If-None-Match: \"z\"\r\n")
+    "a failing If-None-Match on PUT leaves the 200 alone")
+  (assert-true test
+    (String.empty?
+      (Response.body
+        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n")))
+    "a 412 has no body")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+      "Content-Type")
+    "a 412 drops Content-Type")
+
+  ; -- a 412 keeps every header that was not describing the body --
+  (assert-true test
+    (Map.contains?
+      (Response.headers
+        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+      "ETag")
+    "a 412 carries the ETag its precondition was tested against")
+  (assert-equal test
+    "http://a.test"
+    &(header-val
+      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
+      "Access-Control-Allow-Origin")
+    "a 412 keeps the CORS after-hook's Access-Control-Allow-Origin")
+  (assert-equal test
+    "yes"
+    &(header-val
+      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
+      "X-Custom")
+    "a 412 keeps a header the handler set")
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n"))
+      "Set-Cookie")
+    "a 412 keeps a cookie the handler set")
+
+  ; -- If-Modified-Since is GET/HEAD-only and yields to If-None-Match --
+  (assert-equal test
+    304
+    (dated-code "GET" "If-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "an If-Modified-Since later than Last-Modified returns 304")
+  (assert-equal test
+    200
+    (dated-code "GET"
+                "If-None-Match: \"z\"\r\nIf-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "a failing If-None-Match wins over a matching If-Modified-Since")
+  (assert-equal test
+    304
+    (dated-code "GET"
+                "If-None-Match: \"abc\"\r\nIf-Modified-Since: Sun, 01 Jan 2023 00:00:00 GMT\r\n")
+    "a matching If-None-Match returns 304 whatever If-Modified-Since says")
+  (assert-equal test
+    200
+    (dated-code "PUT" "If-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "If-Modified-Since is ignored on a method other than GET or HEAD")
 
   ; -- 304 Not Modified on matching ETag --
   (assert-equal test
