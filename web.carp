@@ -1870,19 +1870,79 @@ stream and any proxy in front of it from timing out.")
               (Response.set-body @"")
               (Response.set-headers (Map.put hdrs &cl-k &cl-v)))))))
 
-; Check If-None-Match against a response's ETag header.
-; Returns true if the request's If-None-Match matches the response's ETag.
+; An entity-tag's opaque tag, weak marker removed (RFC 9110 §8.8.3.2).
+(hidden web-etag-opaque)
+(defn web-etag-opaque [tag]
+  (if (web-starts-with? tag "W/")
+    (String.byte-slice tag 2 (String.length tag))
+    @tag))
+
+; Split an If-None-Match value into entity-tags; a quoted tag may hold commas,
+; so the scan is quote-aware and skips anything malformed.
+(hidden web-parse-etag-list)
+(defn web-parse-etag-list [s]
+  (let-do [len (String.length s)
+           out (the (Array String) [])
+           i 0]
+    (while (< i len)
+      (let [c (String.char-at s i)]
+        (if (or (= c \,) (or (= c \space) (= c \tab)))
+          (set! i (+ i 1))
+          (let-do [start i]
+            (when (and (= c \W)
+                       (and (< (+ i 1) len) (= (String.char-at s (+ i 1)) \/)))
+              (set! i (+ i 2)))
+            (if (and (< i len) (= (String.char-at s i) \"))
+              (let-do [j (+ i 1)]
+                (while (and (< j len) (/= (String.char-at s j) \"))
+                  (set! j (+ j 1)))
+                (if (< j len)
+                  (do
+                    (Array.push-back! &out (String.byte-slice s start (+ j 1)))
+                    (set! i (+ j 1)))
+                  (set! i len)))
+              (while (and (< i len) (/= (String.char-at s i) \,))
+                (set! i (+ i 1))))))))
+    out))
+
+; True when one entity-tag in `inm` weakly matches the opaque tag `tag`.
+(hidden web-etag-list-match?)
+(defn web-etag-list-match? [inm tag]
+  (let-do [tags (web-parse-etag-list inm)
+           found false]
+    (for [i 0 (Array.length &tags)]
+      (when (= tag &(web-etag-opaque (Array.unsafe-nth &tags i)))
+        (set! found true)))
+    found))
+
+; True when If-None-Match matches the response's ETag under the weak
+; comparison function, or is `*` (RFC 9110 §13.1.2).
 (hidden web-etag-match?)
 (defn web-etag-match? [req resp]
-  (match (Request.header req "If-None-Match")
-    (Maybe.Nothing) false
-    (Maybe.Just inm)
+  (let [inms (header-values-ci (Request.headers req) "If-None-Match")]
+    (cond
+      (Array.empty? &inms) false
+      (Array.any? &(fn [v] (= &(String.trim v) "*")) &inms) true
       (match (Map.get-maybe (Response.headers resp) "ETag")
         (Maybe.Nothing) false
         (Maybe.Just vals)
-          (if (= (Array.length &vals) 0)
+          (if (Array.empty? &vals)
             false
-            (= &inm (Array.unsafe-first &vals))))))
+            (let-do [tag (web-etag-opaque (Array.unsafe-first &vals))
+                     found false]
+              (for [i 0 (Array.length &inms)]
+                (when (web-etag-list-match? (Array.unsafe-nth &inms i) &tag)
+                  (set! found true)))
+              found))))))
+
+; A bodyless 412 for a precondition that failed on a non-GET/HEAD request.
+(hidden web-precondition-failed)
+(defn web-precondition-failed []
+  (Response.init 412 @"Precondition Failed" @"HTTP/1.1" [] {} @""))
+
+(hidden web-get-or-head?)
+(defn web-get-or-head? [req]
+  (let [v (Request.verb req)] (or (= v "GET") (= v "HEAD"))))
 
 ; Turn a response into a 304 keeping the headers RFC 9110 §15.4.5 requires.
 (hidden web-not-modified)
@@ -1919,12 +1979,16 @@ stream and any proxy in front of it from timing out.")
                   (Maybe.Nothing) false
                   (Maybe.Just mtime) (not (Long.< since mtime))))))))
 
-; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3).
+; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3),
+; which applies to GET and HEAD only; a non-2xx response ignores both (§13.2.1).
 (hidden web-conditional-not-modified?)
 (defn web-conditional-not-modified? [req resp]
-  (match (Request.header req "If-None-Match")
-    (Maybe.Just _) (web-etag-match? req resp)
-    (Maybe.Nothing) (web-if-modified-since? req resp)))
+  (let [code @(Response.code resp)]
+    (cond
+      (or (< code 200) (>= code 300)) false
+      (Array.empty? &(header-values-ci (Request.headers req) "If-None-Match"))
+        (and (web-get-or-head? req) (web-if-modified-since? req resp))
+      (web-etag-match? req resp))))
 
 ; Forward-declare App.max-header-line so top-level validation helpers can
 ; reference it before the main (defmodule App ...) block.
@@ -2020,9 +2084,11 @@ stream and any proxy in front of it from timing out.")
                       (~(Route.handler r) &req &params))))
               after-resp (web-run-after after-hooks &req &params resp)
               ranged (web-mark-range &req after-resp)
-              ; conditional GET: 304 when If-None-Match/If-Modified-Since match
+              ; a failed precondition: 304 for GET/HEAD, 412 for anything else
               cond-resp (if (web-conditional-not-modified? &req &ranged)
-                (web-not-modified ranged)
+                (if (web-get-or-head? &req)
+                  (web-not-modified ranged)
+                  (web-precondition-failed))
                 ranged)
               ; HEAD: strip body, preserve Content-Length
               final (if is-head (web-strip-head-body cond-resp) cond-resp)]
