@@ -16,7 +16,7 @@ register them as routes on an [`App`](./App.html), and start serving with
 
 ### HTTP Example
 ```
-(load \"git@github.com:carpentry-org/web@0.9.3\")
+(load \"git@github.com:carpentry-org/web@0.10.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))

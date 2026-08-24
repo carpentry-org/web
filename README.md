@@ -7,7 +7,7 @@ kqueue/epoll.
 ## Installation
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.9.3")
+(load "git@github.com:carpentry-org/web@0.10.0")
 ```
 
 ## Usage
@@ -15,7 +15,7 @@ kqueue/epoll.
 Define handler functions and register them with `defserver`:
 
 ```clojure
-(load "git@github.com:carpentry-org/web@0.9.3")
+(load "git@github.com:carpentry-org/web@0.10.0")
 
 (defn hello [req params]
   (Response.text @"Hello, world!"))

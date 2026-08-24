@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.10.0]
 
 ### Added
 - **Server-Sent Events.** `(SSE "/path" handler)` in `defserver`, or
