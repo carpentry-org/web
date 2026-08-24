@@ -126,6 +126,9 @@
     (CORS.configure @"http://a.test")
     @(Pair.a &(web-build-response &app &bh &ah &(String.to-bytes &raw)))))
 
+; `resp` as it goes on the wire, i.e. once its framing headers are filled in
+(defn framed [resp] (web-finalize-response resp true))
+
 ; the 304 built from a 200 that also carried `name: value`
 (defn not-modified-with [name value]
   (web-not-modified
@@ -1583,12 +1586,18 @@
   (assert-true test
     (String.empty? (Response.body &(cached-304 &(no-hooks))))
     "304 has no body")
-  (assert-equal test
-    "0"
-    &(header-val
-      &(web-finalize-response (cached-304 &(no-hooks)) true)
+  (assert-false test
+    (Map.contains?
+      (Response.headers &(framed (cached-304 &(no-hooks))))
       "Content-Length")
-    "a finalized 304 sends Content-Length: 0")
+    "a finalized 304 from a GET sends no Content-Length")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(framed
+          (conditional-resp "HEAD" "\"abc\"" "" "If-None-Match: \"abc\"\r\n")))
+      "Content-Length")
+    "a finalized 304 from a HEAD sends no Content-Length")
 
   ; -- the drop list matches header names case-insensitively --
   (assert-false test
@@ -1607,14 +1616,42 @@
       "Content-type")
     "304 drops a mixed-case Content-type")
   (assert-equal test
-    1
+    0
     (Array.length
       &(header-values-ci
-        (Response.headers
-          &(web-finalize-response (not-modified-with @"content-length" @"5")
-                                  true))
+        (Response.headers &(framed (not-modified-with @"content-length" @"5")))
         "Content-Length"))
-    "a finalized 304 sends one Content-Length even when the handler set another")
+    "a finalized 304 sends no Content-Length even when the handler set one")
+
+  ; -- 204 and 1xx cannot carry content either (RFC 9110 §8.6) --
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(framed (Response.with-status (Response.text @"") 204 @"No Content")))
+      "Content-Length")
+    "a 204 sends no Content-Length")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(framed (Response.with-status (Response.text @"hi") 100 @"Continue")))
+      "Content-Length")
+    "a 1xx sends no Content-Length")
+
+  ; -- a status that can carry content is still framed --
+  (assert-equal test
+    "2"
+    &(header-val
+      &(framed
+        (conditional-resp "HEAD" "\"abc\"" "" "If-None-Match: \"z\"\r\n"))
+      "Content-Length")
+    "a HEAD 200 keeps the length its GET would have had")
+  (assert-equal test
+    "0"
+    &(header-val
+      &(framed
+        (conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+      "Content-Length")
+    "a 412 frames the empty body it does carry")
 
   ; -- a sendfile 304 leaves the transfer machinery disarmed --
   (assert-equal test

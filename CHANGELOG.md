@@ -15,6 +15,14 @@
   its own for handlers that need an `id`, a `retry` time, or a comment.
 
 ### Fixed
+- **A `304 Not Modified` no longer claims the cached resource is empty.** A
+  conditional `GET` or `HEAD` that hit the cache went out with
+  `Content-Length: 0`, so a client that trusted it learned the representation
+  it already held was zero bytes long. A `304`, a `204 No Content` and a `1xx`
+  now carry no `Content-Length` at all, as RFC 9110 §8.6 and §15.4.5 ask; the
+  connection is still reused, since those statuses end at the header block
+  rather than at a length. A `HEAD` that is answered normally still reports the
+  length its `GET` would have had.
 - **A conditional request is matched the way `If-None-Match` is defined.** The
   header used to be compared as one whole string against the response's `ETag`,
   so `If-None-Match: *` never matched, a client holding several cached variants
