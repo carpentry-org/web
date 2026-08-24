@@ -1495,6 +1495,10 @@ stream and any proxy in front of it from timing out.")
                         &(String.split-by &(String.ascii-to-lower c) &[\,])))
           &conns)))))
 
+; Statuses that cannot carry content (RFC 9110 §8.6, §15.4.5).
+(hidden web-bodyless-status?)
+(defn web-bodyless-status? [code] (or (< code 200) (= code 204) (= code 304)))
+
 (defn web-finalize-response [resp keep-alive]
   (let [body-len (String.length (Response.body &resp))
         has-te (Map.contains? (Response.headers &resp) "Transfer-Encoding")
@@ -1508,7 +1512,7 @@ stream and any proxy in front of it from timing out.")
             (let [d-k @"Date"
                   d-v [(web-http-date (Long.from-int (System.time)))]]
               (Map.put withconn &d-k &d-v))))
-        h (if (or has-te has-cl)
+        h (if (or has-te has-cl (web-bodyless-status? @(Response.code &resp)))
           dated
           (let [cl-k @"Content-Length"
                 cl-v [(Int.str body-len)]]
@@ -1860,7 +1864,8 @@ stream and any proxy in front of it from timing out.")
                   (web-head-partial (web-strip-range-marker resp) start end sz)
                 (RangeResolution.Unsatisfiable) (web-range-not-satisfiable sz))))))
     (Maybe.Nothing)
-      (if (Map.contains? (Response.headers &resp) "Transfer-Encoding")
+      (if (or (Map.contains? (Response.headers &resp) "Transfer-Encoding")
+              (web-bodyless-status? @(Response.code &resp)))
         (Response.set-body resp @"")
         (let [body-len (String.length (Response.body &resp))
               hdrs @(Response.headers &resp)
