@@ -189,6 +189,47 @@
     (Maybe.Just p) (Map.get-with-default (Pair.b (Pair.b p)) k &@"none")
     (Maybe.Nothing) @"no-match"))
 
+; an app whose every dispatch has all three probes to get past
+(defn dual-app []
+  (-> (App.create)
+      (App.GET @"/hello" (fn [r p] (Response.text @"hi")))
+      (App.WS @"/ws" (fn [e p w] ()))
+      (App.SSE @"/events" (fn [e p s] ()))))
+
+(defn dispatch [app raw]
+  (let [bh (the
+          (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+          [])
+        ah (the
+          (Array (Fn [&Request &(Map String String) Response] Response))
+          [])]
+    (web-dispatch-request app &bh &ah &(String.to-bytes raw))))
+
+; 0 invalid, 1 upgrade, 2 upgrade required, 3 stream open, 4 ordinary response
+(defn dispatch-tag [d]
+  (match-ref d
+    (WebDispatch.Invalid) 0
+    (WebDispatch.Upgrade _ _ _ _) 1
+    (WebDispatch.UpgradeRequired) 2
+    (WebDispatch.SSEOpen _ _ _) 3
+    (WebDispatch.Respond _ _) 4))
+
+(defn dispatch-code [d]
+  (match-ref d
+    (WebDispatch.Respond resp _) @(Response.code resp)
+    (WebDispatch.Invalid) -1
+    (WebDispatch.Upgrade _ _ _ _) -1
+    (WebDispatch.UpgradeRequired) -1
+    (WebDispatch.SSEOpen _ _ _) -1))
+
+(defn dispatch-keep-alive? [d]
+  (match-ref d
+    (WebDispatch.Respond _ ka) @ka
+    (WebDispatch.Invalid) false
+    (WebDispatch.Upgrade _ _ _ _) false
+    (WebDispatch.UpgradeRequired) false
+    (WebDispatch.SSEOpen _ _ _) false))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -1843,57 +1884,57 @@
   (assert-true test
     (Maybe.nothing?
       &(web-validate-request-line
-        &(String.to-bytes "GET / HTTP/1.1\r\nHost: x\r\n\r\n")))
+        "GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "validate accepts valid GET request")
 
   (assert-true test
     (Maybe.nothing?
       &(web-validate-request-line
-        &(String.to-bytes "POST /data HTTP/1.0\r\nHost: x\r\n\r\n")))
+        "POST /data HTTP/1.0\r\nHost: x\r\n\r\n"))
     "validate accepts HTTP/1.0 POST")
 
   (assert-true test
     (Maybe.nothing?
       &(web-validate-request-line
-        &(String.to-bytes "DELETE /item/42 HTTP/1.1\r\nHost: x\r\n\r\n")))
+        "DELETE /item/42 HTTP/1.1\r\nHost: x\r\n\r\n"))
     "validate accepts DELETE with path")
 
   ; -- validate-request-line: bad HTTP version --
   (assert-true test
     (Maybe.just?
       &(web-validate-request-line
-        &(String.to-bytes "GET / HTTP/2.0\r\nHost: x\r\n\r\n")))
+        "GET / HTTP/2.0\r\nHost: x\r\n\r\n"))
     "validate rejects HTTP/2.0")
 
   (assert-true test
     (Maybe.just?
       &(web-validate-request-line
-        &(String.to-bytes "GET / BLAH\r\nHost: x\r\n\r\n")))
+        "GET / BLAH\r\nHost: x\r\n\r\n"))
     "validate rejects non-HTTP version")
 
   ; -- validate-request-line: unknown method --
   (assert-true test
     (Maybe.just?
       &(web-validate-request-line
-        &(String.to-bytes "BREW / HTTP/1.1\r\nHost: x\r\n\r\n")))
+        "BREW / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "validate rejects unknown method BREW")
 
   ; -- validate-request-line: missing version --
   (assert-true test
     (Maybe.just?
-      &(web-validate-request-line &(String.to-bytes "GET /\r\nHost: x\r\n\r\n")))
+      &(web-validate-request-line "GET /\r\nHost: x\r\n\r\n"))
     "validate rejects missing version")
 
   ; -- validate-request-line: no spaces --
   (assert-true test
     (Maybe.just?
-      &(web-validate-request-line &(String.to-bytes "GARBAGE\r\n\r\n")))
+      &(web-validate-request-line "GARBAGE\r\n\r\n"))
     "validate rejects request line without spaces")
 
   ; -- validate-request-line: no CRLF --
   (assert-true test
     (Maybe.just?
-      &(web-validate-request-line &(String.to-bytes "GET / HTTP/1.1")))
+      &(web-validate-request-line "GET / HTTP/1.1"))
     "validate rejects missing CRLF")
 
   ; -- build-response returns 400 for malformed request --
@@ -2744,4 +2785,56 @@
     0
     (Array.length
       (App.routes &(App.SSE (App.create) @"/events" (fn [event params s] ()))))
-    "SSE does not add an HTTP route"))
+    "SSE does not add an HTTP route")
+
+  ; -- web-dispatch-request with WebSocket and SSE routes registered --
+  (assert-equal test
+    4
+    (dispatch-tag &(dispatch &(dual-app) "GET /hello HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a plain GET is neither an upgrade nor a stream")
+
+  (assert-equal test
+    200
+    (dispatch-code &(dispatch &(dual-app)
+                              "GET /hello HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a plain GET still reaches its handler")
+
+  (assert-equal test
+    404
+    (dispatch-code &(dispatch &(dual-app) "GET /nope HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "an unrouted GET still gets 404")
+
+  (assert-true test
+    (dispatch-keep-alive? &(dispatch &(dual-app)
+                                     "GET /hello HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "the keep-alive decision survives the probes")
+
+  (assert-false test
+    (dispatch-keep-alive? &(dispatch &(dual-app)
+                                     "GET /hello HTTP/1.1\r\nConnection: close\r\n\r\n"))
+    "Connection: close still disables keep-alive")
+
+  (assert-equal test
+    1
+    (dispatch-tag
+      &(dispatch &(dual-app)
+                 "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
+    "an upgrade still upgrades with SSE routes registered")
+
+  (assert-equal test
+    2
+    (dispatch-tag
+      &(dispatch &(dual-app)
+                 "GET /ws HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 8\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n"))
+    "a bad Sec-WebSocket-Version still asks for an upgrade")
+
+  (assert-equal test
+    3
+    (dispatch-tag &(dispatch &(dual-app)
+                             "GET /events HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a stream still opens with WebSocket routes registered")
+
+  (assert-equal test
+    0
+    (dispatch-tag &(dispatch &(dual-app) "BREW / HTTP/1.1\r\nHost: x\r\n\r\n"))
+    "a malformed request line is rejected before any probe"))
