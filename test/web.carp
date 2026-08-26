@@ -165,6 +165,10 @@
 (defn inm-code [inm etag]
   (conditional-code "GET" etag &(fmt "If-None-Match: %s\r\n" inm)))
 
+; the unix seconds `s` parses to, or -1 for a value the parser rejects
+(defn date-secs [s]
+  (match (web-parse-http-date s) (Maybe.Just v) v (Maybe.Nothing) -1l))
+
 ; the code for a `verb` request carrying `hdrs` against a 200 whose ETag is
 ; "abc" and whose Last-Modified is older than every date used below
 (defn dated-code [verb hdrs]
@@ -1566,6 +1570,32 @@
     (dated-code "PUT" "If-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
     "If-Modified-Since is ignored on a method other than GET or HEAD")
 
+  ; -- an If-Modified-Since in either obsolete format drives the same 304 --
+  (assert-equal test
+    304
+    (dated-code "GET" "If-Modified-Since: Monday, 31-Dec-68 23:59:59 GMT\r\n")
+    "an rfc850 If-Modified-Since later than Last-Modified returns 304")
+  (assert-equal test
+    304
+    (dated-code "GET" "If-Modified-Since: Fri Dec 31 23:59:59 2100\r\n")
+    "an asctime If-Modified-Since later than Last-Modified returns 304")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Modified-Since: Wednesday, 01-Jan-97 00:00:00 GMT\r\n")
+    "an rfc850 If-Modified-Since older than Last-Modified returns 200")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Modified-Since: Thu Jan  1 00:00:00 1970\r\n")
+    "an asctime If-Modified-Since older than Last-Modified returns 200")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Modified-Since: Fri, 31 Dec 2100 23:59:59 UTC\r\n")
+    "an If-Modified-Since outside GMT is ignored")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Modified-Since: Fri, 31 Feb 2100 00:00:00 GMT\r\n")
+    "an If-Modified-Since whose day the month does not have is ignored")
+
   ; -- 304 Not Modified on matching ETag --
   (assert-equal test
     304
@@ -1753,13 +1783,73 @@
   ; -- IMF-fixdate parser --
   (assert-equal test
     1445412480l
-    (match (web-parse-http-date "Wed, 21 Oct 2015 07:28:00 GMT")
-      (Maybe.Just s) s
-      (Maybe.Nothing) -1l)
+    (date-secs "Wed, 21 Oct 2015 07:28:00 GMT")
     "parse-http-date inverts the formatter")
   (assert-true test
     (Maybe.nothing? &(web-parse-http-date "not a date"))
     "parse-http-date rejects a malformed value")
+
+  ; -- rfc850 and asctime dates name the same instant as the IMF-fixdate --
+  (assert-equal test
+    1445412480l
+    (date-secs "Wednesday, 21-Oct-15 07:28:00 GMT")
+    "parse-http-date reads an rfc850 date")
+  (assert-equal test
+    1445412480l
+    (date-secs "Wed Oct 21 07:28:00 2015")
+    "parse-http-date reads an asctime date")
+  (assert-equal test
+    784111777l
+    (date-secs "Sun Nov  6 08:49:37 1994")
+    "parse-http-date reads an asctime date whose day is space-padded")
+
+  ; -- the rfc850 two-digit year window --
+  (assert-equal test
+    (date-secs "Wed, 01 Jan 1969 00:00:00 GMT")
+    (date-secs "Wednesday, 01-Jan-69 00:00:00 GMT")
+    "an rfc850 year of 69 is 1969")
+  (assert-equal test
+    (date-secs "Fri, 31 Dec 1999 23:59:59 GMT")
+    (date-secs "Friday, 31-Dec-99 23:59:59 GMT")
+    "an rfc850 year of 99 is 1999")
+  (assert-equal test
+    (date-secs "Sat, 01 Jan 2000 00:00:00 GMT")
+    (date-secs "Saturday, 01-Jan-00 00:00:00 GMT")
+    "an rfc850 year of 00 is 2000")
+  (assert-equal test
+    (date-secs "Sun, 01 Jan 2068 00:00:00 GMT")
+    (date-secs "Sunday, 01-Jan-68 00:00:00 GMT")
+    "an rfc850 year of 68 is 2068")
+
+  ; -- separators, zone and day of the month --
+  (assert-equal test
+    -1l
+    (date-secs "Sun, 06 Nov 1994 08:49:37 UTC")
+    "a date outside GMT is malformed")
+  (assert-equal test
+    -1l
+    (date-secs "Sun; 06 Nov 1994 08:49:37 GMT")
+    "a date whose separator is not a comma is malformed")
+  (assert-equal test
+    -1l
+    (date-secs "Sun, 06 Nov 1994 08:49:37 GMT ")
+    "a date with trailing junk is malformed")
+  (assert-equal test
+    -1l
+    (date-secs "Sun, 06-Nov-94 08:49:37 GMT")
+    "an rfc850 date under an abbreviated day name is malformed")
+  (assert-equal test
+    -1l
+    (date-secs "Sun, 31 Feb 1994 08:49:37 GMT")
+    "a day the month does not have is malformed")
+  (assert-equal test
+    -1l
+    (date-secs "Thu, 29 Feb 1900 08:49:37 GMT")
+    "29 February of a common year is malformed")
+  (assert-equal test
+    951814177l
+    (date-secs "Tue, 29 Feb 2000 08:49:37 GMT")
+    "29 February of a leap year parses")
 
   ; -- Date header --
   (assert-true test
