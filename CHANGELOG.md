@@ -4,14 +4,10 @@
 
 ### Fixed
 - **An `If-Modified-Since` in either obsolete date format is understood.** A
-  client that sent `Sunday, 06-Nov-94 08:49:37 GMT` or `Sun Nov  6 08:49:37
-  1994` — the two formats RFC 9110 §5.6.7 obliges a recipient to accept
-  alongside `Sun, 06 Nov 1994 08:49:37 GMT` — had its conditional request
-  discarded and got the whole body back every time instead of a `304 Not
-  Modified`. A date that really is malformed is now caught more reliably, too:
-  the separators, the trailing `GMT` and the day of the month are all checked,
-  so `Sun, 06 Nov 1994 08:49:37 UTC` and `31 Feb 1994` no longer read as valid
-  instants.
+  client sending `Sunday, 06-Nov-94 08:49:37 GMT` or `Sun Nov  6 08:49:37 1994`
+  had its conditional request thrown away and got the whole body back instead
+  of a `304`. A malformed date is now rejected rather than shifted onto a real
+  instant: `31 Feb 1994` used to parse as 3 March.
 
 ## [0.10.0]
 
