@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **An `If-Modified-Since` in either obsolete date format is understood.** A
+  client sending `Sunday, 06-Nov-94 08:49:37 GMT` or `Sun Nov  6 08:49:37 1994`
+  had its conditional request thrown away and got the whole body back instead
+  of a `304`. A malformed date is now rejected rather than shifted onto a real
+  instant: `31 Feb 1994` used to parse as 3 March.
+
 ## [0.10.0]
 
 ### Added

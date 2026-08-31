@@ -405,28 +405,82 @@ returns whatever `f` returns. If the key is missing, returns `default`.")
             (Long.+ (Long.* (Long.from-int hh) 3600l)
                     (Long.+ (Long.* (Long.from-int mi) 60l) (Long.from-int se))))))
 
-; an RFC 9110 IMF-fixdate string → unix seconds, or Nothing if malformed.
+; True when `bytes` from `off` on is exactly `pat`, where ‘.’ matches any byte.
+(hidden web-date-shaped?)
+(defn web-date-shaped? [bytes off pat]
+  (let-do [p (String.to-bytes pat)
+           ok (= (Array.length bytes) (+ off (Array.length &p)))]
+    (when ok
+      (for [i 0 (Array.length &p)]
+        (let [c @(Array.unsafe-nth &p i)]
+          (when (and (/= c (Char.to-byte \.))
+                     (/= c @(Array.unsafe-nth bytes (+ off i))))
+            (set! ok false)))))
+    ok))
+
+(hidden web-days-in-month)
+(defn web-days-in-month [y m]
+  (cond
+    (= m 2)
+      (if (and (= 0 (mod y 4)) (or (/= 0 (mod y 100)) (= 0 (mod y 400)))) 29 28)
+    (or (= m 4) (or (= m 6) (or (= m 9) (= m 11)))) 30
+    31))
+
+; the conventional rfc850 two-digit year window.
+(hidden web-date-year2)
+(defn web-date-year2 [yy] (cond (< yy 0) -1 (>= yy 69) (+ 1900 yy) (+ 2000 yy)))
+
+(hidden web-date-secs)
+(defn web-date-secs [y mon d hh mi se]
+  (if (or (< y 0)
+          (or (< mon 1)
+              (or (< d 1)
+                  (or (> d (web-days-in-month y mon))
+                      (or (< hh 0)
+                          (or (> hh 23)
+                              (or (< mi 0)
+                                  (or (> mi 59) (or (< se 0) (> se 60))))))))))
+    (Maybe.Nothing)
+    (Maybe.Just (web-epoch-of y mon d hh mi se))))
+
+; an HTTP date in any of the three formats RFC 9110 §5.6.7 obliges a recipient
+; to accept → unix seconds, or Nothing if malformed.
 (hidden web-parse-http-date)
 (defn web-parse-http-date [s]
-  (let [bytes (String.to-bytes s)]
-    (if (< (Array.length &bytes) 29)
-      (Maybe.Nothing)
-      (let [dd (web-date-uint &bytes 5 2)
-            mon (web-date-month &bytes 8)
-            yyyy (web-date-uint &bytes 12 4)
-            hh (web-date-uint &bytes 17 2)
-            mi (web-date-uint &bytes 20 2)
-            se (web-date-uint &bytes 23 2)]
-        (if (or (< dd 1)
-                (or (> dd 31)
-                    (or (< mon 1)
-                        (or (< yyyy 0)
-                            (or (< hh 0)
-                                (or (> hh 23)
-                                    (or (< mi 0)
-                                        (or (> mi 59) (or (< se 0) (> se 60))))))))))
-          (Maybe.Nothing)
-          (Maybe.Just (web-epoch-of yyyy mon dd hh mi se)))))))
+  (let [bytes (String.to-bytes s)
+        comma (String.index-of s \,)]
+    (cond
+      ; IMF-fixdate: Sun, 06 Nov 1994 08:49:37 GMT
+      (= comma 3)
+        (if (web-date-shaped? &bytes 0 "..., .. ... .... ..:..:.. GMT")
+          (web-date-secs (web-date-uint &bytes 12 4)
+                         (web-date-month &bytes 8)
+                         (web-date-uint &bytes 5 2)
+                         (web-date-uint &bytes 17 2)
+                         (web-date-uint &bytes 20 2)
+                         (web-date-uint &bytes 23 2))
+          (Maybe.Nothing))
+      ; rfc850-date: Sunday, 06-Nov-94 08:49:37 GMT
+      (> comma 3)
+        (if (web-date-shaped? &bytes comma ", ..-...-.. ..:..:.. GMT")
+          (web-date-secs (web-date-year2 (web-date-uint &bytes (+ comma 9) 2))
+                         (web-date-month &bytes (+ comma 5))
+                         (web-date-uint &bytes (+ comma 2) 2)
+                         (web-date-uint &bytes (+ comma 12) 2)
+                         (web-date-uint &bytes (+ comma 15) 2)
+                         (web-date-uint &bytes (+ comma 18) 2))
+          (Maybe.Nothing))
+      ; asctime-date: Sun Nov  6 08:49:37 1994
+      (if (web-date-shaped? &bytes 0 "... ... .. ..:..:.. ....")
+        (web-date-secs (web-date-uint &bytes 20 4)
+                       (web-date-month &bytes 4)
+                       (if (= @(Array.unsafe-nth &bytes 8) (Char.to-byte \space))
+                         (web-date-uint &bytes 9 1)
+                         (web-date-uint &bytes 8 2))
+                       (web-date-uint &bytes 11 2)
+                       (web-date-uint &bytes 14 2)
+                       (web-date-uint &bytes 17 2))
+        (Maybe.Nothing)))))
 
 (defmodule Response
   (doc text "creates a 200 OK response with a plain text body.")
