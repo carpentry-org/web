@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+- `http` bumped to 0.5.0. A `multipart/form-data` part with no header block is
+  now rejected by `Form.decode-multipart` instead of decoding to a nameless
+  part with an empty body, and the whole body fails with it.
+
 ### Fixed
 - **An `If-Modified-Since` in either obsolete date format is understood.** A
   client sending `Sunday, 06-Nov-94 08:49:37 GMT` or `Sun Nov  6 08:49:37 1994`
