@@ -11,7 +11,24 @@
   now rejected by `Form.decode-multipart` instead of decoding to a nameless
   part with an empty body, and the whole body fails with it.
 
+### Added
+- **`Form.decode-multipart-request-bytes` decodes a `multipart/form-data` body
+  as bytes**, yielding `BinaryPart`s whose bodies are `(Array Byte)`. It reads
+  the raw request bytes the server now keeps alongside the parsed request, so a
+  binary upload survives. Reach for it over `Form.decode-multipart-request` for
+  anything that can carry a file.
+
 ### Fixed
+- **A binary upload no longer decodes to zero parts.** The request buffer was
+  turned into a `String` before parsing, so a `multipart/form-data` body was
+  cut at its first NUL byte, taking the closing delimiter with it; the handler
+  was then handed a `Result.Success` carrying no parts and had nothing to
+  check. A 123-byte body measured 109 as a `String` and decoded to 0 parts
+  where the same body as text gave 1.
+- **A chunked request body is dechunked as bytes.** The dechunker ran on the
+  request's `String` body, so a chunked binary upload was answered with a 400
+  rather than decoded. Chunk framing is now walked over the buffer's bytes,
+  which is also the only chunk decoder left in the request path.
 - **An `If-Modified-Since` in either obsolete date format is understood.** A
   client sending `Sunday, 06-Nov-94 08:49:37 GMT` or `Sun Nov  6 08:49:37 1994`
   had its conditional request thrown away and got the whole body back instead

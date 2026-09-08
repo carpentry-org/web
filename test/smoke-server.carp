@@ -50,6 +50,27 @@
                                  (Map.get-with-default &(Form.decode-request r)
                                                        "a"
                                                        &@"none"))))
+                   (App.POST @"/upload"
+                             (fn [r p]
+                               (match (Form.decode-multipart-request-bytes r)
+                                 (Result.Success parts)
+                                   (if (Array.empty? &parts)
+                                     (Response.text @"parts=0")
+                                     (let-do [b (BinaryPart.body (Array.unsafe-nth &parts
+                                                                                   0))
+                                              sum 0]
+                                       (for [i 0 (Array.length b)]
+                                         (set! sum
+                                               (+ sum
+                                                  (Byte.to-int @(Array.unsafe-nth b
+                                                                                  i)))))
+                                       (Response.text
+                                         (fmt "parts=%d len=%d sum=%d"
+                                              (Array.length &parts)
+                                              (Array.length b)
+                                              sum))))
+                                 (Result.Error e)
+                                   (Response.text (fmt "err=%s" &e)))))
                    (App.POST @"/meta"
                              (fn [r p]
                                (Response.text

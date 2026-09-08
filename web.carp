@@ -637,6 +637,17 @@ with a `Content-Range` header (or `416` when unsatisfiable).")
                   (with-header @"ETag" etag)
                   (with-header @"Last-Modified" (web-http-date mt))))))))))
 
+; The raw bytes of the body of the request being served right now, kept
+; alongside the parsed `Request` because a `Request` body is a `String` and so
+; ends at its first NUL byte. Set once per request, just before the hooks and
+; the handler run. One event loop is single-threaded and a worker is its own
+; process, so exactly one request is in flight per process at a time.
+(hidden *web-raw-body*)
+(def *web-raw-body* (the (Array Byte) []))
+
+(hidden web-set-raw-body!)
+(defn web-set-raw-body! [bs] (set! *web-raw-body* bs))
+
 (doc Form "provides helpers for parsing `application/x-www-form-urlencoded`
 and `multipart/form-data` request bodies.")
 (defmodule Form
@@ -717,7 +728,48 @@ when the request is not `multipart/form-data` or carries no boundary.
       (Response.text (fmt \"got %d parts\" (Array.length &parts)))
     (Result.Error _) (Response.bad-request)))
 ```")
-  (defn decode-multipart-request [req] (Request.multipart-data req)))
+  (defn decode-multipart-request [req] (Request.multipart-data req))
+
+  (doc decode-multipart-request-bytes "decodes the multipart form body of a
+request as bytes, via http’s
+[`Multipart.parse-bytes`](Multipart.html#parse-bytes). Returns
+`(Result (Array BinaryPart) String)`; fails when the request is not
+`multipart/form-data` or carries no boundary.
+
+Prefer this over
+[`decode-multipart-request`](#decode-multipart-request) for anything that can
+carry a file. A `Request` body is a `String` and so ends at its first NUL byte,
+which silently truncates a binary upload and can leave it with no parts at all;
+this reads the raw request bytes the server kept alongside the request, so the
+upload survives.
+
+```
+(defn upload [req params]
+  (match (Form.decode-multipart-request-bytes req)
+    (Result.Success parts)
+      (Response.text (fmt \"got %d parts\" (Array.length &parts)))
+    (Result.Error _) (Response.bad-request)))
+```
+
+Only valid while the request is being served, which is the whole of a handler
+and of a before- or after-hook. It reads the body of the request in flight, so
+holding on to the parts is fine but calling it later is not.")
+  (defn decode-multipart-request-bytes [req]
+    (match (Request.header req "Content-Type")
+      (Maybe.Nothing) (Result.Error @"multipart: no Content-Type header")
+      (Maybe.Just ct)
+        (match (MediaType.parse &ct)
+          (Result.Error e) (Result.Error e)
+          (Result.Success mt)
+            (if (/= &(MediaType.mime &mt) "multipart/form-data")
+              (Result.Error
+                (fmt "multipart: expected multipart/form-data, got '%s'"
+                     &(MediaType.mime &mt)))
+              (match (MediaType.param &mt "boundary")
+                (Maybe.Nothing)
+                  (Result.Error @"multipart: no boundary parameter")
+                (Maybe.Just b)
+                  (Multipart.parse-bytes &*web-raw-body* &b)))))))
 
 (doc WSEvent "represents an event on a WebSocket connection.
 
@@ -1487,6 +1539,61 @@ stream and any proxy in front of it from timing out.")
                            expects
                            bad))))))
 
+; Dechunk a chunked request body at byte level, so that a binary upload
+; survives. Nothing when the chunk framing is malformed or incomplete.
+(hidden web-dechunk-bytes)
+(defn web-dechunk-bytes [buf body-start]
+  (let-do [len (Array.length buf)
+           pos body-start
+           out (the (Array Byte) [])
+           ok true
+           done false]
+    (while-do (not done)
+      (let [nl (web-crlf-index buf pos len)]
+        (if (< nl 0)
+          (do (set! ok false) (set! done true))
+          (let [size (web-parse-chunk-size buf pos nl)
+                start (+ nl 2)]
+            (cond
+              (< size 0) (do (set! ok false) (set! done true))
+              (= size 0) (set! done true)
+              (> (+ start size) len) (do (set! ok false) (set! done true))
+              (do
+                (for [i start (+ start size)]
+                  (Array.push-back! &out @(Array.unsafe-nth buf i)))
+                (set! pos (+ start (+ size 2)))))))))
+    (if ok (Maybe.Just out) (Maybe.Nothing))))
+
+; The raw bytes of the body carried by `buf`, dechunked when the request is
+; chunked. Nothing when the framing is malformed or the body is short.
+(hidden web-request-body-bytes)
+(defn web-request-body-bytes [buf]
+  (match (web-parse-framing buf)
+    (Maybe.Nothing) (the (Maybe (Array Byte)) (Maybe.Nothing))
+    (Maybe.Just f)
+      (if @(WebFraming.malformed &f)
+        (Maybe.Nothing)
+        (let [start @(WebFraming.body-start &f)
+              len (Array.length buf)]
+          (if @(WebFraming.chunked &f)
+            (web-dechunk-bytes buf start)
+            (match-ref (WebFraming.content-length &f)
+              (Maybe.Just cl)
+                (if (> (+ start @cl) len)
+                  (Maybe.Nothing)
+                  (Maybe.Just (Array.slice buf start (+ start @cl))))
+              (Maybe.Nothing) (Maybe.Just (Array.slice buf start len))))))))
+
+; Keep the body bytes of the request in `buf` for the handler. A buffer whose
+; framing does not parse leaves an empty body rather than the previous
+; request's, so a handler can never read one request's bytes from another.
+(hidden web-stash-raw-body!)
+(defn web-stash-raw-body! [buf]
+  (web-set-raw-body!
+    (match (web-request-body-bytes buf)
+      (Maybe.Just bs) bs
+      (Maybe.Nothing) (the (Array Byte) []))))
+
 ; Whether `buf` holds a whole HTTP request: 1 complete, 0 needs more bytes,
 ; -1 malformed (400). Paired with the chunk cursor for `web-chunked-status`.
 (hidden web-request-status)
@@ -2100,14 +2207,17 @@ stream and any proxy in front of it from timing out.")
                   (the (Maybe Response) (Maybe.Nothing)))))))))))
 
 ; Dechunk a chunked request body and normalize its framing headers:
-; Transfer-Encoding removed, Content-Length set, trailers discarded.
+; Transfer-Encoding removed, Content-Length set, trailers discarded. The
+; dechunking is done on `buf`'s bytes rather than on the request's `String`
+; body, which a binary upload's first NUL byte would have cut short.
 (hidden web-decode-body)
-(defn web-decode-body [chunked? req]
-  (if chunked?
-    (match (TransferEncoding.dechunk (Request.body &req))
-      (Result.Error e) (Result.Error e)
-      (Result.Success decoded)
-        (let [cl-v [(Int.str (String.length &decoded))]
+(defn web-decode-body [buf req]
+  (if (web-chunked-buf? buf)
+    (match (web-request-body-bytes buf)
+      (Maybe.Nothing) (Result.Error @"malformed chunked body")
+      (Maybe.Just bytes)
+        (let [decoded (String.from-bytes &bytes)
+              cl-v [(Int.str (Array.length &bytes))]
               hdrs (Map.kv-reduce
                 &(fn [acc k v]
                   (if (= &(String.ascii-to-lower k) "transfer-encoding")
@@ -2123,8 +2233,8 @@ stream and any proxy in front of it from timing out.")
 
 ; Build the response for a parsed request. Returns `(Pair Response Bool)`.
 (hidden web-respond)
-(defn web-respond [app before-hooks after-hooks req chunked?]
-  (let [decoded (web-decode-body chunked? req)]
+(defn web-respond [app before-hooks after-hooks req buf]
+  (let [decoded (web-decode-body buf req)]
     (match decoded
       (Result.Error _) (Pair.init (Response.bad-request) false)
       (Result.Success req)
@@ -2167,7 +2277,9 @@ stream and any proxy in front of it from timing out.")
   (match (Request.parse &(String.from-bytes buf))
     (Result.Error _) (Pair.init (Response.bad-request) false)
     (Result.Success req)
-      (web-respond app before-hooks after-hooks req (web-chunked-buf? buf))))
+      (do
+        (web-stash-raw-body! buf)
+        (web-respond app before-hooks after-hooks req buf))))
 
 ; What a complete request buffer resolves to.
 (hidden WebDispatch)
@@ -2203,11 +2315,13 @@ stream and any proxy in front of it from timing out.")
                                          @(Pair.a (Pair.b &si))
                                          @(Pair.b (Pair.b &si)))
                   (Maybe.Nothing)
-                    (let [pair (web-respond app
-                                            before-hooks
-                                            after-hooks
-                                            req
-                                            (web-chunked-buf? buf))]
+                    (let [pair (do
+                            (web-stash-raw-body! buf)
+                            (web-respond app
+                                         before-hooks
+                                         after-hooks
+                                         req
+                                         buf))]
                       (WebDispatch.Respond @(Pair.a &pair) @(Pair.b &pair)))))))))
 
 ; Check if a response has an X-Sendfile header and extract the path.

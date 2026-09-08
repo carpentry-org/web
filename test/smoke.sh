@@ -66,13 +66,28 @@ curl -sf --max-time 30 -H 'Transfer-Encoding: chunked' \
   || fail "chunked POST errored"
 cmp -s "$WORK/body" "$WORK/chunked" || fail "chunked body was not decoded intact"
 
-# 4. normalization: the handler sees a plain body with a Content-Length
+# 4. a binary multipart upload keeps every byte, NULs included. The body is
+# A NUL B NUL C: 5 bytes summing to 198, which a String-based decode cuts to
+# one byte and reports as zero parts.
+check "binary multipart upload"
+printf 'A\000B\000C' > "$WORK/bin"
+UP=$(curl -sf --max-time 30 -F "f=@$WORK/bin" "$BASE/upload")
+[ "$UP" = "parts=1 len=5 sum=198" ] || fail "binary multipart upload (got: $UP)"
+
+# 5. the same upload, chunked, goes through the byte-level dechunker
+check "chunked binary multipart upload"
+UPC=$(curl -sf --max-time 30 -H 'Transfer-Encoding: chunked' \
+  -F "f=@$WORK/bin" "$BASE/upload")
+[ "$UPC" = "parts=1 len=5 sum=198" ] \
+  || fail "chunked binary multipart upload (got: $UPC)"
+
+# 6. normalization: the handler sees a plain body with a Content-Length
 check "normalization"
 META=$(curl -sf --max-time 10 -H 'Transfer-Encoding: chunked' \
   --data-binary 'hello world' "$BASE/meta")
 [ "$META" = "plain 11" ] || fail "normalization (got: $META)"
 
-# 5. the server answers Expect: 100-continue with an interim response
+# 7. the server answers Expect: 100-continue with an interim response
 check "100-continue"
 curl -sf --max-time 30 -H 'Expect: 100-continue' \
   --data-binary @"$WORK/body" -o /dev/null "$BASE/echo" -v 2> "$WORK/expect.log" \
@@ -80,44 +95,44 @@ curl -sf --max-time 30 -H 'Expect: 100-continue' \
 grep -q 'HTTP/1.1 100 Continue' "$WORK/expect.log" \
   || fail "no 100 Continue interim response"
 
-# 6. keep-alive: two requests reuse one connection
+# 8. keep-alive: two requests reuse one connection
 check "keep-alive"
 curl -sf --max-time 10 -o /dev/null -o /dev/null -v "$BASE/ok" "$BASE/ok" \
   2> "$WORK/ka.log" || fail "keep-alive requests errored"
 grep -qi 're-us' "$WORK/ka.log" || fail "connection was not reused"
 
-# 7. malformed framing is rejected with a 400
+# 9. malformed framing is rejected with a 400
 check "malformed framing"
 CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
   -H 'Transfer-Encoding: gzip' --data-binary 'x' "$BASE/echo")
 [ "$CODE" = "400" ] || fail "non-chunked Transfer-Encoding not rejected (got: $CODE)"
 
-# 8. a byte range yields 206 Partial Content with the requested bytes
+# 10. a byte range yields 206 Partial Content with the requested bytes
 check "byte range"
 RH=$(curl -s --max-time 10 -D - -o "$WORK/range" -r 0-4 "$BASE/static/index.html")
 echo "$RH" | grep -qi '206 Partial Content' || fail "range request not 206"
 echo "$RH" | grep -qi 'Content-Range: bytes 0-4/11' || fail "wrong Content-Range"
 [ "$(cat "$WORK/range")" = "root " ] || fail "range body wrong (got: $(cat "$WORK/range"))"
 
-# 9. an open-ended range reassembles to the whole file
+# 11. an open-ended range reassembles to the whole file
 check "open range"
 [ "$(curl -s --max-time 10 -r 0- "$BASE/static/index.html")" \
   = "$(cat test/static-fixtures/index.html)" ] || fail "open range mismatch"
 
-# 10. a range past the end is rejected with 416
+# 12. a range past the end is rejected with 416
 check "unsatisfiable range"
 CODE=$(curl -s --max-time 10 -o /dev/null -w '%{http_code}' \
   -r 100-200 "$BASE/static/index.html")
 [ "$CODE" = "416" ] || fail "unsatisfiable range not 416 (got: $CODE)"
 
-# 11. a range-set is answered with its first satisfiable range
+# 13. a range-set is answered with its first satisfiable range
 check "multi-range"
 RH=$(curl -s --max-time 10 -D - -o "$WORK/multi" \
   -H 'Range: bytes=0-3, -2' "$BASE/static/index.html")
 echo "$RH" | grep -qi 'Content-Range: bytes 0-3/11' || fail "multi-range Content-Range"
 [ "$(cat "$WORK/multi")" = "root" ] || fail "multi-range body (got: $(cat "$WORK/multi"))"
 
-# 12. headers whose byte length exceeds their character count are answered,
+# 14. headers whose byte length exceeds their character count are answered,
 #     not aborted on
 WIDE=$(printf '\303\244\303\244\303\244\303\244\303\244')
 check "non-ASCII Range"
@@ -133,7 +148,7 @@ BODY=$(curl -s --max-time 10 -H "Content-Type: $WIDE$WIDE$WIDE$WIDE" \
 check "server survived"
 [ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on a non-ASCII header"
 
-# 13. a Server-Sent Events stream opens, pushes on connect, and keeps ticking.
+# 15. a Server-Sent Events stream opens, pushes on connect, and keeps ticking.
 #     curl is cut off by --max-time because the stream never ends.
 check "SSE stream"
 curl -s --max-time 5 --no-buffer -H 'Last-Event-ID: 77' \
@@ -150,7 +165,7 @@ grep -q '^data: 77$' "$WORK/sse.body" || fail "Last-Event-ID did not reach the h
 TICKS=$(grep -c '^data: tick$' "$WORK/sse.body" || true)
 [ "${TICKS:-0}" -ge 2 ] || fail "stream stopped ticking (got $TICKS ticks)"
 
-# 14. a tick that queues nothing sends a keep-alive comment instead
+# 16. a tick that queues nothing sends a keep-alive comment instead
 check "SSE keep-alive comment"
 curl -s --max-time 5 --no-buffer -o "$WORK/quiet.body" "$BASE/quiet" || true
 grep -q '^data: hi$' "$WORK/quiet.body" || fail "no connect event on the quiet stream"
@@ -160,7 +175,7 @@ KEEPS=$(grep -c '^:$' "$WORK/quiet.body" || true)
 check "server survived the stream"
 [ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on an SSE stream"
 
-# 15. the upgrade handshake and the frame loop, driven by a client that shares
+# 17. the upgrade handshake and the frame loop, driven by a client that shares
 #     no code with the server (python3 standard library only)
 check "WebSocket end to end"
 python3 test/ws-smoke.py "$PORT" || fail "WebSocket checks failed"
