@@ -156,6 +156,22 @@ The error handler receives the request, status code, and reason phrase.
 `Form.decode` decodes `application/x-www-form-urlencoded` bodies. Handles
 `+` as space and percent-encoding.
 
+### File uploads
+
+```clojure
+(defn handle-upload [req params]
+  (match (Form.decode-multipart-request-bytes req)
+    (Result.Success parts)
+      (Response.text (fmt "got %d parts" (Array.length &parts)))
+    (Result.Error e) (Response.bad-request)))
+```
+
+`Form.decode-multipart-request-bytes` decodes a `multipart/form-data` body into
+`BinaryPart`s, whose bodies are `(Array Byte)`. Use it for anything that can
+carry a file. `Form.decode-multipart-request` returns `FormPart`s instead,
+whose bodies are `String`s and so end at their first NUL byte, which leaves a
+binary upload truncated or with no parts at all.
+
 ### Chunked responses
 
 ```clojure
