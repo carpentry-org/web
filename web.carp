@@ -4,13 +4,13 @@ Events support.
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.10.0\")
+(load \"git@github.com:carpentry-org/web@0.11.0\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.10.0\")
+(load \"git@github.com:carpentry-org/web@0.11.0\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -34,10 +34,10 @@ Events support.
   (SSE \"/events\" clock))
 ```")
 
-(load "git@github.com:carpentry-org/http@0.5.0")
-(load "git@github.com:carpentry-org/socket@0.2.3")
+(load "git@github.com:carpentry-org/http@0.6.0")
+(load "git@github.com:carpentry-org/socket@0.2.5")
 (load "git@github.com:carpentry-org/json@0.6.0")
-(load "git@github.com:carpentry-org/file@0.3.0")
+(load "git@github.com:carpentry-org/file@0.4.0")
 (load "git@github.com:carpentry-org/log@0.2.0")
 (load "git@github.com:carpentry-org/utf8.carp@0.2.0")
 
@@ -597,8 +597,7 @@ callback-based API.")
           (StringBuf.append-str &sb chunk)
           (StringBuf.append-str &sb "\r\n")))
       (StringBuf.append-str &sb "0\r\n\r\n")
-      (let-do [body (StringBuf.to-string &sb)]
-        (StringBuf.delete sb)
+      (let [body (StringBuf.into-string sb)]
         (->
           (init code (Status.reason code) @"HTTP/1.1" [] {} body)
           (with-header @"Transfer-Encoding" @"chunked")
@@ -1693,14 +1692,14 @@ stream and any proxy in front of it from timing out.")
             ())))
     got-request))
 
-; Extract and URL-decode the request path. The leading "/" is stripped
-; by `URI.path`, so this returns "" for the root.
+; Extract and URL-decode the request path without its leading "/", so this
+; returns "" for the root.
 
 (defn web-request-path [req]
-  (URI.unescape
-    &(match-ref (URI.path (Request.uri req))
-      (Maybe.Just p) @p
-      (Maybe.Nothing) @"")))
+  (let [p (match-ref (URI.path (Request.uri req))
+          (Maybe.Just s) @s
+          (Maybe.Nothing) @"")]
+    (URI.unescape &(if (String.starts-with? &p "/") (String.suffix &p 1) p))))
 
 ; Like web-request-path but with a leading "/" suitable for route matching.
 (hidden web-routable-path)

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [0.11.0]
 
 ### Changed
 - **Registering WebSocket or Server-Sent Events routes no longer slows down
@@ -10,6 +10,13 @@
 - `http` bumped to 0.5.0. A `multipart/form-data` part with no header block is
   now rejected by `Form.decode-multipart` instead of decoding to a nameless
   part with an empty body, and the whole body fails with it.
+- `http` bumped to 0.6.0, which brings `uri` 0.6.0, `time` 0.6.0 and `strbuf`
+  0.3.0. `URI.path` now keeps its leading `/`; the router strips it itself, so
+  routes and static paths match as before. `time` 0.6.0 computes timestamps and
+  durations in `Long`.
+- `orm` bumped to 0.5.2, `file` to 0.4.0, `socket` to 0.2.5.
+- Chunked responses hand their buffer to the body with `StringBuf.into-string`
+  instead of copying it.
 
 ### Added
 - **`Form.decode-multipart-request-bytes` decodes a `multipart/form-data` body
