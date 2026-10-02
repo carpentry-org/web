@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **`If-Match`, `If-Unmodified-Since` and `If-Range` are honoured.** A `GET` or
+  `HEAD` whose `If-Match` names no current version, or whose
+  `If-Unmodified-Since` is older than the response's `Last-Modified`, is
+  answered with `412 Precondition Failed`. A range request whose `If-Range`
+  names another version gets the whole file with a `200`; it used to get a
+  `206` of the current file, which a client resuming a download of a file that
+  had changed spliced onto the bytes of the old one.
+
+### Changed
+- **The response to a `POST`, `PUT`, `PATCH` or `DELETE` is sent as its handler
+  built it.** A matching `If-None-Match` on those methods turned the response
+  into a `412` after the handler had already acted, so a conditional create
+  (`PUT` with `If-None-Match: *`) created the resource and then told the client
+  it had not. Their handlers evaluate `Request.preconditions` themselves, before
+  acting.
+- Conditional requests are evaluated by `http`'s `Precondition`. An
+  `If-None-Match` that is not a well-formed list of entity-tags is ignored as a
+  whole, where its well-formed members used to be matched; it still keeps
+  `If-Modified-Since` from being evaluated. `If-Modified-Since` is read by
+  `HttpDate.parse`, which also takes the two dashed cookie-date forms, rejects a
+  day name that is not one, and does not reject a day the month does not have
+  or text after the date.
+
 ## [0.12.0]
 
 ### Changed

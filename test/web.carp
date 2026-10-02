@@ -230,15 +230,74 @@
 (defn inm-code [inm etag]
   (conditional-code "GET" etag &(fmt "If-None-Match: %s\r\n" inm)))
 
-; the unix seconds `s` parses to, or -1 for a value the parser rejects
-(defn date-secs [s]
-  (match (web-parse-http-date s) (Maybe.Just v) v (Maybe.Nothing) -1l))
-
 ; the code for a `verb` request carrying `hdrs` against a 200 whose ETag is
 ; "abc" and whose Last-Modified is older than every date used below
 (defn dated-code [verb hdrs]
   @(Response.code
     &(conditional-resp verb "\"abc\"" "Sun, 01 Jan 2023 00:00:00 GMT" hdrs)))
+
+; the code for a GET carrying `hdrs` against a 200 carrying `name: value`
+(defn validated-code [name value hdrs]
+  (let [n @name
+        v @value
+        app (App.GET (App.create)
+                     @"/"
+                     (fn [-r -p]
+                       (Response.with-header (Response.text @"hi") @&n @&v)))
+        raw (fmt "GET / HTTP/1.1\r\nHost: x\r\n%s\r\n" hdrs)
+        pair (web-build-response &app
+                                 &(no-hooks-before)
+                                 &(no-hooks)
+                                 &(String.to-bytes &raw))]
+    @(Response.code (Pair.a &pair))))
+
+; the static index.html's current value of its validator `name`
+(defn index-validator [name]
+  (header-val &(static-resp "GET /static/index.html HTTP/1.1\r\n\r\n") name))
+
+; the static index.html's answer to a `verb` for bytes 0-4 under `If-Range: v`
+(defn if-range-resp [verb v]
+  (static-resp
+    &(fmt
+      "%s /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: %s\r\n\r\n"
+      verb
+      v)))
+
+; how many times one of the PUT handlers below has written
+(def writes 0)
+
+; creates the resource whatever the request's preconditions say
+(defn create-blindly [-r -p]
+  (do
+    (set! writes (Int.inc writes))
+    (-> (Response.text @"created")
+        (Response.with-status 201 @"Created")
+        (Response.with-header @"ETag" @"\"v1\""))))
+
+; evaluates the preconditions against the stored version "v1" before writing
+(defn update-checked [req -p]
+  (let [current (Maybe.Just (ETag.init @"v1" false))]
+    (match (Request.preconditions req &current &(Maybe.Nothing))
+      (Maybe.Just c)
+        (Response.with-status (Response.text @"") c (Status.reason c))
+      (Maybe.Nothing)
+        (do
+          (set! writes (Int.inc writes))
+          (Response.with-header (Response.text @"updated") @"ETag" @"\"v2\"")))))
+
+; the code `handler` answers a PUT carrying `hdrs` with, counting from no writes
+(defn put-code [handler hdrs]
+  (let-do [app (App.PUT (App.create) @"/" handler)
+           raw (fmt
+             "PUT / HTTP/1.1\r\nHost: x\r\nContent-Length: 0\r\n%s\r\n"
+             hdrs)]
+    (set! writes 0)
+    @(Response.code
+      (Pair.a
+        &(web-build-response &app
+                             &(no-hooks-before)
+                             &(no-hooks)
+                             &(String.to-bytes &raw))))))
 
 ; matches `raw` against a single Server-Sent Events route at `pattern`
 (defn sse-match [raw pattern]
@@ -1459,54 +1518,21 @@
           (web-build-response &app &bh &ah &(String.to-bytes &req)))))
     "a decoded chunked request drops Transfer-Encoding and gains Content-Length")
 
-  ; -- web-etag-match? returns false without If-None-Match --
-  (assert-false test
-    (let [req (parse-req "GET / HTTP/1.1\r\nHost: x\r\n\r\n")
-          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
-      (web-etag-match? &req &resp))
-    "etag-match? false without If-None-Match")
-
-  ; -- web-etag-match? returns true on match --
-  (assert-true test
-    (let [req (parse-req
-            "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n")
-          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
-      (web-etag-match? &req &resp))
-    "etag-match? true when ETags match")
-
-  ; -- web-etag-match? returns false on mismatch --
-  (assert-false test
-    (let [req (parse-req
-            "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"xyz\"\r\n\r\n")
-          resp (Response.with-header (Response.text @"hi") @"ETag" @"\"abc\"")]
-      (web-etag-match? &req &resp))
-    "etag-match? false when ETags differ")
-
-  ; -- the response side of the lookup is case-insensitive too --
-  (assert-true test
-    (let [req (parse-req
-            "GET / HTTP/1.1\r\nHost: x\r\nIf-None-Match: \"abc\"\r\n\r\n")
-          resp (Response.with-header (Response.text @"hi") @"etag" @"\"abc\"")]
-      (web-etag-match? &req &resp))
-    "etag-match? finds a lower-case ETag on the response")
-  (assert-true test
-    (let [req (parse-req
-            "GET / HTTP/1.1\r\nHost: x\r\nIf-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT\r\n\r\n")
-          resp (Response.with-header (Response.text @"hi")
-                                     @"last-modified"
-                                     @"Sun, 06 Nov 1994 08:49:37 GMT")]
-      (web-if-modified-since? &req &resp))
-    "if-modified-since? finds a lower-case Last-Modified on the response")
-
-  ; -- an entity-tag list is split on commas outside the quoted tags --
+  ; -- the validators are read from the response case-insensitively --
   (assert-equal test
-    &[@"\"a\"" @"W/\"b\"" @"\"c,d\""]
-    &(web-parse-etag-list " \"a\" , W/\"b\",\"c,d\" ")
-    "the entity-tag list keeps quoted commas and drops the OWS")
+    304
+    (validated-code "etag" "\"abc\"" "If-None-Match: \"abc\"\r\n")
+    "a lower-case etag on the response is matched")
   (assert-equal test
-    &(the (Array String) [])
-    &(web-parse-etag-list "\"unterminated")
-    "an unterminated entity-tag yields no tags")
+    304
+    (validated-code "last-modified"
+                    "Sun, 06 Nov 1994 08:49:37 GMT"
+                    "If-Modified-Since: Sun, 06 Nov 1994 08:49:37 GMT\r\n")
+    "a lower-case last-modified on the response is matched")
+  (assert-equal test
+    200
+    (inm-code "\"unterminated" "\"abc\"")
+    "an unterminated entity-tag matches nothing")
 
   ; -- If-None-Match: * matches any current representation (RFC 9110 §13.1.2) --
   (assert-equal test 304 (inm-code "*" "\"abc\"") "* matches a tagged 200")
@@ -1561,32 +1587,162 @@
     (inm-code "W/\"abc\"" "\"abcd\"")
     "the weak comparison still compares the whole opaque tag")
 
-  ; -- 304 is a GET/HEAD outcome; other methods get 412 (RFC 9110 §13.2.2) --
+  ; -- 304 is a GET/HEAD outcome --
   (assert-equal test
     304
     (conditional-code "HEAD" "\"abc\"" "If-None-Match: \"abc\"\r\n")
     "a matching If-None-Match on HEAD returns 304")
+
+  ; -- a state-changing method's preconditions are its handler's to evaluate --
   (assert-equal test
-    412
+    201
+    (put-code create-blindly "If-None-Match: *\r\n")
+    "a conditional create is answered with what its handler did")
+  (assert-equal test 1 writes "the conditional create's handler wrote once")
+  (assert-equal test
+    200
     (conditional-code "PUT" "\"abc\"" "If-None-Match: \"abc\"\r\n")
-    "a matching If-None-Match on PUT returns 412")
+    "a matching If-None-Match on PUT leaves the handler's 200 alone")
   (assert-equal test
-    412
+    200
     (conditional-code "DELETE" "\"abc\"" "If-None-Match: *\r\n")
-    "a matching If-None-Match on DELETE returns 412")
+    "a matching If-None-Match on DELETE leaves the handler's 200 alone")
+  (assert-equal test
+    200
+    (conditional-code "PUT" "\"abc\"" "If-Match: \"old\"\r\n")
+    "an If-Match on PUT is not compared with the ETag its handler returned")
   (assert-equal test
     200
     (conditional-code "PUT" "\"abc\"" "If-None-Match: \"z\"\r\n")
     "a failing If-None-Match on PUT leaves the 200 alone")
+  (assert-equal test
+    412
+    (put-code update-checked "If-Match: \"v0\"\r\n")
+    "a handler's own 412 for a stale If-Match is sent as it is")
+  (assert-equal test 0 writes "the handler that answered 412 did not write")
+  (assert-equal test
+    200
+    (put-code update-checked "If-Match: \"v1\"\r\n")
+    "a current If-Match lets the handler write")
+
+  ; -- If-Match uses the strong comparison function (RFC 9110 §13.1.1) --
+  (assert-equal test
+    200
+    (conditional-code "GET" "\"abc\"" "If-Match: \"abc\"\r\n")
+    "a matching If-Match serves the 200")
+  (assert-equal test
+    412
+    (conditional-code "GET" "\"abc\"" "If-Match: \"z\"\r\n")
+    "an If-Match naming another tag returns 412")
+  (assert-equal test
+    200
+    (conditional-code "GET" "\"abc\"" "If-Match: \"z\", \"abc\"\r\n")
+    "an If-Match list matching on its second tag serves the 200")
+  (assert-equal test
+    200
+    (conditional-code "GET" "\"abc\"" "If-Match: *\r\n")
+    "If-Match: * matches a current representation")
+  (assert-equal test
+    412
+    (conditional-code "GET" "\"abc\"" "If-Match: W/\"abc\"\r\n")
+    "a weak If-Match tag never matches")
+  (assert-equal test
+    412
+    (conditional-code "GET" "W/\"abc\"" "If-Match: \"abc\"\r\n")
+    "If-Match never matches a weak ETag")
+  (assert-equal test
+    412
+    (conditional-code "HEAD" "\"abc\"" "If-Match: \"z\"\r\n")
+    "a failed If-Match on HEAD returns 412")
+  (assert-equal test
+    412
+    (conditional-code "GET"
+                      "\"abc\""
+                      "If-Match: \"z\"\r\nIf-None-Match: \"abc\"\r\n")
+    "a failed If-Match wins over a matching If-None-Match")
+  (assert-equal test
+    404
+    @(Response.code
+      &(static-resp "GET /static/nope.html HTTP/1.1\r\nIf-Match: \"z\"\r\n\r\n"))
+    "a failed If-Match on a request that answers 404 leaves the 404 alone")
+
+  ; -- If-Unmodified-Since (RFC 9110 §13.1.4) --
+  (assert-equal test
+    412
+    (dated-code "GET" "If-Unmodified-Since: Sat, 31 Dec 2022 23:59:59 GMT\r\n")
+    "an If-Unmodified-Since before Last-Modified returns 412")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Unmodified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "an If-Unmodified-Since after Last-Modified serves the 200")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Unmodified-Since: Sun, 01 Jan 2023 00:00:00 GMT\r\n")
+    "an If-Unmodified-Since equal to Last-Modified serves the 200")
+  (assert-equal test
+    200
+    (dated-code "GET" "If-Unmodified-Since: yesterday\r\n")
+    "an invalid If-Unmodified-Since is ignored")
+  (assert-equal test
+    200
+    (dated-code "GET"
+                "If-Match: \"abc\"\r\nIf-Unmodified-Since: Sat, 31 Dec 2022 23:59:59 GMT\r\n")
+    "an If-Match suppresses If-Unmodified-Since")
+
+  ; -- If-Range: a Range is honoured only for the representation it names --
+  (assert-equal test
+    206
+    @(Response.code &(if-range-resp "HEAD" &(index-validator "ETag")))
+    "an If-Range naming the current ETag honours the Range")
+  (assert-equal test
+    200
+    @(Response.code &(if-range-resp "HEAD" "\"changed\""))
+    "an If-Range naming another ETag serves the whole file")
+  (assert-equal test
+    "11"
+    &(header-val &(if-range-resp "HEAD" "\"changed\"") "Content-Length")
+    "a failed If-Range keeps the full Content-Length")
+  (assert-equal test
+    200
+    @(Response.code
+      &(if-range-resp "HEAD" &(fmt "W/%s" &(index-validator "ETag"))))
+    "a weak If-Range tag never matches")
+  (assert-equal test
+    206
+    @(Response.code &(if-range-resp "HEAD" &(index-validator "Last-Modified")))
+    "an If-Range equal to Last-Modified honours the Range")
+  (assert-equal test
+    200
+    @(Response.code &(if-range-resp "HEAD" "Sun, 06 Nov 1994 08:49:37 GMT"))
+    "an If-Range naming another date serves the whole file")
+  (assert-true test
+    (Map.contains?
+      (Response.headers &(if-range-resp "GET" &(index-validator "ETag")))
+      "X-Sendfile-Range")
+    "a matching If-Range on a GET arms the range transfer")
+  (assert-false test
+    (Map.contains?
+      (Response.headers &(if-range-resp "GET" "\"changed\""))
+      "X-Sendfile-Range")
+    "a failed If-Range on a GET sends the whole file")
+  (assert-equal test
+    "11"
+    &(header-val
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nIf-Range: \"changed\"\r\n\r\n")
+      "Content-Length")
+    "an If-Range without a Range is ignored")
+
+  ; -- a 412 is bodyless --
   (assert-true test
     (String.empty?
       (Response.body
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n")))
+        &(conditional-resp "GET" "\"abc\"" "" "If-Match: \"z\"\r\n")))
     "a 412 has no body")
   (assert-false test
     (Map.contains?
       (Response.headers
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+        &(conditional-resp "GET" "\"abc\"" "" "If-Match: \"z\"\r\n"))
       "Content-Type")
     "a 412 drops Content-Type")
 
@@ -1594,24 +1750,22 @@
   (assert-true test
     (Map.contains?
       (Response.headers
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+        &(conditional-resp "GET" "\"abc\"" "" "If-Match: \"z\"\r\n"))
       "ETag")
     "a 412 carries the ETag its precondition was tested against")
   (assert-equal test
     "http://a.test"
     &(header-val
-      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
+      &(cors-conditional "GET" "If-Match: \"z\"\r\n")
       "Access-Control-Allow-Origin")
     "a 412 keeps the CORS after-hook's Access-Control-Allow-Origin")
   (assert-equal test
     "yes"
-    &(header-val
-      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
-      "X-Custom")
+    &(header-val &(cors-conditional "GET" "If-Match: \"z\"\r\n") "X-Custom")
     "a 412 keeps a header the handler set")
   (assert-true test
     (Map.contains?
-      (Response.headers &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n"))
+      (Response.headers &(cors-conditional "GET" "If-Match: \"z\"\r\n"))
       "Set-Cookie")
     "a 412 keeps a cookie the handler set")
 
@@ -1657,9 +1811,9 @@
     (dated-code "GET" "If-Modified-Since: Fri, 31 Dec 2100 23:59:59 UTC\r\n")
     "an If-Modified-Since outside GMT is ignored")
   (assert-equal test
-    200
-    (dated-code "GET" "If-Modified-Since: Fri, 31 Feb 2100 00:00:00 GMT\r\n")
-    "an If-Modified-Since whose day the month does not have is ignored")
+    304
+    (dated-code "GET" "If-Modified-Since: Fri Dec  3 23:59:59 2100\r\n")
+    "an asctime If-Modified-Since whose day is space-padded returns 304")
 
   ; -- 304 Not Modified on matching ETag --
   (assert-equal test
@@ -1784,8 +1938,7 @@
   (assert-equal test
     "0"
     &(header-val
-      &(framed
-        (conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+      &(framed (conditional-resp "GET" "\"abc\"" "" "If-Match: \"z\"\r\n"))
       "Content-Length")
     "a 412 frames the empty body it does carry")
 
@@ -1844,77 +1997,6 @@
     "Tue, 29 Feb 2000 00:00:00 GMT"
     &(web-http-date 951782400l)
     "http-date formats a leap day")
-
-  ; -- IMF-fixdate parser --
-  (assert-equal test
-    1445412480l
-    (date-secs "Wed, 21 Oct 2015 07:28:00 GMT")
-    "parse-http-date inverts the formatter")
-  (assert-true test
-    (Maybe.nothing? &(web-parse-http-date "not a date"))
-    "parse-http-date rejects a malformed value")
-
-  ; -- rfc850 and asctime dates name the same instant as the IMF-fixdate --
-  (assert-equal test
-    1445412480l
-    (date-secs "Wednesday, 21-Oct-15 07:28:00 GMT")
-    "parse-http-date reads an rfc850 date")
-  (assert-equal test
-    1445412480l
-    (date-secs "Wed Oct 21 07:28:00 2015")
-    "parse-http-date reads an asctime date")
-  (assert-equal test
-    784111777l
-    (date-secs "Sun Nov  6 08:49:37 1994")
-    "parse-http-date reads an asctime date whose day is space-padded")
-
-  ; -- the rfc850 two-digit year window --
-  (assert-equal test
-    (date-secs "Wed, 01 Jan 1969 00:00:00 GMT")
-    (date-secs "Wednesday, 01-Jan-69 00:00:00 GMT")
-    "an rfc850 year of 69 is 1969")
-  (assert-equal test
-    (date-secs "Fri, 31 Dec 1999 23:59:59 GMT")
-    (date-secs "Friday, 31-Dec-99 23:59:59 GMT")
-    "an rfc850 year of 99 is 1999")
-  (assert-equal test
-    (date-secs "Sat, 01 Jan 2000 00:00:00 GMT")
-    (date-secs "Saturday, 01-Jan-00 00:00:00 GMT")
-    "an rfc850 year of 00 is 2000")
-  (assert-equal test
-    (date-secs "Sun, 01 Jan 2068 00:00:00 GMT")
-    (date-secs "Sunday, 01-Jan-68 00:00:00 GMT")
-    "an rfc850 year of 68 is 2068")
-
-  ; -- separators, zone and day of the month --
-  (assert-equal test
-    -1l
-    (date-secs "Sun, 06 Nov 1994 08:49:37 UTC")
-    "a date outside GMT is malformed")
-  (assert-equal test
-    -1l
-    (date-secs "Sun; 06 Nov 1994 08:49:37 GMT")
-    "a date whose separator is not a comma is malformed")
-  (assert-equal test
-    -1l
-    (date-secs "Sun, 06 Nov 1994 08:49:37 GMT ")
-    "a date with trailing junk is malformed")
-  (assert-equal test
-    -1l
-    (date-secs "Sun, 06-Nov-94 08:49:37 GMT")
-    "an rfc850 date under an abbreviated day name is malformed")
-  (assert-equal test
-    -1l
-    (date-secs "Sun, 31 Feb 1994 08:49:37 GMT")
-    "a day the month does not have is malformed")
-  (assert-equal test
-    -1l
-    (date-secs "Thu, 29 Feb 1900 08:49:37 GMT")
-    "29 February of a common year is malformed")
-  (assert-equal test
-    951814177l
-    (date-secs "Tue, 29 Feb 2000 08:49:37 GMT")
-    "29 February of a leap year parses")
 
   ; -- Date header --
   (assert-true test

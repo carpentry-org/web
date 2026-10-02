@@ -132,6 +132,26 @@ Prints `GET /path 200 3ms` for each request. Works with any `log` backend
 Serves `public/index.html` at `/`. Paths with `..` return 404. Content
 types are inferred from file extensions.
 
+### Conditional requests
+
+A `GET` or `HEAD` answered with a `2xx` has its `If-Match`,
+`If-Unmodified-Since`, `If-None-Match` and `If-Modified-Since` evaluated against
+the response's `ETag` and `Last-Modified`, and is answered with a `304` or a
+`412` when one fails. Static files carry both validators. A `Range` whose
+`If-Range` names another version is ignored, and the whole file is sent.
+
+Any other method's handler has acted by the time its response is seen, so its
+response is sent as it is. Such a handler evaluates the preconditions itself,
+against the resource's current validators, before it changes anything:
+
+```clojure
+(defn update [req params]
+  (match (Request.preconditions req &(current-etag) &(Maybe.Nothing))
+    (Maybe.Just code)
+      (Response.with-status (Response.text @"") code (Status.reason code))
+    (Maybe.Nothing) (save req)))
+```
+
 ### Custom error pages
 
 ```clojure
