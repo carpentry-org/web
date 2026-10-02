@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.0]
+
+### Changed
+- `http` bumped to 0.7.0 and `json` to 0.7.1, both of which follow Carp
+  core's rename of `format` to `unsafe-format`. web builds again on a Carp
+  that carries the rename. Through `time` 0.7.0, `Datetime.format` is now
+  `Datetime.unsafe-format`.
+
 ## [0.11.0]
 
 ### Changed
