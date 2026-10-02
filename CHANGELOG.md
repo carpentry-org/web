@@ -18,13 +18,10 @@
   (`PUT` with `If-None-Match: *`) created the resource and then told the client
   it had not. Their handlers evaluate `Request.preconditions` themselves, before
   acting.
-- Conditional requests are evaluated by `http`'s `Precondition`. An
-  `If-None-Match` that is not a well-formed list of entity-tags is ignored as a
-  whole, where its well-formed members used to be matched; it still keeps
-  `If-Modified-Since` from being evaluated. `If-Modified-Since` is read by
-  `HttpDate.parse`, which also takes the two dashed cookie-date forms, rejects a
-  day name that is not one, and does not reject a day the month does not have
-  or text after the date.
+- An `If-None-Match` that is not a well-formed list of entity-tags is ignored
+  as a whole, where its well-formed members used to be matched; it still keeps
+  `If-Modified-Since` from being evaluated. A date precondition whose day name
+  is not a day is ignored.
 
 ## [0.12.0]
 
