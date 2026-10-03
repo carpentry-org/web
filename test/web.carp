@@ -1660,6 +1660,18 @@
     "a failed If-Match on HEAD returns 412")
   (assert-equal test
     412
+    (conditional-code "GET" "" "If-Match: \"x\"\r\n")
+    "an If-Match tag against a response with no ETag returns 412")
+  (assert-equal test
+    412
+    (conditional-code "GET" "\"abc\"" "If-Match: abc\r\n")
+    "an unquoted If-Match returns 412")
+  (assert-equal test
+    412
+    (conditional-code "GET" "\"abc\"" "If-Match:\r\n")
+    "an empty If-Match returns 412")
+  (assert-equal test
+    412
     (conditional-code "GET"
                       "\"abc\""
                       "If-Match: \"z\"\r\nIf-None-Match: \"abc\"\r\n")
@@ -1831,6 +1843,34 @@
     200
     (dated-code "GET" "If-Unmodified-Since: Fri, 31 Feb 2022 00:00:00 GMT\r\n")
     "an If-Unmodified-Since whose day the month does not have is ignored")
+  (assert-equal test
+    200
+    (dated-code "GET" "if-modified-since: Fri, 31 Feb 2100 00:00:00 GMT\r\n")
+    "a lower-case If-Modified-Since the strict parser rejects is ignored")
+  (assert-equal test
+    304
+    (dated-code "GET" "if-modified-since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "a lower-case If-Modified-Since is compared with Last-Modified")
+  (assert-equal test
+    412
+    (dated-code "GET"
+                "If-Modified-Since: Fri, 31 Feb 2100 00:00:00 GMT\r\nIf-Match: \"z\"\r\n")
+    "an If-Match next to a rejected If-Modified-Since is still evaluated")
+  (assert-equal test
+    304
+    (dated-code "GET"
+                "If-Unmodified-Since: Fri, 31 Feb 2022 00:00:00 GMT\r\nIf-Modified-Since: Fri, 31 Dec 2100 23:59:59 GMT\r\n")
+    "an If-Modified-Since next to a rejected If-Unmodified-Since is still evaluated")
+  (assert-equal test
+    304
+    @(Response.code
+      &(conditional-resp "GET" "\"abc\"" "garbage" "If-None-Match: \"abc\"\r\n"))
+    "an unreadable Last-Modified leaves a matching If-None-Match a 304")
+  (assert-equal test
+    200
+    @(Response.code
+      &(conditional-resp "GET" "\"abc\"" "garbage" "If-None-Match: \"z\"\r\n"))
+    "an unreadable Last-Modified leaves a failing If-None-Match a 200")
 
   ; -- 304 Not Modified on matching ETag --
   (assert-equal test

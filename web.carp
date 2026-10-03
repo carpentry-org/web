@@ -2110,15 +2110,18 @@ stream and any proxy in front of it from timing out.")
       (Maybe.Nothing)
       (Result.to-maybe (HttpDate.parse (Array.unsafe-first &vals))))))
 
+(hidden web-strict-date?)
+(defn web-strict-date? [d] (Maybe.just? &(web-parse-http-date d)))
+
 ; Drops a date precondition web-parse-http-date rejects, so it is ignored.
 (hidden web-strict-date-headers)
 (defn web-strict-date-headers [hdrs]
   (Map.kv-reduce
     &(fn [m k v]
       (let [lk (String.ascii-to-lower k)]
-        (if (and (or (= &lk "if-modified-since") (= &lk "if-unmodified-since"))
-                 (not (Array.all? &(fn [d] (Maybe.just? &(web-parse-http-date d)))
-                                  v)))
+        (if (and
+            (or (= &lk "if-modified-since") (= &lk "if-unmodified-since"))
+            (not (Array.all? &web-strict-date? v)))
           m
           (Map.put m k v))))
     (the (Map String (Array String)) {})
@@ -2127,22 +2130,34 @@ stream and any proxy in front of it from timing out.")
 ; RFC 9110 §13.2.1's order: preconditions, then If-Range, then Range.
 (hidden web-conditional)
 (defn web-conditional [req resp]
-  (let [etag (web-response-etag &resp)
-        modified (web-response-modified &resp)
+  (let [hdrs (Request.headers req)
         code @(Response.code &resp)
-        status (if (and (web-get-or-head? req) (and (>= code 200) (< code 300)))
-          (Precondition.evaluate &(web-strict-date-headers (Request.headers req))
+        gated (and (web-get-or-head? req) (and (>= code 200) (< code 300)))
+        dates (if gated
+          (Array.concat
+            &[(header-values-ci hdrs "If-Modified-Since")
+              (header-values-ci hdrs "If-Unmodified-Since")])
+          [])
+        if-range (Maybe.just? &(Request.header req "If-Range"))
+        etag (if (or gated if-range) (web-response-etag &resp) (Maybe.Nothing))
+        modified (if (or if-range (not (Array.empty? &dates)))
+          (web-response-modified &resp)
+          (Maybe.Nothing))
+        status (cond
+          (not gated) (Maybe.Nothing)
+          (Array.all? &web-strict-date? &dates)
+            (Precondition.evaluate hdrs (Request.verb req) &etag &modified)
+          (Precondition.evaluate &(web-strict-date-headers hdrs)
                                  (Request.verb req)
                                  &etag
-                                 &modified)
-          (Maybe.Nothing))]
+                                 &modified))]
     (match status
       (Maybe.Just c)
         (if (= c Status.not-modified)
           (web-not-modified resp)
           (web-precondition-failed resp))
       (Maybe.Nothing)
-        (if (Request.if-range-matches? req &etag &modified)
+        (if (or (not if-range) (Request.if-range-matches? req &etag &modified))
           (web-mark-range req resp)
           resp))))
 

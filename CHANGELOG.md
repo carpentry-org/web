@@ -6,10 +6,13 @@
 - **`If-Match`, `If-Unmodified-Since` and `If-Range` are honoured.** A `GET` or
   `HEAD` whose `If-Match` names no current version, or whose
   `If-Unmodified-Since` is older than the response's `Last-Modified`, is
-  answered with `412 Precondition Failed`. A range request whose `If-Range`
-  names another version gets the whole file with a `200`; it used to get a
-  `206` of the current file, which a client resuming a download of a file that
-  had changed spliced onto the bytes of the old one.
+  answered with `412 Precondition Failed`. That includes an `If-Match` listing
+  entity-tags against a response with no `ETag`, which leaves the list nothing
+  to match. An `If-Match` that cannot be read, such as an unquoted tag or an
+  empty value, is not ignored but fails closed with a `412`. A range request
+  whose `If-Range` names another version gets the whole file with a `200`; it
+  used to get a `206` of the current file, which a client resuming a download
+  of a file that had changed spliced onto the bytes of the old one.
 
 ### Changed
 - **The response to a `POST`, `PUT`, `PATCH` or `DELETE` is sent as its handler
