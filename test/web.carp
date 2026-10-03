@@ -1853,6 +1853,23 @@
     "a lower-case If-Modified-Since is compared with Last-Modified")
   (assert-equal test
     412
+    (dated-code "GET" "if-unmodified-since: Sat, 31 Dec 2022 00:00:00 GMT\r\n")
+    "a lower-case If-Unmodified-Since is compared with Last-Modified")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nif-range: \"changed\"\r\n\r\n"))
+    "a lower-case If-Range naming another ETag serves the whole file")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(static-resp
+          "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nif-range: \"changed\"\r\n\r\n"))
+      "X-Sendfile-Range")
+    "a lower-case failed If-Range on a GET sends the whole file")
+  (assert-equal test
+    412
     (dated-code "GET"
                 "If-Modified-Since: Fri, 31 Feb 2100 00:00:00 GMT\r\nIf-Match: \"z\"\r\n")
     "an If-Match next to a rejected If-Modified-Since is still evaluated")
