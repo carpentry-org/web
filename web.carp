@@ -1654,10 +1654,12 @@ stream and any proxy in front of it from timing out.")
 ; preserve original case (RFC 7230 §3.2 says names are case-insensitive).
 (hidden header-values-ci)
 (defn header-values-ci [hdrs name]
-  (let [lower-name &(String.ascii-to-lower name)]
+  (let [lower-name &(String.ascii-to-lower name)
+        len (String.length name)]
     (Map.kv-reduce
       &(fn [acc k v]
-        (if (= &(String.ascii-to-lower k) lower-name)
+        (if (and (= (String.length k) len)
+                 (= &(String.ascii-to-lower k) lower-name))
           (Array.concat &[acc @v])
           acc))
       (the (Array String) [])
