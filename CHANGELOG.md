@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **A conditional `PUT`, `POST`, `PATCH` or `DELETE` is no longer told it
+  failed after it succeeded.** web evaluates `If-None-Match` after the handler
+  has run, so for a method that changes state the write had already happened,
+  and the response's `ETag` described the new representation. A conditional
+  create (`PUT` with `If-None-Match: *`) wrote and was then answered with a
+  `412`. web now sends such a response as the handler built it and answers
+  only a `GET` or `HEAD` with a `304`. A handler that needs a precondition
+  evaluates it before it acts, with http's `Request.preconditions` against the
+  resource's current validators.
+- **A resumed download of a changed file is no longer spliced.** `If-Range` was
+  ignored, so a `Range` request for a static file that had changed got a `206`
+  with bytes of the new file, which the client appended to the old one's. A
+  `Range` whose `If-Range` names another `ETag` or `Last-Modified` now gets
+  the whole file with a `200`, as RFC 9110 §13.1.5 requires. A weak `ETag`
+  never matches.
+
 ## [0.12.0]
 
 ### Changed

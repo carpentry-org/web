@@ -167,30 +167,6 @@
 (defn no-hooks-before []
   (the (Array (Fn [&Request &(Map String String)] (Maybe Response))) []))
 
-; the response a `verb` request carrying `hdrs` gets from a route whose 200
-; sets an ETag, `X-Custom` and a cookie, behind the CORS after-hook
-(defn cors-conditional [verb hdrs]
-  (let-do [app (App.route (App.create)
-                          @verb
-                          @"/"
-                          (fn [-r -p]
-                            (-> (Response.text @"hi")
-                                (Response.with-header @"ETag" @"\"abc\"")
-                                (Response.with-header @"X-Custom" @"yes")
-                                (Response.set-simple-cookie @"sid" @"s1"))))
-           bh (the
-             (Array (Fn [&Request &(Map String String)] (Maybe Response)))
-             [])
-           ah (the
-             (Array (Fn [&Request &(Map String String) Response] Response))
-             [CORS.after-hook])
-           raw (fmt
-             "%s / HTTP/1.1\r\nHost: x\r\nOrigin: http://a.test\r\n%s\r\n"
-             verb
-             hdrs)]
-    (CORS.configure @"http://a.test")
-    @(Pair.a &(web-build-response &app &bh &ah &(String.to-bytes &raw)))))
-
 ; `resp` as it goes on the wire, i.e. once its framing headers are filled in
 (defn framed [resp] (web-finalize-response resp true))
 
@@ -1317,6 +1293,80 @@
           "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\n\r\n")))
     "HEAD range request has no body")
 
+  ; -- a Range whose If-Range names another version is ignored (RFC 9110 §13.1.5) --
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: \"changed\"\r\n\r\n"))
+    "an If-Range naming another ETag serves the whole file")
+  (assert-false test
+    (Map.contains?
+      (Response.headers
+        &(static-resp
+          "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: \"changed\"\r\n\r\n"))
+      "X-Sendfile-Range")
+    "an If-Range naming another ETag leaves a GET's range marker off")
+  (assert-equal test
+    206
+    @(Response.code
+      &(static-resp
+        &(fmt
+          "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: %s\r\n\r\n"
+          &(header-val
+            &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n")
+            "ETag"))))
+    "an If-Range naming the current ETag serves the range")
+  (assert-true test
+    (Map.contains?
+      (Response.headers
+        &(static-resp
+          &(fmt
+            "GET /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: %s\r\n\r\n"
+            &(header-val
+              &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n")
+              "ETag"))))
+      "X-Sendfile-Range")
+    "an If-Range naming the current ETag arms a GET's range marker")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        &(fmt
+          "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: W/%s\r\n\r\n"
+          &(header-val
+            &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n")
+            "ETag"))))
+    "a weak If-Range never matches, so the whole file is served")
+  (assert-equal test
+    206
+    @(Response.code
+      &(static-resp
+        &(fmt
+          "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: %s\r\n\r\n"
+          &(header-val
+            &(static-resp "HEAD /static/index.html HTTP/1.1\r\n\r\n")
+            "Last-Modified"))))
+    "an If-Range naming the current Last-Modified serves the range")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nIf-Range: Sat, 01 Jan 2000 00:00:00 GMT\r\n\r\n"))
+    "an If-Range naming another date serves the whole file")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nIf-Range: \"changed\"\r\n\r\n"))
+    "an If-Range without a Range changes nothing")
+  (assert-equal test
+    200
+    @(Response.code
+      &(static-resp
+        "HEAD /static/index.html HTTP/1.1\r\nRange: bytes=0-4\r\nif-range: \"changed\"\r\n\r\n"))
+    "a lower-case if-range is read too")
+
   ; -- HEAD with an unsatisfiable range answers 416 --
   (assert-equal test
     416
@@ -1561,59 +1611,37 @@
     (inm-code "W/\"abc\"" "\"abcd\"")
     "the weak comparison still compares the whole opaque tag")
 
-  ; -- 304 is a GET/HEAD outcome; other methods get 412 (RFC 9110 §13.2.2) --
+  ; -- 304 is a GET/HEAD outcome; any other method's handler has already acted,
+  ; so its response goes out as the handler built it --
   (assert-equal test
     304
     (conditional-code "HEAD" "\"abc\"" "If-None-Match: \"abc\"\r\n")
     "a matching If-None-Match on HEAD returns 304")
   (assert-equal test
-    412
+    200
     (conditional-code "PUT" "\"abc\"" "If-None-Match: \"abc\"\r\n")
-    "a matching If-None-Match on PUT returns 412")
+    "a matching If-None-Match on PUT leaves the handler's response alone")
   (assert-equal test
-    412
+    200
+    (conditional-code "PUT" "\"abc\"" "If-None-Match: *\r\n")
+    "a conditional create on PUT gets the handler's response, not a 412")
+  (assert-equal test
+    200
     (conditional-code "DELETE" "\"abc\"" "If-None-Match: *\r\n")
-    "a matching If-None-Match on DELETE returns 412")
+    "a matching If-None-Match on DELETE leaves the handler's response alone")
+  (assert-equal test
+    200
+    (conditional-code "POST" "\"abc\"" "If-None-Match: \"abc\"\r\n")
+    "a matching If-None-Match on POST leaves the handler's response alone")
   (assert-equal test
     200
     (conditional-code "PUT" "\"abc\"" "If-None-Match: \"z\"\r\n")
     "a failing If-None-Match on PUT leaves the 200 alone")
-  (assert-true test
-    (String.empty?
-      (Response.body
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n")))
-    "a 412 has no body")
-  (assert-false test
-    (Map.contains?
-      (Response.headers
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
-      "Content-Type")
-    "a 412 drops Content-Type")
-
-  ; -- a 412 keeps every header that was not describing the body --
-  (assert-true test
-    (Map.contains?
-      (Response.headers
-        &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
-      "ETag")
-    "a 412 carries the ETag its precondition was tested against")
   (assert-equal test
-    "http://a.test"
-    &(header-val
-      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
-      "Access-Control-Allow-Origin")
-    "a 412 keeps the CORS after-hook's Access-Control-Allow-Origin")
-  (assert-equal test
-    "yes"
-    &(header-val
-      &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n")
-      "X-Custom")
-    "a 412 keeps a header the handler set")
-  (assert-true test
-    (Map.contains?
-      (Response.headers &(cors-conditional "PUT" "If-None-Match: \"abc\"\r\n"))
-      "Set-Cookie")
-    "a 412 keeps a cookie the handler set")
+    "hi"
+    (Response.body
+      &(conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
+    "a matching If-None-Match on PUT keeps the handler's body")
 
   ; -- If-Modified-Since is GET/HEAD-only and yields to If-None-Match --
   (assert-equal test
@@ -1781,13 +1809,6 @@
         (conditional-resp "HEAD" "\"abc\"" "" "If-None-Match: \"z\"\r\n"))
       "Content-Length")
     "a HEAD 200 keeps the length its GET would have had")
-  (assert-equal test
-    "0"
-    &(header-val
-      &(framed
-        (conditional-resp "PUT" "\"abc\"" "" "If-None-Match: \"abc\"\r\n"))
-      "Content-Length")
-    "a 412 frames the empty body it does carry")
 
   ; -- a sendfile 304 leaves the transfer machinery disarmed --
   (assert-equal test
