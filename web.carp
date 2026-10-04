@@ -1928,6 +1928,29 @@ stream and any proxy in front of it from timing out.")
                         (Map.remove @(Response.headers &resp)
                                     &@"X-Sendfile-Range")))
 
+; The first value of response header `name`, if any.
+(hidden web-response-header)
+(defn web-response-header [resp name]
+  (let [vals (header-values-ci (Response.headers resp) name)]
+    (if (Array.empty? &vals)
+      (Maybe.Nothing)
+      (Maybe.Just @(Array.unsafe-first &vals)))))
+
+; Whether a Range may be served: true unless the request's If-Range names a
+; version other than the response's (RFC 9110 §13.1.5), in which case the
+; whole file goes out instead. The validators are read only for an If-Range.
+(hidden web-if-range-current?)
+(defn web-if-range-current? [req resp]
+  (if (Maybe.nothing? &(Request.header req "If-Range"))
+    true
+    (let [etag (match (web-response-header resp "ETag")
+            (Maybe.Just v) (Result.to-maybe (ETag.parse &v))
+            (Maybe.Nothing) (Maybe.Nothing))
+          modified (match (web-response-header resp "Last-Modified")
+            (Maybe.Just v) (Result.to-maybe (HttpDate.parse &v))
+            (Maybe.Nothing) (Maybe.Nothing))]
+      (Request.if-range-matches? req &etag &modified))))
+
 ; Attach the request's Range header to a sendfile response as an internal
 ; marker, resolved against the file size at transfer setup.
 (hidden web-mark-range)
@@ -1938,9 +1961,12 @@ stream and any proxy in front of it from timing out.")
       (match (Request.header req "Range")
         (Maybe.Nothing) resp
         (Maybe.Just rv)
-          (let [k @"X-Sendfile-Range"
-                v [rv]]
-            (Response.set-headers resp (Map.put @(Response.headers &resp) &k &v))))))
+          (if (web-if-range-current? req &resp)
+            (let [k @"X-Sendfile-Range"
+                  v [rv]]
+              (Response.set-headers resp
+                                    (Map.put @(Response.headers &resp) &k &v)))
+            resp))))
 
 ; Resolve the marker attached by web-mark-range against a known file size.
 (hidden web-resolve-marker)
@@ -2132,11 +2158,6 @@ stream and any proxy in front of it from timing out.")
 (hidden web-not-modified)
 (defn web-not-modified [resp] (web-bodyless resp 304 @"Not Modified"))
 
-; The 412 a failed precondition owes a non-GET/HEAD request (RFC 9110 §15.5.13).
-(hidden web-precondition-failed)
-(defn web-precondition-failed [resp]
-  (web-bodyless resp 412 @"Precondition Failed"))
-
 ; True when the response's Last-Modified is not newer than If-Modified-Since.
 (hidden web-if-modified-since?)
 (defn web-if-modified-since? [req resp]
@@ -2153,15 +2174,19 @@ stream and any proxy in front of it from timing out.")
                 (Maybe.Nothing) false
                 (Maybe.Just mtime) (not (Long.< since mtime))))))))
 
-; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3),
-; which applies to GET and HEAD only; a non-2xx response ignores both (§13.2.1).
+; If-None-Match takes precedence over If-Modified-Since (RFC 9110 §13.1.3); a
+; non-2xx response ignores both (§13.2.1). Only a GET or HEAD is answered with
+; a 304: any other method's handler has acted by the time its response is seen,
+; so the response goes out as the handler built it, and a handler that needs a
+; precondition evaluates it before acting.
 (hidden web-conditional-not-modified?)
 (defn web-conditional-not-modified? [req resp]
   (let [code @(Response.code resp)]
     (cond
+      (not (web-get-or-head? req)) false
       (or (< code 200) (>= code 300)) false
       (Array.empty? &(header-values-ci (Request.headers req) "If-None-Match"))
-        (and (web-get-or-head? req) (web-if-modified-since? req resp))
+        (web-if-modified-since? req resp)
       (web-etag-match? req resp))))
 
 ; Forward-declare App.max-header-line so top-level validation helpers can
@@ -2255,11 +2280,8 @@ stream and any proxy in front of it from timing out.")
                       (~(Route.handler r) &req &params))))
               after-resp (web-run-after after-hooks &req &params resp)
               ranged (web-mark-range &req after-resp)
-              ; a failed precondition: 304 for GET/HEAD, 412 for anything else
               cond-resp (if (web-conditional-not-modified? &req &ranged)
-                (if (web-get-or-head? &req)
-                  (web-not-modified ranged)
-                  (web-precondition-failed ranged))
+                (web-not-modified ranged)
                 ranged)
               ; HEAD: strip body, preserve Content-Length
               final (if is-head (web-strip-head-body cond-resp) cond-resp)]
