@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## [0.12.1]
+
+### Changed
+- `http` bumped to 0.7.1 and `file` to 0.4.1. http now reads numeric header
+  fields by their grammar and matches `Set-Cookie` attributes by name; file's
+  `follow-links?` walk now follows links to directories.
 
 ### Fixed
 - **A conditional `PUT`, `POST`, `PATCH` or `DELETE` is no longer told it

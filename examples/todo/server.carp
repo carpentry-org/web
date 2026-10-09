@@ -1,5 +1,5 @@
 ; in-tree load so CI compiles this example; outside the repo use
-; (load "git@github.com:carpentry-org/web@0.12.0")
+; (load "git@github.com:carpentry-org/web@0.12.1")
 (load "../../web.carp")
 (load "git@github.com:carpentry-org/orm@0.5.2" "backends/sqlite3.carp")
 
