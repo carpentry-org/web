@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.12.2]
+
+### Changed
+- `json` bumped to 0.7.2, which uses the public Map API for JSON Patch
+  diffing. The Map reference helpers now come from core. web builds again
+  with Carp core's open-addressing Map.
+
 ## [0.12.1]
 
 ### Changed

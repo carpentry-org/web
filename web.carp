@@ -4,13 +4,13 @@ Events support.
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.12.1\")
+(load \"git@github.com:carpentry-org/web@0.12.2\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.12.1\")
+(load \"git@github.com:carpentry-org/web@0.12.2\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -36,7 +36,7 @@ Events support.
 
 (load "git@github.com:carpentry-org/http@0.7.1")
 (load "git@github.com:carpentry-org/socket@0.2.5")
-(load "git@github.com:carpentry-org/json@0.7.1")
+(load "git@github.com:carpentry-org/json@0.7.2")
 (load "git@github.com:carpentry-org/file@0.4.1")
 (load "git@github.com:carpentry-org/log@0.2.0")
 (load "git@github.com:carpentry-org/utf8.carp@0.2.0")
@@ -285,27 +285,6 @@ Returns 20 raw bytes.")
   (doc sha1-hex "computes the HMAC-SHA1 of `msg` using `key`, returning a
 40-character lowercase hex string.")
   (defn sha1-hex [key msg] (hex-encode &(sha1 key msg))))
-
-(defmodule Map
-  (doc update-value! "calls `f` with a reference to the value at key `k`.
-Does nothing if the key is not found. The reference allows mutation through
-FFI functions (e.g. reading into a stream's buffer).")
-  (defn update-value! [m k f]
-    (let [idx (Int.positive-mod (hash k) @(n-buckets m))]
-      (let [bucket (Array.unsafe-nth (buckets m) idx)
-            i (Bucket.find bucket k)]
-        (when (>= i 0)
-          (~f (Pair.b (Array.unsafe-nth (Bucket.entries bucket) i)))))))
-
-  (doc value-ref! "calls `f` with a reference to the value at key `k` and
-returns whatever `f` returns. If the key is missing, returns `default`.")
-  (defn value-ref! [m k f default]
-    (let [idx (Int.positive-mod (hash k) @(n-buckets m))]
-      (let [bucket (Array.unsafe-nth (buckets m) idx)
-            i (Bucket.find bucket k)]
-        (if (>= i 0)
-          (~f (Pair.b (Array.unsafe-nth (Bucket.entries bucket) i)))
-          default)))))
 
 (relative-include "src/fstat_mtime.h")
 (private web-fstat-mtime)
