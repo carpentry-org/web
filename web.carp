@@ -3906,4 +3906,4 @@ CORS with automatic preflight handling.")
                                             'ah
                                             after-arr]
                                            serve-call))))]
-    (eval (list 'defn 'main (array) (cons 'do body-forms)))))
+    (list 'defn 'main (array) (cons 'do body-forms))))
