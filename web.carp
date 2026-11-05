@@ -4,13 +4,13 @@ Events support.
 ## Installation
 
 ```
-(load \"git@github.com:carpentry-org/web@0.12.2\")
+(load \"git@github.com:carpentry-org/web@0.12.3\")
 ```
 
 ## Usage
 
 ```
-(load \"git@github.com:carpentry-org/web@0.12.2\")
+(load \"git@github.com:carpentry-org/web@0.12.3\")
 
 (defn hello [req params]
   (Response.text @\"Hello, world!\"))
@@ -35,7 +35,7 @@ Events support.
 ```")
 
 (load "git@github.com:carpentry-org/http@0.7.1")
-(load "git@github.com:carpentry-org/socket@0.2.5")
+(load "git@github.com:carpentry-org/socket@0.2.6")
 (load "git@github.com:carpentry-org/json@0.7.2")
 (load "git@github.com:carpentry-org/file@0.4.1")
 (load "git@github.com:carpentry-org/log@0.2.0")

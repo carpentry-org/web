@@ -1,7 +1,7 @@
 ; in-tree load so CI compiles this example; outside the repo use
-; (load "git@github.com:carpentry-org/web@0.12.2")
+; (load "git@github.com:carpentry-org/web@0.12.3")
 (load "../../web.carp")
-(load "git@github.com:carpentry-org/orm@0.5.2" "backends/sqlite3.carp")
+(load "git@github.com:carpentry-org/orm@0.5.3" "backends/sqlite3.carp")
 
 (deftype Item [id Long text String done Bool])
 (derive-model Item SQLiteBackend [id Long])

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.12.3]
+
+### Changed
+- `socket` bumped to 0.2.6 and `orm` to 0.5.3.
+
+### Fixed
+- `defserver` defines `main` without `eval`.
+
 ## [0.12.2]
 
 ### Changed
