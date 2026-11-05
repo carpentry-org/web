@@ -97,9 +97,11 @@ grep -q 'HTTP/1.1 100 Continue' "$WORK/expect.log" \
 
 # 8. keep-alive: two requests reuse one connection
 check "keep-alive"
-curl -sf --max-time 10 -o /dev/null -o /dev/null -v "$BASE/ok" "$BASE/ok" \
-  2> "$WORK/ka.log" || fail "keep-alive requests errored"
-grep -qi 're-us' "$WORK/ka.log" || fail "connection was not reused"
+# curl prints one new-connection count per transfer; 0 on the second means
+# it reused the first. curl's -v wording for this differs between versions.
+CONNS=$(curl -sf --max-time 10 -o /dev/null -o /dev/null -w '%{num_connects} ' \
+  "$BASE/ok" "$BASE/ok") || fail "keep-alive requests errored"
+[ "$CONNS" = "1 0 " ] || fail "connection was not reused (new connections per request: $CONNS)"
 
 # 9. malformed framing is rejected with a 400
 check "malformed framing"
