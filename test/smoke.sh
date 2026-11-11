@@ -185,4 +185,12 @@ python3 test/ws-smoke.py "$PORT" || fail "WebSocket checks failed"
 check "server survived the WebSocket checks"
 [ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on a WebSocket connection"
 
+# 18. requests pipelined in one write are each answered, in order (curl cannot
+#     pipeline, so this client is python3 too)
+check "pipelining"
+python3 test/pipeline-smoke.py "$PORT" || fail "pipelining checks failed"
+
+check "server survived pipelining"
+[ "$(curl -sf --max-time 10 "$BASE/ok")" = "ok" ] || fail "server died on pipelined requests"
+
 echo "smoke: all checks passed"
