@@ -275,6 +275,30 @@
     (WebDispatch.UpgradeRequired) false
     (WebDispatch.SSEOpen _ _ _) false))
 
+(defn echo-app []
+  (-> (App.create)
+      (App.GET @"/a" (fn [r p] (Response.text (fmt "a:%s" (Request.body r)))))
+      (App.POST @"/e" (fn [r p] (Response.text @(Request.body r))))))
+
+; dispatches the first request in `raw`: its response body and what is left
+(defn dispatch-first [raw]
+  (let-do [bh (the
+             (Array (Fn [&Request &(Map String String)] (Maybe Response)))
+             [])
+           ah (the
+             (Array (Fn [&Request &(Map String String) Response] Response))
+             [])
+           buf (String.to-bytes raw)
+           d (web-dispatch-first! &(echo-app) &bh &ah &buf 0)]
+    (Pair.init
+      (match-ref &d
+        (WebDispatch.Respond resp _) @(Response.body resp)
+        (WebDispatch.Invalid) @"invalid"
+        (WebDispatch.Upgrade _ _ _ _) @"upgrade"
+        (WebDispatch.UpgradeRequired) @"upgrade required"
+        (WebDispatch.SSEOpen _ _ _) @"stream")
+      (String.from-bytes &buf))))
+
 (deftest test
   ; -- Response.text --
   (assert-equal test
@@ -2491,6 +2515,84 @@
         48))
     "an in-range stale chunk cursor reports that truncated body as malformed")
 
+  ; -- request-length: where a pipelined next request begins --
+  (assert-equal test
+    (String.length "GET /a HTTP/1.1\r\nHost: x\r\n\r\n")
+    (web-request-length
+      &(String.to-bytes
+        "GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n")
+      0)
+    "a request with neither Content-Length nor Transfer-Encoding ends at its headers")
+
+  (assert-equal test
+    (String.length "POST /e HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello")
+    (web-request-length
+      &(String.to-bytes
+        "POST /e HTTP/1.1\r\nContent-Length: 5\r\n\r\nhelloGET /b HTTP/1.1\r\n\r\n")
+      0)
+    "a Content-Length request ends after its body")
+
+  (assert-equal test
+    (String.length
+      "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\nX-U: 2\r\n\r\n")
+    (web-request-length
+      &(String.to-bytes
+        "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\nX-U: 2\r\n\r\nGET /b HTTP/1.1\r\n\r\n")
+      0)
+    "a chunked request ends after its trailer section")
+
+  (assert-equal test
+    (String.length
+      "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\n")
+    (web-request-length
+      &(String.to-bytes
+        "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\n\r\nGET /b HTTP/1.1\r\n\r\n")
+      0)
+    "a chunked request without trailers ends after its last chunk")
+
+  (assert-equal test
+    (String.length
+      "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\n\r\n")
+    (let [buf (String.to-bytes
+            "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\n\r\nGET /b HTTP/1.1\r\n\r\n")]
+      (web-request-length &buf @(Pair.b &(web-request-status &buf 0))))
+    "the cursor of a finished chunk walk finds the same end")
+
+  (assert-equal test
+    (String.length "POST /e HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello")
+    (web-request-length
+      &(String.to-bytes "POST /e HTTP/1.1\r\nContent-Length: 5\r\n\r\nhello")
+      0)
+    "a lone request takes up the whole buffer")
+
+  (assert-equal test
+    0
+    (web-request-length
+      &(String.to-bytes "POST /e HTTP/1.1\r\nContent-Length: 5\r\n\r\nhel")
+      0)
+    "a request still short of its body has no length yet")
+
+  (assert-equal test
+    0
+    (web-request-length &(String.to-bytes "GET /a HTTP/1.1\r\nHost: x\r\n") 0)
+    "a request still short of its headers has no length yet")
+
+  (assert-equal test
+    0
+    (web-request-length
+      &(String.to-bytes
+        "POST /e HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\n")
+      0)
+    "a chunked request still short of its trailer section has no length yet")
+
+  (assert-equal test
+    0
+    (web-request-length
+      &(String.to-bytes
+        "POST /e HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\nGET /b HTTP/1.1\r\n\r\n")
+      0)
+    "a malformed request has no length")
+
   ; -- wants-continue?: the 100 Continue gate (RFC 7231 §5.1.1) --
   (assert-true test
     (web-wants-continue?
@@ -3014,6 +3116,40 @@
     0
     (dispatch-tag &(dispatch &(dual-app) "BREW / HTTP/1.1\r\nHost: x\r\n\r\n"))
     "a malformed request line is rejected before any probe")
+
+  ; -- dispatch-first!: one request at a time from a pipelined buffer --
+  (assert-equal test
+    &(Pair.init @"a:" @"GET /b HTTP/1.1\r\nHost: x\r\n\r\n")
+    &(dispatch-first
+      "GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n")
+    "a request without framing has an empty body and leaves the next request")
+
+  (assert-equal test
+    0
+    (do
+      (ignore
+        (dispatch-first
+          "GET /a HTTP/1.1\r\nHost: x\r\n\r\nGET /b HTTP/1.1\r\nHost: x\r\n\r\n"))
+      (Array.length &*web-raw-body*))
+    "the raw body of a request without framing holds none of the next request")
+
+  (assert-equal test
+    &(Pair.init @"hello" @"GET /a HTTP/1.1\r\nHost: x\r\n\r\n")
+    &(dispatch-first
+      "POST /e HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhelloGET /a HTTP/1.1\r\nHost: x\r\n\r\n")
+    "a Content-Length handler sees exactly its own body")
+
+  (assert-equal test
+    &(Pair.init @"hello" @"GET /a HTTP/1.1\r\nHost: x\r\n\r\n")
+    &(dispatch-first
+      "POST /e HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n0\r\nX-T: 1\r\n\r\nGET /a HTTP/1.1\r\nHost: x\r\n\r\n")
+    "a chunked request with trailers leaves exactly the next request")
+
+  (assert-equal test
+    &(Pair.init @"hello" @"")
+    &(dispatch-first
+      "POST /e HTTP/1.1\r\nHost: x\r\nContent-Length: 5\r\n\r\nhello")
+    "a lone request leaves nothing behind")
 
   ; -- binary multipart uploads survive the request buffer --
 

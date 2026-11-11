@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+- **Pipelined requests are answered.** When one read brought in more than one
+  request, only the first was answered, with the rest handed to its handler as
+  body, and the client waited for the idle timeout. Each request now gets its
+  own response, in order, on the same connection.
+
 ## [0.12.3]
 
 ### Changed

@@ -1595,6 +1595,29 @@ stream and any proxy in front of it from timing out.")
 (hidden web-request-complete?)
 (defn web-request-complete? [buf] @(Pair.a &(web-request-status buf 0)))
 
+; Bytes the first request in `buf` takes up once complete, else 0. A complete
+; chunked request's cursor is the negated offset of its final empty line.
+(hidden web-request-length)
+(defn web-request-length [buf cursor]
+  (let [st (web-request-status buf cursor)]
+    (if (/= @(Pair.a &st) 1)
+      0
+      (match (web-parse-framing buf)
+        (Maybe.Nothing) 0
+        (Maybe.Just f)
+          (if @(WebFraming.chunked &f)
+            (+ (- 0 @(Pair.b &st)) 2)
+            (match-ref (WebFraming.content-length &f)
+              (Maybe.Just cl) (+ @(WebFraming.body-start &f) @cl)
+              (Maybe.Nothing) @(WebFraming.body-start &f)))))))
+
+; Cuts `buf` down to its first `n` bytes and returns the bytes after them.
+(hidden web-split-tail!)
+(defn web-split-tail! [buf n]
+  (let-do [tail (Array.suffix buf n)]
+    (while (> (Array.length buf) n) (ignore (Array.pop-back! buf)))
+    tail))
+
 ; Whether the request asks for a 100 Continue: HTTP/1.1 plus Expect: 100-continue.
 (hidden web-wants-continue?)
 (defn web-wants-continue? [buf]
@@ -2324,6 +2347,16 @@ stream and any proxy in front of it from timing out.")
                                          buf))]
                       (WebDispatch.Respond @(Pair.a &pair) @(Pair.b &pair)))))))))
 
+; Dispatches the first request in `buf` alone, leaving only what followed it.
+(hidden web-dispatch-first!)
+(defn web-dispatch-first! [app before-hooks after-hooks buf cursor]
+  (let-do [tail (web-split-tail! buf (web-request-length buf cursor))
+           d (web-dispatch-request app before-hooks after-hooks buf)]
+    (TcpStream.clear-buf buf)
+    (for [i 0 (Array.length &tail)]
+      (Array.push-back! buf @(Array.unsafe-nth &tail i)))
+    d))
+
 ; Check if a response has an X-Sendfile header and extract the path.
 (defn web-sendfile-path [resp]
   (match (Map.get-maybe (Response.headers resp) "X-Sendfile")
@@ -2542,10 +2575,6 @@ fallback.")
       (Map.remove! (ConnState.keep-alives cs) &fd)
       (if ka
         (do
-          (unless (Map.contains? (ConnState.ws-route-idx cs) &fd)
-            (Map.update-value! (ConnState.read-bufs cs)
-                               &fd
-                               &(fn [b] (TcpStream.clear-buf b))))
           (Map.put! (ConnState.read-start cs) &fd &0)
           (Map.put! (ConnState.chunk-cursor cs) &fd &0)
           (ignore (Poll.modify poll fd poll-read)))
@@ -3122,6 +3151,146 @@ fallback.")
                           (when should-close (queue-close cs fd)))))
                     (when should-close (queue-close cs fd))))))))))
 
+  ; Whether `fd` is HTTP, has no response in flight and holds request bytes.
+  (hidden buffered-request?)
+  (defn buffered-request? [cs fd]
+    (cond
+      (Map.contains? (ConnState.write-bufs cs) &fd) false
+      (Map.contains? (ConnState.ws-route-idx cs) &fd) false
+      (Map.contains? (ConnState.sse-route-idx cs) &fd) false
+      (Array.contains? (ConnState.to-close cs) &fd) false
+      (Map.value-ref! (ConnState.read-bufs cs)
+                      &fd
+                      &(fn [b] (not (Array.empty? b)))
+                      false)))
+
+  ; Answers `fd`'s buffered request once complete; true if another one waits.
+  (hidden handle-request)
+  (defn handle-request [cs app before-hooks after-hooks poll fd]
+    (match (Map.get-maybe (ConnState.streams cs) &fd)
+      (Maybe.Nothing) false
+      (Maybe.Just stream2)
+        (do
+          (when (= (Map.get (ConnState.read-start cs) &fd) 0)
+            (Map.put! (ConnState.read-start cs) &fd &(System.time)))
+          (let-do [cursor (Map.get (ConnState.chunk-cursor cs) &fd)
+                   st (Map.value-ref! (ConnState.read-bufs cs)
+                                      &fd
+                                      &(fn [buf]
+                                        (web-request-status buf cursor))
+                                      (Pair.init 0 0))
+                   status @(Pair.a &st)]
+            (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
+            ; headers complete: negate read-start (see http-timeout-close?)
+            (let [rs (Map.get (ConnState.read-start cs) &fd)]
+              (when-do (and (> rs 0)
+                            (Map.value-ref! (ConnState.read-bufs cs)
+                                            &fd
+                                            &(fn [buf]
+                                              (web-has-header-end buf))
+                                            false))
+                (Map.put! (ConnState.read-start cs) &fd &(- 0 rs))
+                ; 100 Continue goes out directly — the write path
+                ; would reset the partly read request
+                (when (and (= status 0)
+                           (Map.value-ref! (ConnState.read-bufs cs)
+                                           &fd
+                                           &(fn [buf]
+                                             (web-wants-continue? buf))
+                                           false))
+                  (let [cbuf (String.to-bytes "HTTP/1.1 100 Continue\r\n\r\n")
+                        n (match (TcpStream.send-nb &stream2 &cbuf 0)
+                          (Result.Success k) k
+                          (Result.Error _) -1)]
+                    (cond
+                      (< n 0) (queue-close cs fd)
+                      (and (> n 0) (< n (Array.length &cbuf)))
+                        (queue-close cs fd)
+                      ())))))
+            (when-do (/= status 0)
+              (Map.put! (ConnState.read-start cs) &fd &0)
+              (let [next-cursor @(Pair.b &st)
+                    decision (if (< status 0)
+                      (WebDispatch.Invalid)
+                      (Map.value-ref! (ConnState.read-bufs cs)
+                                      &fd
+                                      &(fn [buf]
+                                        (web-dispatch-first! app
+                                                             before-hooks
+                                                             after-hooks
+                                                             buf
+                                                             next-cursor))
+                                      (WebDispatch.Invalid)))]
+                (match decision
+                  ; Malformed request — send 400 and close
+                  (WebDispatch.Invalid)
+                    (send-final cs
+                                poll
+                                fd
+                                &stream2
+                                (web-serialize-response (Response.bad-request)
+                                                        false
+                                                        -1l))
+                  ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
+                  (WebDispatch.UpgradeRequired)
+                    (send-final cs
+                                poll
+                                fd
+                                &stream2
+                                (String.to-bytes "HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
+                  (WebDispatch.Upgrade accept ri proto ps)
+                    (handle-ws-upgrade cs
+                                       (App.ws-routes app)
+                                       poll
+                                       fd
+                                       stream2
+                                       &accept
+                                       ri
+                                       &proto
+                                       &ps)
+                  (WebDispatch.SSEOpen ri last-id ps)
+                    (handle-sse-open cs
+                                     (App.sse-routes app)
+                                     poll
+                                     fd
+                                     stream2
+                                     ri
+                                     &last-id
+                                     &ps)
+                  (WebDispatch.Respond resp ka)
+                    (let-do [wbuf (setup-sendfile cs fd resp ka)]
+                      (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
+                      (Map.put! (ConnState.write-positions cs) &fd &0)
+                      (Map.put! (ConnState.keep-alives cs) &fd &ka)
+                      (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
+                                               &fd
+                                               &(fn [b]
+                                                 (match (TcpStream.send-nb &stream2
+                                                                           b
+                                                                           0)
+                                                   (Result.Success k) k
+                                                   (Result.Error _) -1))
+                                               -1)
+                            buf-len (Array.length &wbuf)]
+                        (cond
+                          (< n0 0) (queue-close cs fd)
+                          (or (< n0 buf-len)
+                              (Map.contains? (ConnState.sf-fds cs) &fd))
+                            (do
+                              (Map.put! (ConnState.write-positions cs)
+                                        &fd
+                                        &n0)
+                              (ignore (Poll.modify poll fd poll-write)))
+                          (conn-done-writing cs poll fd)))))))
+            (and (/= status 0) (buffered-request? cs fd))))))
+
+  ; Answers the requests waiting in `fd`'s read buffer, one after another.
+  (hidden serve-buffered)
+  (defn serve-buffered [cs app before-hooks after-hooks poll fd]
+    (let-do [more true]
+      (while more
+        (set! more (handle-request cs app before-hooks after-hooks poll fd)))))
+
   (hidden handle-readable)
   (defn handle-readable [cs app before-hooks after-hooks poll fd]
     ; Active WebSocket and Server-Sent Events connections bypass HTTP parsing
@@ -3133,8 +3302,7 @@ fallback.")
       (match (Map.get-maybe (ConnState.streams cs) &fd)
         (Maybe.Nothing) ()
         (Maybe.Just stream)
-          (let [stream2 @&stream
-                n (Map.value-ref! (ConnState.read-bufs cs)
+          (let [n (Map.value-ref! (ConnState.read-bufs cs)
                                   &fd
                                   &(fn [buf]
                                     (match (TcpStream.read-append-nb &stream buf)
@@ -3146,8 +3314,6 @@ fallback.")
               (<= n 0) (queue-close cs fd)
               (do
                 (Map.put! (ConnState.last-active cs) &fd &(System.time))
-                (when (= (Map.get (ConnState.read-start cs) &fd) 0)
-                  (Map.put! (ConnState.read-start cs) &fd &(System.time)))
                 (let [too-big (Map.value-ref! (ConnState.read-bufs cs)
                                               &fd
                                               &(fn [buf]
@@ -3156,113 +3322,7 @@ fallback.")
                                               false)]
                   (if too-big
                     (queue-close cs fd)
-                    (let-do [cursor (Map.get (ConnState.chunk-cursor cs) &fd)
-                             st (Map.value-ref! (ConnState.read-bufs cs)
-                                                &fd
-                                                &(fn [buf]
-                                                  (web-request-status buf cursor))
-                                                (Pair.init 0 0))
-                             status @(Pair.a &st)]
-                      (Map.put! (ConnState.chunk-cursor cs) &fd (Pair.b &st))
-                      ; headers complete: negate read-start (see http-timeout-close?)
-                      (let [rs (Map.get (ConnState.read-start cs) &fd)]
-                        (when-do (and (> rs 0)
-                                      (Map.value-ref! (ConnState.read-bufs cs)
-                                                      &fd
-                                                      &(fn [buf]
-                                                        (web-has-header-end buf))
-                                                      false))
-                          (Map.put! (ConnState.read-start cs) &fd &(- 0 rs))
-                          ; 100 Continue goes out directly — the write path
-                          ; would clear the partly read request
-                          (when (and (= status 0)
-                                     (Map.value-ref! (ConnState.read-bufs cs)
-                                                     &fd
-                                                     &(fn [buf]
-                                                       (web-wants-continue? buf))
-                                                     false))
-                            (let [cbuf (String.to-bytes "HTTP/1.1 100 Continue\r\n\r\n")
-                                  n (match (TcpStream.send-nb &stream2 &cbuf 0)
-                                    (Result.Success k) k
-                                    (Result.Error _) -1)]
-                              (cond
-                                (< n 0) (queue-close cs fd)
-                                (and (> n 0) (< n (Array.length &cbuf)))
-                                  (queue-close cs fd)
-                                ())))))
-                      (when-do (/= status 0)
-                        (Map.put! (ConnState.read-start cs) &fd &0)
-                        (let [decision (if (< status 0)
-                                (WebDispatch.Invalid)
-                                (Map.value-ref! (ConnState.read-bufs cs)
-                                                &fd
-                                                &(fn [buf]
-                                                  (web-dispatch-request app
-                                                                        before-hooks
-                                                                        after-hooks
-                                                                        buf))
-                                                (WebDispatch.Invalid)))]
-                          (match decision
-                            ; Malformed request — send 400 and close
-                            (WebDispatch.Invalid)
-                              (send-final cs
-                                          poll
-                                          fd
-                                          &stream2
-                                          (web-serialize-response (Response.bad-request)
-                                                                  false
-                                                                  -1l))
-                            ; RFC 6455 §4.2.1: bad Sec-WebSocket-Version → 426
-                            (WebDispatch.UpgradeRequired)
-                              (send-final cs
-                                          poll
-                                          fd
-                                          &stream2
-                                          (String.to-bytes "HTTP/1.1 426 Upgrade Required\r\nSec-WebSocket-Version: 13\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"))
-                            (WebDispatch.Upgrade accept ri proto ps)
-                              (handle-ws-upgrade cs
-                                                 (App.ws-routes app)
-                                                 poll
-                                                 fd
-                                                 stream2
-                                                 &accept
-                                                 ri
-                                                 &proto
-                                                 &ps)
-                            (WebDispatch.SSEOpen ri last-id ps)
-                              (handle-sse-open cs
-                                               (App.sse-routes app)
-                                               poll
-                                               fd
-                                               stream2
-                                               ri
-                                               &last-id
-                                               &ps)
-                            (WebDispatch.Respond resp ka)
-                              (let-do [wbuf (setup-sendfile cs fd resp ka)]
-                                (Map.put! (ConnState.write-bufs cs) &fd &wbuf)
-                                (Map.put! (ConnState.write-positions cs) &fd &0)
-                                (Map.put! (ConnState.keep-alives cs) &fd &ka)
-                                (let [n0 (Map.value-ref! (ConnState.write-bufs cs)
-                                                         &fd
-                                                         &(fn [b]
-                                                           (match (TcpStream.send-nb &stream2
-                                                                                     b
-                                                                                     0)
-                                                             (Result.Success k) k
-                                                             (Result.Error _) -1))
-                                                         -1)
-                                      buf-len (Array.length &wbuf)]
-                                  (cond
-                                    (< n0 0) (queue-close cs fd)
-                                    (or (< n0 buf-len)
-                                        (Map.contains? (ConnState.sf-fds cs) &fd))
-                                      (do
-                                        (Map.put! (ConnState.write-positions cs)
-                                                  &fd
-                                                  &n0)
-                                        (ignore (Poll.modify poll fd poll-write)))
-                                    (conn-done-writing cs poll fd))))))))))))))))
+                    (serve-buffered cs app before-hooks after-hooks poll fd)))))))))
 
   (doc ws-ping-action "Decides what to do for a WebSocket connection's ping
     state. Returns 0 (nothing), 1 (send ping), or 2 (close as dead).
@@ -3519,7 +3579,15 @@ For multi-core scaling, see [`serve-with-workers`](#serve-with-workers).")
                           (cond
                             (= fd lfd) (handle-accept &cs &poll &listener)
                             (PollEvent.writable e)
-                              (handle-writable &cs &poll fd)
+                              (do
+                                (handle-writable &cs &poll fd)
+                                (when (buffered-request? &cs fd)
+                                  (serve-buffered &cs
+                                                  app
+                                                  before-hooks
+                                                  after-hooks
+                                                  &poll
+                                                  fd)))
                             (PollEvent.readable e)
                               (handle-readable &cs
                                                app
